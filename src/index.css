@@ -1,0 +1,136 @@
+@import url('https://fonts.googleapis.com/css2?family=Urbanist:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Syne:wght@400..800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Urbanist", sans-serif;
+  --font-display: "Syne", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* GenZ Luxe Palette - Enhanced Contrast */
+  --color-toxic-lime: #CCFF00;
+  --color-electric-violet: #8B5CF6;
+  --color-deep-space: #050505;
+  --color-soft-zinc: #121214;
+  --color-pure-white: #FFFFFF;
+
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-pulse-slow: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+
+  /* Named Utilities for Tailwind v4 */
+  --ease-genz: cubic-bezier(0.23, 1, 0.32, 1);
+  --shadow-genz: 0 20px 40px -10px rgba(0, 0, 0, 0.7);
+  --shadow-glow: 0 0 30px -5px rgba(204, 255, 0, 0.4);
+  --shadow-btn: 0 0 20px rgba(204, 255, 0, 0.5);
+  --shadow-island: 0 8px 32px rgba(0, 0, 0, 0.8);
+}
+
+@layer base {
+  :root {
+    --brand-primary: var(--color-toxic-lime);
+    --bg-primary: var(--color-deep-space);
+  }
+
+  body {
+    @apply bg-black text-white antialiased selection:bg-toxic-lime selection:text-black;
+    font-family: var(--font-sans);
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.03em;
+    @apply text-white;
+    /* Force high contrast */
+  }
+}
+
+@layer components {
+
+  /* Compact GenZ Bento Card */
+  .genz-card {
+    @apply relative overflow-hidden rounded-[1.2rem] md:rounded-[2rem] bg-soft-zinc/80 border border-white/10 backdrop-blur-2xl transition-all duration-500 ease-genz;
+  }
+
+  .genz-card:hover {
+    @apply border-white/20 bg-soft-zinc md:-translate-y-1;
+    box-shadow: var(--shadow-genz);
+  }
+
+  /* Kinetic Button */
+  .genz-btn {
+    @apply relative flex items-center justify-center gap-2 px-5 md:px-6 py-3.5 md:py-4 rounded-full font-black text-[10px] md:text-xs uppercase tracking-[0.15em] transition-all duration-500 overflow-hidden active:scale-95 text-white;
+  }
+
+  .genz-btn-primary {
+    @apply bg-toxic-lime text-black md:hover:scale-105;
+
+    &:hover {
+      box-shadow: var(--shadow-btn);
+    }
+  }
+
+  .genz-btn-ghost {
+    @apply border border-white/20 text-white md:hover:bg-white md:hover:text-black;
+  }
+
+  /* Dynamic Island Nav */
+  .genz-island {
+    @apply fixed bottom-5 md:bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex items-center p-1.5 rounded-full bg-black/60 backdrop-blur-3xl border border-white/10;
+    box-shadow: var(--shadow-island);
+  }
+
+  .shadow-toxic {
+    box-shadow: 0 0 15px rgba(204, 255, 0, 0.4);
+  }
+
+  /* Text Gradients */
+  .text-kinetic {
+    @apply bg-gradient-to-r from-white via-white/80 to-white bg-[length:200%_auto] animate-pulse-slow bg-clip-text text-transparent;
+  }
+}
+
+/* Custom Keyframes */
+@keyframes float {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-15px);
+  }
+}
+
+/* Hide scrollbars */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Smooth Scrolling context */
+html.lenis {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto;
+}
+
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+.lenis.lenis-scrolling iframe {
+  pointer-events: none;
+}
