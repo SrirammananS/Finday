@@ -24,7 +24,7 @@ const Insights = () => {
     const [categoryFilter, setCategoryFilter] = useState(null);
     const [timeFilter, setTimeFilter] = useState('month');
 
-    if (isLoading) return <div className="p-10 text-center uppercase tracking-[0.3em] opacity-20 text-[9px]">Analyzing...</div>;
+    if (isLoading) return <div className="p-10 text-center uppercase tracking-[0.3em] opacity-50 text-[10px] text-text-muted">Analyzing...</div>;
 
     const now = new Date();
     let filtered = transactions.filter(t => {
@@ -69,8 +69,8 @@ const Insights = () => {
             className="px-4 py-8 md:px-6 md:py-16 max-w-4xl mx-auto min-h-screen pb-40"
         >
             <header className="mb-8 md:mb-12">
-                <h2 className="text-[9px] font-black uppercase tracking-[0.5em] text-white/50 mb-1">Analysis_Matrix</h2>
-                <h1 className="text-4xl md:text-6xl font-black tracking-tighter leading-none text-white">Insights<span className="text-toxic-lime">.</span></h1>
+                <h2 className="text-[10px] font-bold uppercase tracking-[0.5em] text-text-muted mb-1">Analytics</h2>
+                <h1 className="text-4xl md:text-6xl font-black tracking-tighter leading-none text-text-main">Insights<span className="text-primary">.</span></h1>
             </header>
 
             {/* Compact Time Filters */}
@@ -79,10 +79,10 @@ const Insights = () => {
                     <button
                         key={f.value}
                         onClick={() => { setTimeFilter(f.value); setCategoryFilter(null); }}
-                        className={`px-5 py-2.5 rounded-full text-[9px] font-black uppercase tracking-[0.1em] transition-all border shrink-0
+                        className={`px-5 py-2.5 rounded-full text-[10px] font-bold uppercase tracking-[0.1em] transition-all border shrink-0
                         ${timeFilter === f.value
-                                ? 'bg-toxic-lime text-black border-toxic-lime'
-                                : 'bg-soft-zinc text-white/60 border-white/10 hover:border-white/20'}`}
+                                ? 'bg-primary text-primary-foreground border-primary'
+                                : 'bg-canvas-subtle text-text-muted border-card-border hover:border-text-muted/30'}`}
                     >
                         {f.label}
                     </button>
@@ -91,18 +91,18 @@ const Insights = () => {
 
             {/* Inflow vs Outflow Bento */}
             <div className="grid grid-cols-2 gap-3 md:gap-4 mb-10">
-                <div className="genz-card p-5 md:p-7 flex flex-col justify-between group">
-                    <p className="text-[8px] font-black uppercase tracking-widest text-white/40">Flux.IN</p>
+                <div className="modern-card p-5 md:p-7 flex flex-col justify-between group">
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-text-muted">Flux.IN</p>
                     <div className="mt-4">
-                        <h3 className="text-xl md:text-3xl font-black text-toxic-lime group-hover:scale-105 transition-transform origin-left">{formatCurrency(totalIncome)}</h3>
-                        <p className="text-[8px] font-black uppercase tracking-widest text-white/20 mt-1">{income.length} Signals</p>
+                        <h3 className="text-xl md:text-3xl font-black text-emerald-500 group-hover:scale-105 transition-transform origin-left">{formatCurrency(totalIncome)}</h3>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-text-muted/50 mt-1">{income.length} Signals</p>
                     </div>
                 </div>
-                <div className="genz-card p-5 md:p-7 flex flex-col justify-between group">
-                    <p className="text-[8px] font-black uppercase tracking-widest text-white/40">Flux.OUT</p>
+                <div className="modern-card p-5 md:p-7 flex flex-col justify-between group">
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-text-muted">Flux.OUT</p>
                     <div className="mt-4">
-                        <h3 className="text-xl md:text-3xl font-black text-white group-hover:scale-105 transition-transform origin-left">{formatCurrency(totalExpenses)}</h3>
-                        <p className="text-[8px] font-black uppercase tracking-widest text-white/20 mt-1">{expenses.length} Signals</p>
+                        <h3 className="text-xl md:text-3xl font-black text-rose-500 group-hover:scale-105 transition-transform origin-left">{formatCurrency(totalExpenses)}</h3>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-text-muted/50 mt-1">{expenses.length} Signals</p>
                     </div>
                 </div>
             </div>
@@ -110,15 +110,15 @@ const Insights = () => {
             {/* Allocation Matrix */}
             <div className="mb-10">
                 <div className="flex justify-between items-end mb-4 ml-1">
-                    <h3 className="text-[9px] font-black uppercase tracking-[0.4em] text-white/40">Topology_Map</h3>
+                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-text-muted">By Category</h3>
                     {categoryFilter && (
-                        <button onClick={() => setCategoryFilter(null)} className="text-[9px] font-black text-toxic-lime uppercase tracking-widest">[RESET]</button>
+                        <button onClick={() => setCategoryFilter(null)} className="text-[9px] font-bold text-primary uppercase tracking-widest">[RESET]</button>
                     )}
                 </div>
 
-                <div className="genz-card overflow-hidden">
+                <div className="modern-card overflow-hidden">
                     {sortedCategories.length > 0 ? (
-                        <div className="divide-y divide-white/5">
+                        <div className="divide-y divide-card-border">
                             {sortedCategories.map((cat, idx) => (
                                 <motion.div
                                     key={cat.name}
@@ -126,38 +126,38 @@ const Insights = () => {
                                     whileInView={{ x: 0, opacity: 1 }}
                                     transition={{ delay: 0.03 * idx }}
                                     viewport={{ once: true }}
-                                    className={`flex items-center gap-4 p-5 md:p-6 transition-all cursor-pointer group hover:bg-white/5 
-                                    ${categoryFilter === cat.name ? 'bg-white/5' : ''}`}
+                                    className={`flex items-center gap-4 p-5 md:p-6 transition-all cursor-pointer group hover:bg-canvas-subtle 
+                                    ${categoryFilter === cat.name ? 'bg-primary/5' : ''}`}
                                     onClick={() => setCategoryFilter(cat.name === categoryFilter ? null : cat.name)}
                                 >
-                                    <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-black/40 border border-white/5 flex items-center justify-center text-xl md:text-2xl group-hover:bg-toxic-lime group-hover:text-black transition-all">
+                                    <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-canvas border border-card-border flex items-center justify-center text-xl md:text-2xl group-hover:border-primary transition-all">
                                         {cat.icon}
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex justify-between mb-2">
-                                            <p className="text-sm md:text-lg font-black text-white truncate mr-2">{cat.name}</p>
-                                            <p className="text-sm md:text-lg font-black tabular-nums">{formatCurrency(cat.amount)}</p>
+                                            <p className="text-sm md:text-lg font-bold text-text-main truncate mr-2">{cat.name}</p>
+                                            <p className="text-sm md:text-lg font-bold tabular-nums text-text-main">{formatCurrency(cat.amount)}</p>
                                         </div>
                                         <div className="flex items-center gap-3">
-                                            <div className="flex-1 h-1.5 bg-black/40 rounded-full overflow-hidden border border-white/5">
+                                            <div className="flex-1 h-1.5 bg-canvas-subtle rounded-full overflow-hidden border border-card-border">
                                                 <motion.div
                                                     initial={{ width: 0 }}
                                                     whileInView={{ width: `${cat.percent}%` }}
                                                     viewport={{ once: true }}
                                                     transition={{ duration: 1, ease: 'circOut' }}
-                                                    className="h-full bg-toxic-lime shadow-toxic"
+                                                    className="h-full bg-primary"
                                                 />
                                             </div>
-                                            <span className="text-[8px] font-black text-white/40 w-7 text-right">{cat.percent}%</span>
+                                            <span className="text-[9px] font-bold text-text-muted w-7 text-right">{cat.percent}%</span>
                                         </div>
                                     </div>
                                 </motion.div>
                             ))}
                         </div>
                     ) : (
-                        <div className="py-20 text-center opacity-10">
-                            <span className="text-4xl block mb-4">🕸️</span>
-                            <p className="text-[9px] font-black uppercase tracking-[0.4em]">Null_Void</p>
+                        <div className="py-20 text-center opacity-40">
+                            <span className="text-4xl block mb-4 text-text-muted">🕸️</span>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-text-muted">No data yet</p>
                         </div>
                     )}
                 </div>
@@ -172,7 +172,7 @@ const Insights = () => {
                         exit={{ opacity: 0, y: 15 }}
                         className="mb-10"
                     >
-                        <h3 className="text-[9px] font-black uppercase tracking-[0.4em] text-white/40 mb-4 ml-1">Segment_Trace_{categoryFilter}</h3>
+                        <h3 className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-4 ml-1">Transactions in {categoryFilter}</h3>
                         <div className="space-y-2">
                             {expenses.filter(e => e.category === categoryFilter).map((t, idx) => (
                                 <motion.div
@@ -180,13 +180,13 @@ const Insights = () => {
                                     initial={{ x: -10, opacity: 0 }}
                                     animate={{ x: 0, opacity: 1 }}
                                     transition={{ delay: 0.02 * idx }}
-                                    className="genz-card p-4 flex justify-between items-center"
+                                    className="modern-card p-4 flex justify-between items-center"
                                 >
                                     <div className="min-w-0">
-                                        <p className="text-sm font-black text-white truncate">{t.description}</p>
-                                        <p className="text-[8px] font-black text-white/30 uppercase mt-0.5">TR_ID: {String(t.id).slice(0, 6)}</p>
+                                        <p className="text-sm font-bold text-text-main truncate">{t.description}</p>
+                                        <p className="text-[9px] font-bold text-text-muted uppercase mt-0.5">TR_ID: {String(t.id).slice(0, 6)}</p>
                                     </div>
-                                    <p className="text-sm font-black text-rose-400">{formatCurrency(t.amount)}</p>
+                                    <p className="text-sm font-bold text-rose-500">{formatCurrency(t.amount)}</p>
                                 </motion.div>
                             ))}
                         </div>
@@ -194,20 +194,22 @@ const Insights = () => {
                 )}
             </AnimatePresence>
 
-            {/* Smart Status */}
-            <div className="genz-card p-7 md:p-8 bg-toxic-lime/5 border-toxic-lime/20 flex items-center justify-between group">
-                <div className="flex items-center gap-5">
-                    <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-toxic-lime flex items-center justify-center text-xl md:text-2xl text-black animate-pulse shadow-toxic">🎯</div>
+            {/* Savings Summary */}
+            <div className="modern-card p-6 md:p-8 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-2xl">
+                        {totalIncome >= totalExpenses ? '✨' : '⚡'}
+                    </div>
                     <div>
-                        <h4 className="text-[8px] font-black uppercase tracking-[0.2em] text-white/50 mb-0.5">Stability_Index</h4>
-                        <p className={`text-xl md:text-2xl font-black ${totalIncome >= totalExpenses ? 'text-toxic-lime' : 'text-rose-500'}`}>
-                            {totalIncome >= totalExpenses ? 'OPTIMAL' : 'DEFICIT'}
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-text-muted">Net Savings</p>
+                        <p className={`text-2xl font-black ${totalIncome >= totalExpenses ? 'text-primary' : 'text-rose-500'}`}>
+                            {totalIncome >= totalExpenses ? '+' : '-'}₹{Math.abs(totalIncome - totalExpenses).toLocaleString()}
                         </p>
                     </div>
                 </div>
             </div>
 
-            <p className="text-[8px] font-black uppercase tracking-[0.5em] text-white/5 text-center mt-16">Antigravity.Analysis.Core.v2.5</p>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-text-muted/30 text-center mt-12">Finday Analytics</p>
         </motion.div>
     );
 };

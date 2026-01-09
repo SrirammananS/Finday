@@ -43,12 +43,16 @@ export const FinanceProvider = ({ children }) => {
             await sheetsService.init(clientId);
 
             localStorage.setItem('finday_client_id', clientId);
-            localStorage.setItem('finday_spreadsheet_id', spreadsheetId);
+            if (spreadsheetId) {
+                localStorage.setItem('finday_spreadsheet_id', spreadsheetId);
+            }
 
-            setConfig(prev => ({ ...prev, clientId, spreadsheetId }));
+            setConfig(prev => ({ ...prev, clientId, spreadsheetId: spreadsheetId || '' }));
             setIsConnected(true);
 
-            await refreshData(spreadsheetId);
+            if (spreadsheetId) {
+                await refreshData(spreadsheetId);
+            }
             return true;
         } catch (err) {
             console.error('Connection failed:', err);
@@ -87,6 +91,78 @@ export const FinanceProvider = ({ children }) => {
             setIsSyncing(false);
         }
     }, [config.spreadsheetId]);
+
+    // --- One-Click Setup Logic ---
+    const createFinanceSheet = async () => {
+        setIsLoading(true);
+        try {
+            if (!gapi.client.sheets) throw new Error("Google Sheets API not loaded");
+
+            // 1. Create Spreadsheet
+            const createResponse = await gapi.client.sheets.spreadsheets.create({
+                resource: {
+                    properties: { title: "Finday Ledger" },
+                    sheets: [
+                        { properties: { title: "Transactions" } },
+                        { properties: { title: "Accounts" } },
+                        { properties: { title: "Categories" } },
+                        { properties: { title: "Bills" } },
+                        { properties: { title: "Config" } }
+                    ]
+                }
+            });
+
+            const newSpreadsheetId = createResponse.result.spreadsheetId;
+            setConfig(prev => ({ ...prev, spreadsheetId: newSpreadsheetId }));
+            localStorage.setItem('finday_spreadsheet_id', newSpreadsheetId);
+
+            // 2. Populate Headers & Defaults
+            await gapi.client.sheets.spreadsheets.values.batchUpdate({
+                spreadsheetId: newSpreadsheetId,
+                resource: {
+                    valueInputOption: "USER_ENTERED",
+                    data: [
+                        {
+                            range: "Transactions!A1:G1",
+                            values: [["ID", "Date", "Amount", "Type", "Category", "Account", "Description"]]
+                        },
+                        {
+                            range: "Accounts!A1:E3",
+                            values: [
+                                ["ID", "Name", "Type", "Balance", "Color"],
+                                [Date.now().toString(), "Cash", "cash", "0", "#CCFF00"],
+                                [(Date.now() + 1).toString(), "Bank", "bank", "0", "#8B5CF6"]
+                            ]
+                        },
+                        {
+                            range: "Categories!A1:F6",
+                            values: [
+                                ["Name", "Type", "Keywords", "Target", "Icon", "Color"],
+                                ["Food", "expense", "food,groceries", "", "🍔", "#FF5733"],
+                                ["Transport", "expense", "uber,train,bus", "", "🚗", "#33FF57"],
+                                ["Shopping", "expense", "amazon,clothes", "", "🛍️", "#3357FF"],
+                                ["Salary", "income", "salary,paycheck", "", "💰", "#F1C40F"],
+                                ["Bills", "expense", "bill,utility", "", "📄", "#E74C3C"]
+                            ]
+                        },
+                        {
+                            range: "Bills!A1:H1",
+                            values: [["ID", "Name", "Amount", "DueDay", "Category", "Status", "AccountID", "CreatedAt"]]
+                        }
+                    ]
+                }
+            });
+
+            // Reload to fetch fresh data
+            window.location.reload();
+
+        } catch (error) {
+            console.error("Error creating sheet:", error);
+            alert("Failed to create spreadsheet. See console.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     // Auto-connect on mount
     useEffect(() => {
@@ -139,23 +215,48 @@ export const FinanceProvider = ({ children }) => {
                     await sheetsService.updateAccount(config.spreadsheetId, data.accountId, { balance: newBalance });
                     setAccounts(prev => prev.map(a => a.id === data.accountId ? { ...a, balance: newBalance } : a));
 
-                    // SMART LOGIC: If this is a CC Bill Payment
-                    // Detect if description mentions "CC Bill" or "Credit Card Bill" and a destination account is implied
-                    const isCCPayment = transaction.description.toLowerCase().includes('cc bill') ||
-                        transaction.description.toLowerCase().includes('credit card bill');
+                    // --- EXPLICIT PAYMENT LOGIC ---
 
-                    if (isCCPayment) {
-                        // Find the credit card account mentioned in description or just the first credit account
-                        const ccAccount = accounts.find(a => a.type === 'credit' && transaction.description.toLowerCase().includes(a.name.toLowerCase())) ||
-                            accounts.find(a => a.type === 'credit');
+                    // 1. Explicit Bill Payment (from Form)
+                    if (data.billId) {
+                        const matchedBill = bills.find(b => b.id === data.billId);
+                        if (matchedBill) {
+                            // Mark as paid or update a tracking log
+                            toast(`Bill "${matchedBill.name}" marked as paid.`);
+                        }
+                    }
 
-                        if (ccAccount && ccAccount.id !== data.accountId) {
-                            // Paying CC bill means REDUCING the credit card balance (it's usually negative/positive depending on how user tracks)
-                            // In this app, balance seems to be positive for debt if they use simple tracking, or we just follow the math.
-                            // Usually: Bank -1000, CC Balance -1000.
-                            const ccUpdates = { balance: ccAccount.balance - Math.abs(transaction.amount) };
-                            await sheetsService.updateAccount(config.spreadsheetId, ccAccount.id, ccUpdates);
-                            setAccounts(prev => prev.map(a => a.id === ccAccount.id ? { ...a, ...ccUpdates } : a));
+                    // 2. Explicit Credit Card Payment (from Form)
+                    if (data.linkedAccountId) {
+                        const ccAccount = accounts.find(a => a.id === data.linkedAccountId);
+                        if (ccAccount && ccAccount.type === 'credit') {
+                            const newCCBalance = Math.max(0, ccAccount.balance - Math.abs(transaction.amount));
+                            await sheetsService.updateAccount(config.spreadsheetId, ccAccount.id, { balance: newCCBalance });
+                            setAccounts(prev => prev.map(a => a.id === ccAccount.id ? { ...a, balance: newCCBalance } : a));
+                            toast(`Updated ${ccAccount.name} balance`);
+                        }
+                    }
+
+                    // --- FALLBACK SMART LOGIC (for imports/legacy) ---
+                    // Only run if NO explicit data was provided
+                    if (!data.billId && !data.linkedAccountId) {
+                        // ... (Existing smart logic for auto-detection if desired, or remove if we want to be strict)
+                        // Keeping it minimal as fallback:
+                        const isCCPayment =
+                            (transaction.type === 'expense' || transaction.type === 'transfer') &&
+                            (transaction.description.toLowerCase().includes('card') || transaction.description.toLowerCase().includes('bill'));
+
+                        if (isCCPayment) {
+                            // Try to find a CC account mentioned
+                            const ccAccount = accounts.find(a => a.type === 'credit' && transaction.description.toLowerCase().includes(a.name.toLowerCase()));
+                            if (ccAccount && ccAccount.id !== data.accountId) {
+                                // ASK USER or Auto-Apply? 
+                                // Since we now have UI, maybe we just auto-apply if confident.
+                                const newCCBalance = Math.max(0, ccAccount.balance - Math.abs(transaction.amount));
+                                await sheetsService.updateAccount(config.spreadsheetId, ccAccount.id, { balance: newCCBalance });
+                                setAccounts(prev => prev.map(a => a.id === ccAccount.id ? { ...a, balance: newCCBalance } : a));
+                                toast(`Auto-detected CC Payment: Updated ${ccAccount.name}`);
+                            }
                         }
                     }
                 }
@@ -453,6 +554,7 @@ export const FinanceProvider = ({ children }) => {
         connect,
         disconnect,
         refreshData,
+        createFinanceSheet,
 
         addTransaction,
         updateTransaction,

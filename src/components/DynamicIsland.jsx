@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import TransactionForm from './TransactionForm';
+import { LayoutDashboard, Wallet, PieChart, Settings, Plus, FileText } from 'lucide-react';
 
 const links = [
-    { to: '/', emoji: '🏠', label: 'Space' },
-    { to: '/transactions', emoji: '📑', label: 'Ledger' },
-    { to: '/accounts', emoji: '🏦', label: 'Nodal' },
-    { to: '/insights', emoji: '📈', label: 'Analysis' },
-    { to: '/settings', emoji: '⚙️', label: 'Kernel' },
+    { to: '/', icon: <LayoutDashboard size={20} />, label: 'Home' },
+    { to: '/accounts', icon: <Wallet size={20} />, label: 'Accounts' },
+    { to: '/bills', icon: <FileText size={20} />, label: 'Subs' },
+    { to: '/insights', icon: <PieChart size={20} />, label: 'Insights' },
+    { to: '/settings', icon: <Settings size={20} />, label: 'Settings' },
 ];
 
 const DynamicIsland = () => {
@@ -16,25 +17,26 @@ const DynamicIsland = () => {
 
     return (
         <>
-            <div className="genz-island group !gap-1 md:!gap-2">
+            <div className="modern-island group gap-1 md:gap-2">
                 {links.map(link => (
                     <NavLink
                         key={link.to}
                         to={link.to}
                         className={({ isActive }) =>
-                            `relative w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full transition-all duration-500 z-10 ${isActive
-                                ? 'text-black'
-                                : 'text-white/40 hover:bg-white/5 hover:text-white'
+                            `relative w-10 h-10 md:w-11 md:h-11 flex items-center justify-center rounded-full transition-all duration-300 z-10 ${isActive
+                                ? 'text-canvas'
+                                : 'text-text-muted hover:bg-text-main/5 hover:text-text-main'
                             }`
                         }
+                        title={link.label}
                     >
                         {({ isActive }) => (
                             <>
-                                <span className="text-lg md:text-xl relative z-10">{link.emoji}</span>
+                                <span className="relative z-10">{link.icon}</span>
                                 {isActive && (
                                     <motion.div
                                         layoutId="island-active-bg"
-                                        className="absolute inset-0 bg-white rounded-full z-0"
+                                        className="absolute inset-0 bg-text-main rounded-full z-0"
                                         transition={{ type: 'spring', damping: 25, stiffness: 400 }}
                                     />
                                 )}
@@ -43,13 +45,13 @@ const DynamicIsland = () => {
                     </NavLink>
                 ))}
 
-                <div className="w-[1px] h-4 md:h-6 bg-white/10 mx-1 md:mx-2" />
+                <div className="w-[1px] h-4 md:h-5 bg-card-border mx-1" />
 
                 <button
                     onClick={() => setShowForm(true)}
-                    className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center bg-toxic-lime text-black rounded-full text-lg md:text-xl hover:scale-110 active:scale-95 transition-all shadow-toxic"
+                    className="w-10 h-10 md:w-11 md:h-11 flex items-center justify-center bg-primary text-primary-foreground rounded-full hover:scale-110 active:scale-95 transition-all shadow-lg shadow-primary/25"
                 >
-                    ＋
+                    <Plus size={22} />
                 </button>
             </div>
 

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle, AlertCircle, Info, X } from 'lucide-react';
+import { CheckCircle, AlertCircle, X } from 'lucide-react';
 
 const FeedbackContext = createContext();
 
@@ -28,7 +28,7 @@ export const FeedbackProvider = ({ children }) => {
             {children}
 
             {/* Toast Container */}
-            <div className="fixed top-6 left-1/2 -translate-x-1/2 w-full max-w-[400px] z-[4000] flex flex-col gap-2 px-6">
+            <div className="fixed top-6 left-1/2 -translate-x-1/2 w-full max-w-[400px] z-[10001] flex flex-col gap-2 px-4">
                 <AnimatePresence>
                     {toasts.map(t => (
                         <motion.div
@@ -36,15 +36,17 @@ export const FeedbackProvider = ({ children }) => {
                             initial={{ y: -50, opacity: 0, scale: 0.9 }}
                             animate={{ y: 0, opacity: 1, scale: 1 }}
                             exit={{ scale: 0.9, opacity: 0 }}
-                            className={`flex items-center gap-3 p-4 rounded-2xl shadow-huge border bg-white ${t.type === 'error' ? 'border-rose-100' : 'border-emerald-100'
+                            className={`flex items-center gap-3 p-4 rounded-2xl shadow-2xl border backdrop-blur-xl ${t.type === 'error'
+                                    ? 'bg-red-500/90 border-red-400 text-white'
+                                    : 'bg-card border-primary/30 text-text-main'
                                 }`}
                         >
-                            <div className={t.type === 'error' ? 'text-rose' : 'text-emerald'}>
-                                {t.type === 'error' ? <AlertCircle size={20} strokeWidth={3} /> : <CheckCircle size={20} strokeWidth={3} />}
+                            <div className={t.type === 'error' ? 'text-white' : 'text-primary'}>
+                                {t.type === 'error' ? <AlertCircle size={20} strokeWidth={2.5} /> : <CheckCircle size={20} strokeWidth={2.5} />}
                             </div>
-                            <p className="flex-1 text-xs font-black text-secondary uppercase tracking-widest">{t.message}</p>
-                            <button onClick={() => removeToast(t.id)} className="text-muted hover:text-secondary p-1">
-                                <X size={16} strokeWidth={3} />
+                            <p className="flex-1 text-xs font-bold uppercase tracking-wider">{t.message}</p>
+                            <button onClick={() => removeToast(t.id)} className="opacity-60 hover:opacity-100 p-1 transition-opacity">
+                                <X size={16} strokeWidth={2.5} />
                             </button>
                         </motion.div>
                     ))}

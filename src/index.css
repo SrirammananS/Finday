@@ -6,32 +6,62 @@
   --font-display: "Syne", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 
-  /* GenZ Luxe Palette - Enhanced Contrast */
-  --color-toxic-lime: #CCFF00;
-  --color-electric-violet: #8B5CF6;
-  --color-deep-space: #050505;
-  --color-soft-zinc: #121214;
-  --color-pure-white: #FFFFFF;
+  /* Semantic Palette */
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-canvas: var(--canvas);
+  --color-canvas-subtle: var(--canvas-subtle);
+
+  --color-card: var(--card);
+  --color-card-border: var(--card-border);
+
+  --color-text-main: var(--text-main);
+  --color-text-muted: var(--text-muted);
+
+  --color-destructive: #ef4444;
 
   --animate-float: float 6s ease-in-out infinite;
   --animate-pulse-slow: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 
-  /* Named Utilities for Tailwind v4 */
-  --ease-genz: cubic-bezier(0.23, 1, 0.32, 1);
-  --shadow-genz: 0 20px 40px -10px rgba(0, 0, 0, 0.7);
-  --shadow-glow: 0 0 30px -5px rgba(204, 255, 0, 0.4);
-  --shadow-btn: 0 0 20px rgba(204, 255, 0, 0.5);
-  --shadow-island: 0 8px 32px rgba(0, 0, 0, 0.8);
+  --ease-spring: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 @layer base {
   :root {
-    --brand-primary: var(--color-toxic-lime);
-    --bg-primary: var(--color-deep-space);
+    /* Dark Mode (Default) */
+    --primary: #CCFF00;
+    /* Toxic Lime */
+    --primary-foreground: #000000;
+
+    --canvas: #050505;
+    --canvas-subtle: #121214;
+
+    --card: rgba(18, 18, 20, 0.8);
+    --card-border: rgba(255, 255, 255, 0.1);
+
+    --text-main: #FFFFFF;
+    --text-muted: rgba(255, 255, 255, 0.4);
+  }
+
+  :root.light {
+    /* Light Mode */
+    --primary: #8B5CF6;
+    /* Electric Violet for better visibility on light */
+    --primary-foreground: #FFFFFF;
+
+    --canvas: #F8F9FA;
+    --canvas-subtle: #FFFFFF;
+
+    --card: rgba(255, 255, 255, 0.9);
+    --card-border: rgba(0, 0, 0, 0.08);
+
+    --text-main: #1A1A1A;
+    --text-muted: rgba(0, 0, 0, 0.5);
   }
 
   body {
-    @apply bg-black text-white antialiased selection:bg-toxic-lime selection:text-black;
+    @apply bg-canvas text-text-main antialiased selection:bg-primary selection:text-primary-foreground transition-colors duration-300;
     font-family: var(--font-sans);
     overflow-x: hidden;
   }
@@ -41,53 +71,52 @@
   h3 {
     font-family: var(--font-display);
     letter-spacing: -0.03em;
-    @apply text-white;
-    /* Force high contrast */
+    @apply text-text-main;
   }
 }
 
 @layer components {
 
-  /* Compact GenZ Bento Card */
-  .genz-card {
-    @apply relative overflow-hidden rounded-[1.2rem] md:rounded-[2rem] bg-soft-zinc/80 border border-white/10 backdrop-blur-2xl transition-all duration-500 ease-genz;
+  /* Modern Card */
+  .modern-card {
+    @apply relative overflow-hidden rounded-[1.2rem] md:rounded-[2rem] bg-card border border-card-border backdrop-blur-2xl transition-all duration-500 ease-spring;
   }
 
-  .genz-card:hover {
-    @apply border-white/20 bg-soft-zinc md:-translate-y-1;
-    box-shadow: var(--shadow-genz);
+  .modern-card:hover {
+    @apply border-primary/20 bg-canvas-subtle md:-translate-y-1;
+    box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.1);
   }
 
-  /* Kinetic Button */
-  .genz-btn {
-    @apply relative flex items-center justify-center gap-2 px-5 md:px-6 py-3.5 md:py-4 rounded-full font-black text-[10px] md:text-xs uppercase tracking-[0.15em] transition-all duration-500 overflow-hidden active:scale-95 text-white;
+  :root:not(.light) .modern-card:hover {
+    box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.7);
   }
 
-  .genz-btn-primary {
-    @apply bg-toxic-lime text-black md:hover:scale-105;
-
-    &:hover {
-      box-shadow: var(--shadow-btn);
-    }
+  /* Modern Button */
+  .modern-btn {
+    @apply relative flex items-center justify-center gap-2 px-5 md:px-6 py-3.5 md:py-4 rounded-full font-bold text-[10px] md:text-xs uppercase tracking-[0.15em] transition-all duration-300 overflow-hidden active:scale-95 text-text-main;
   }
 
-  .genz-btn-ghost {
-    @apply border border-white/20 text-white md:hover:bg-white md:hover:text-black;
+  .modern-btn-primary {
+    @apply bg-primary text-primary-foreground md:hover:scale-105 shadow-lg shadow-primary/20;
+  }
+
+  .modern-btn-ghost {
+    @apply border border-card-border text-text-main md:hover:bg-text-main md:hover:text-canvas;
   }
 
   /* Dynamic Island Nav */
-  .genz-island {
-    @apply fixed bottom-5 md:bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex items-center p-1.5 rounded-full bg-black/60 backdrop-blur-3xl border border-white/10;
-    box-shadow: var(--shadow-island);
+  .modern-island {
+    @apply fixed bottom-5 md:bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex items-center p-1.5 rounded-full border border-white/10 shadow-huge backdrop-blur-3xl bg-black/40 supports-[backdrop-filter]:bg-black/20 transition-all duration-500;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
   }
 
-  .shadow-toxic {
-    box-shadow: 0 0 15px rgba(204, 255, 0, 0.4);
+  :root.light .modern-island {
+    @apply border-black/5 bg-white/90 shadow-xl;
   }
 
   /* Text Gradients */
-  .text-kinetic {
-    @apply bg-gradient-to-r from-white via-white/80 to-white bg-[length:200%_auto] animate-pulse-slow bg-clip-text text-transparent;
+  .text-gradient {
+    @apply bg-gradient-to-r from-text-main via-text-main/80 to-text-main bg-[length:200%_auto] animate-pulse-slow bg-clip-text text-transparent;
   }
 }
 
@@ -133,4 +162,60 @@ html.lenis {
 
 .lenis.lenis-scrolling iframe {
   pointer-events: none;
+}
+
+/* Custom Select Styling */
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  padding-right: 40px !important;
+}
+
+select option {
+  background-color: var(--canvas);
+  color: var(--text-main);
+  padding: 12px;
+}
+
+/* Loading Animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.loading-shimmer {
+  background: linear-gradient(90deg, transparent 0%, var(--card-border) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Fix input number spinners */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Fix date input styling */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.5);
+  cursor: pointer;
+}
+
+:root.light input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.3);
 }
