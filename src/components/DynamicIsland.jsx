@@ -15,6 +15,11 @@ const links = [
 const DynamicIsland = () => {
     const [showForm, setShowForm] = useState(false);
 
+    React.useEffect(() => {
+        if (showForm) document.body.classList.add('modal-open');
+        else document.body.classList.remove('modal-open');
+    }, [showForm]);
+
     return (
         <>
             <div className="modern-island group gap-1 md:gap-2">

@@ -106,12 +106,17 @@
 
   /* Dynamic Island Nav */
   .modern-island {
-    @apply fixed bottom-5 md:bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex items-center p-1.5 rounded-full border border-white/10 shadow-huge backdrop-blur-3xl bg-black/40 supports-[backdrop-filter]:bg-black/20 transition-all duration-500;
+    @apply fixed bottom-5 md:bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex items-center p-1.5 rounded-full border border-white/10 backdrop-blur-3xl bg-black/40 supports-[backdrop-filter]:bg-black/20 transition-all duration-500;
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
   }
 
   :root.light .modern-island {
     @apply border-black/5 bg-white/90 shadow-xl;
+  }
+
+  body.modal-open .modern-island {
+    transform: translate(-50%, 200%);
+    pointer-events: none;
   }
 
   /* Text Gradients */

@@ -2,11 +2,17 @@ import React from 'react';
 import { Outlet } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import DynamicIsland from './DynamicIsland';
+import SyncIndicator from './SyncIndicator';
 import { useTheme } from '../context/ThemeContext';
 
 const Layout = () => {
     return (
         <div className="bg-canvas min-h-screen text-text-main overflow-hidden selection:bg-primary selection:text-primary-foreground transition-colors duration-500">
+            {/* Sync Status - Top Right */}
+            <div className="fixed top-4 right-4 z-50">
+                <SyncIndicator />
+            </div>
+
             {/* Immersive Background Elements */}
             <div className="fixed top-0 left-0 w-full h-full pointer-events-none z-0">
                 <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 rounded-full blur-[120px] transition-colors duration-500" />

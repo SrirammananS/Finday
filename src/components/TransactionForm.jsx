@@ -5,7 +5,7 @@ import gsap from 'gsap';
 import { X, Calendar, Wallet, Mic } from 'lucide-react';
 
 const TransactionForm = ({ onClose, editTransaction }) => {
-    const { addTransaction, updateTransaction, accounts, categories, bills, isSyncing } = useFinance();
+    const { addTransaction, updateTransaction, accounts, categories, bills } = useFinance();
     const [form, setForm] = useState({
         date: new Date().toISOString().split('T')[0],
         description: '',
@@ -20,6 +20,7 @@ const TransactionForm = ({ onClose, editTransaction }) => {
     });
 
     const [isListening, setIsListening] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const amountRef = useRef(null);
 
     const handleVoiceInput = () => {
@@ -76,12 +77,17 @@ const TransactionForm = ({ onClose, editTransaction }) => {
         if (isNaN(amountNum)) return;
         const finalAmount = form.type === 'expense' ? -Math.abs(amountNum) : Math.abs(amountNum);
 
+        setIsSubmitting(true);
         gsap.to('.form-sheet', { scale: 0.95, opacity: 0, duration: 0.4, onComplete: onClose });
 
-        if (editTransaction) {
-            await updateTransaction({ ...form, id: editTransaction.id, amount: finalAmount });
-        } else {
-            await addTransaction({ ...form, amount: finalAmount });
+        try {
+            if (editTransaction) {
+                await updateTransaction({ ...form, id: editTransaction.id, amount: finalAmount });
+            } else {
+                await addTransaction({ ...form, amount: finalAmount });
+            }
+        } catch (err) {
+            console.error('Transaction save failed:', err);
         }
     };
 
@@ -156,7 +162,7 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                         </div>
 
                         {/* Bill Payment Checkbox - Only for expenses */}
-                        {form.type === 'expense' && (bills?.length > 0 || creditCards.length > 0) && (
+                        {form.type === 'expense' && (
                             <div className="mt-5">
                                 <label className="inline-flex items-center gap-3 cursor-pointer">
                                     <input
@@ -207,38 +213,50 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                                                 {form.paymentType === 'cc' ? (
                                                     <div className="text-left">
                                                         <label className="text-[10px] font-bold uppercase tracking-widest text-text-muted ml-1 mb-2 block">Select Credit Card</label>
-                                                        <select
-                                                            value={form.linkedAccountId}
-                                                            onChange={e => setForm(f => ({ ...f, linkedAccountId: e.target.value }))}
-                                                            className="w-full bg-canvas-subtle border border-card-border py-3 px-4 rounded-xl text-sm font-bold text-text-main outline-none focus:border-primary cursor-pointer"
-                                                        >
-                                                            <option value="">-- Choose Card --</option>
-                                                            {creditCards.map(a => (
-                                                                <option key={a.id} value={a.id}>{a.name}</option>
-                                                            ))}
-                                                        </select>
+                                                        {creditCards.length > 0 ? (
+                                                            <select
+                                                                value={form.linkedAccountId}
+                                                                onChange={e => setForm(f => ({ ...f, linkedAccountId: e.target.value }))}
+                                                                className="w-full bg-canvas-subtle border border-card-border py-3 px-4 rounded-xl text-sm font-bold text-text-main outline-none focus:border-primary cursor-pointer"
+                                                            >
+                                                                <option value="">-- Choose Card --</option>
+                                                                {creditCards.map(a => (
+                                                                    <option key={a.id} value={a.id}>{a.name}</option>
+                                                                ))}
+                                                            </select>
+                                                        ) : (
+                                                            <div className="p-3 text-xs text-text-muted bg-canvas rounded-xl border border-card-border/50">
+                                                                No credit cards found. Add one in Accounts.
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 ) : (
                                                     <div className="text-left">
                                                         <label className="text-[10px] font-bold uppercase tracking-widest text-text-muted ml-1 mb-2 block">Select Subscription</label>
-                                                        <select
-                                                            value={form.billId}
-                                                            onChange={e => {
-                                                                const bill = bills?.find(b => b.id === e.target.value);
-                                                                setForm(f => ({
-                                                                    ...f,
-                                                                    billId: e.target.value,
-                                                                    amount: bill ? bill.amount.toString() : f.amount,
-                                                                    description: bill ? `Paid ${bill.name}` : f.description
-                                                                }));
-                                                            }}
-                                                            className="w-full bg-canvas-subtle border border-card-border py-3 px-4 rounded-xl text-sm font-bold text-text-main outline-none focus:border-primary cursor-pointer"
-                                                        >
-                                                            <option value="">-- Choose Bill --</option>
-                                                            {bills?.map(b => (
-                                                                <option key={b.id} value={b.id}>{b.name} (₹{b.amount})</option>
-                                                            ))}
-                                                        </select>
+                                                        {bills?.length > 0 ? (
+                                                            <select
+                                                                value={form.billId}
+                                                                onChange={e => {
+                                                                    const bill = bills?.find(b => b.id === e.target.value);
+                                                                    setForm(f => ({
+                                                                        ...f,
+                                                                        billId: e.target.value,
+                                                                        amount: bill ? bill.amount.toString() : f.amount,
+                                                                        description: bill ? `Paid ${bill.name}` : f.description
+                                                                    }));
+                                                                }}
+                                                                className="w-full bg-canvas-subtle border border-card-border py-3 px-4 rounded-xl text-sm font-bold text-text-main outline-none focus:border-primary cursor-pointer"
+                                                            >
+                                                                <option value="">-- Choose Bill --</option>
+                                                                {bills?.map(b => (
+                                                                    <option key={b.id} value={b.id}>{b.name} (₹{b.amount})</option>
+                                                                ))}
+                                                            </select>
+                                                        ) : (
+                                                            <div className="p-3 text-xs text-text-muted bg-canvas rounded-xl border border-card-border/50">
+                                                                No bills found. Add one in Bills tab.
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
@@ -345,10 +363,10 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                     <button
                         onClick={handleSubmit}
                         type="button"
-                        disabled={isSyncing || !form.amount}
+                        disabled={isSubmitting || !form.amount}
                         className="modern-btn modern-btn-primary w-full py-4 text-base font-bold uppercase tracking-wider shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        {isSyncing ? 'Saving...' : (editTransaction ? 'Update' : 'Save Transaction')}
+                        {isSubmitting ? 'Saving...' : (editTransaction ? 'Update' : 'Save Transaction')}
                     </button>
                 </div>
             </motion.div>

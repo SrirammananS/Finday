@@ -2,21 +2,27 @@ import React, { useState } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import TransactionForm from '../components/TransactionForm';
-import { FileText, Plus, Bell, Trash2, CheckCircle2, X } from 'lucide-react';
-import { format, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, parseISO } from 'date-fns';
+import { FileText, Plus, Bell, Trash2, CheckCircle2, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isSameMonth } from 'date-fns';
 
 const Bills = () => {
     const { bills = [], addBill, deleteBill, isLoading } = useFinance();
     const [showModal, setShowModal] = useState(false);
     const [payBill, setPayBill] = useState(null);
-    const [viewMode, setViewMode] = useState('list'); // 'list' or 'calendar'
+    const [viewMode, setViewMode] = useState('list');
     const [form, setForm] = useState({ name: '', amount: '', dueDay: '1' });
+    const [selectedMonth, setSelectedMonth] = useState(new Date());
+
+    React.useEffect(() => {
+        if (showModal) document.body.classList.add('modal-open');
+        else document.body.classList.remove('modal-open');
+    }, [showModal]);
 
     if (isLoading) return <div className="p-10 text-center uppercase tracking-widest opacity-20 text-[10px] font-bold">Loading...</div>;
 
     const totalMonthly = bills.reduce((acc, bill) => acc + (parseFloat(bill.amount) || 0), 0);
     const today = new Date();
-    const currentMonthDays = eachDayOfInterval({ start: startOfMonth(today), end: endOfMonth(today) });
+    const calendarDays = eachDayOfInterval({ start: startOfMonth(selectedMonth), end: endOfMonth(selectedMonth) });
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -77,61 +83,123 @@ const Bills = () => {
                         <span className="font-bold text-text-muted group-hover:text-primary uppercase tracking-widest text-xs">Add New Subscription</span>
                     </button>
 
-                    {bills.map(bill => (
-                        <motion.div
-                            key={bill.id}
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            className="modern-card p-6 flex justify-between items-center group relative overflow-hidden"
-                        >
-                            {/* Hover Actions */}
-                            <div className="absolute right-0 top-0 bottom-0 w-24 bg-gradient-to-l from-canvas to-transparent opacity-0 group-hover:opacity-100 flex items-center justify-end pr-6 gap-2 transition-opacity">
-                                <button onClick={() => deleteBill(bill.id)} className="p-2 hover:bg-red-500 hover:text-white rounded-full transition-colors text-text-muted">
-                                    <Trash2 size={18} />
-                                </button>
-                            </div>
+                    {bills.map(bill => {
+                        const isPaid = bill.status === 'paid';
+                        return (
+                            <motion.div
+                                key={bill.id}
+                                initial={{ scale: 0.9, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                className={`modern-card p-6 flex justify-between items-center group relative overflow-hidden ${isPaid ? 'border-green-500/30 bg-green-500/5' : ''}`}
+                            >
+                                {/* Hover Actions */}
+                                <div className="absolute right-0 top-0 bottom-0 w-24 bg-gradient-to-l from-canvas to-transparent opacity-0 group-hover:opacity-100 flex items-center justify-end pr-6 gap-2 transition-opacity">
+                                    <button onClick={() => deleteBill(bill.id)} className="p-2 hover:bg-red-500 hover:text-white rounded-full transition-colors text-text-muted">
+                                        <Trash2 size={18} />
+                                    </button>
+                                </div>
 
-                            <div className="flex items-center gap-5">
-                                <div className="w-14 h-14 rounded-2xl bg-canvas-subtle flex items-center justify-center text-text-main font-bold text-xl shadow-inner">
-                                    {bill.dueDay}
+                                <div className="flex items-center gap-5">
+                                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-bold text-xl shadow-inner ${isPaid ? 'bg-green-500/20 text-green-500' : 'bg-canvas-subtle text-text-main'}`}>
+                                        {isPaid ? <CheckCircle2 size={24} /> : bill.dueDay}
+                                    </div>
+                                    <div>
+                                        <h3 className={`font-bold text-lg mb-1 ${isPaid ? 'text-green-600 line-through opacity-70' : 'text-text-main'}`}>{bill.name}</h3>
+                                        <p className={`text-xs font-bold uppercase tracking-wider ${isPaid ? 'text-green-500' : 'text-text-muted'}`}>
+                                            {isPaid ? 'Paid ✓' : `Due on ${bill.dueDay}th`}
+                                        </p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <h3 className="font-bold text-lg text-text-main mb-1">{bill.name}</h3>
-                                    <p className="text-xs font-bold text-text-muted uppercase tracking-wider">Due on {bill.dueDay}th</p>
+                                <div className="text-right">
+                                    <div className={`text-xl font-black ${isPaid ? 'text-green-500' : 'text-text-main'}`}>₹{parseFloat(bill.amount).toLocaleString()}</div>
+                                    <div className="text-[10px] font-bold text-text-muted uppercase tracking-wider">/ Month</div>
                                 </div>
-                            </div>
-                            <div className="text-right">
-                                <div className="text-xl font-black text-text-main">₹{parseFloat(bill.amount).toLocaleString()}</div>
-                                <div className="text-[10px] font-bold text-text-muted uppercase tracking-wider">/ Month</div>
-                            </div>
-                        </motion.div>
-                    ))}
+                            </motion.div>
+                        );
+                    })}
                 </div>
             ) : (
-                <div className="modern-card p-6 md:p-10">
-                    <h3 className="text-xl font-black mb-6 text-text-main">{format(today, 'MMMM yyyy')}</h3>
-                    <div className="grid grid-cols-7 gap-2 md:gap-4 text-center">
-                        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => (
-                            <div key={d} className="text-xs font-bold text-text-muted mb-2">{d}</div>
+                <div className="modern-card p-6 md:p-8">
+                    {/* Month Header with Navigation */}
+                    <div className="flex items-center justify-between mb-6">
+                        <button
+                            onClick={() => setSelectedMonth(prev => subMonths(prev, 1))}
+                            className="p-2 hover:bg-canvas-subtle rounded-full transition-colors"
+                        >
+                            <ChevronLeft size={20} className="text-text-muted" />
+                        </button>
+                        <div className="text-center">
+                            <h3 className="text-lg font-black text-text-main">{format(selectedMonth, 'MMMM yyyy')}</h3>
+                            {!isSameMonth(selectedMonth, today) && (
+                                <button
+                                    onClick={() => setSelectedMonth(new Date())}
+                                    className="text-[10px] text-primary font-bold uppercase tracking-wider mt-1"
+                                >
+                                    Today
+                                </button>
+                            )}
+                        </div>
+                        <button
+                            onClick={() => setSelectedMonth(prev => addMonths(prev, 1))}
+                            className="p-2 hover:bg-canvas-subtle rounded-full transition-colors"
+                        >
+                            <ChevronRight size={20} className="text-text-muted" />
+                        </button>
+                    </div>
+
+                    {/* Day Headers */}
+                    <div className="grid grid-cols-7 gap-1 md:gap-2 text-center mb-2">
+                        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => (
+                            <div key={`header-${i}`} className="text-[10px] font-bold text-text-muted py-2">{d}</div>
                         ))}
-                        {currentMonthDays.map(day => {
+                    </div>
+
+                    {/* Calendar Grid */}
+                    <div className="grid grid-cols-7 gap-1 md:gap-2">
+                        {/* Empty cells for days before month starts */}
+                        {Array.from({ length: startOfMonth(selectedMonth).getDay() }).map((_, i) => (
+                            <div key={`empty-${i}`} className="aspect-square" />
+                        ))}
+
+                        {calendarDays.map(day => {
                             const dayNum = day.getDate();
                             const dayBills = bills.filter(b => parseInt(b.dueDay) === dayNum);
                             const hasBill = dayBills.length > 0;
                             const isToday = isSameDay(day, today);
+                            const isPast = day < today && !isToday;
+                            const allPaid = hasBill && dayBills.every(b => b.status === 'paid');
+                            const unpaidBills = dayBills.filter(b => b.status !== 'paid');
 
                             return (
-                                <div key={day.toISOString()} className={`aspect-square rounded-2xl flex flex-col items-center justify-center relative border transition-all ${isToday ? 'border-primary bg-primary/5' : 'border-transparent hover:border-text-muted/20'}`}>
-                                    <span className={`text-sm font-bold ${isToday ? 'text-primary' : 'text-text-muted'}`}>{dayNum}</span>
+                                <div
+                                    key={day.toISOString()}
+                                    className={`aspect-square rounded-xl flex flex-col items-center justify-center transition-all cursor-default
+                                        ${isToday ? 'bg-primary text-primary-foreground shadow-lg scale-105' : ''}
+                                        ${hasBill && !allPaid && !isToday ? 'bg-red-500/10 border border-red-500/30' : ''}
+                                        ${hasBill && allPaid && !isToday ? 'bg-green-500/10 border border-green-500/30' : ''}
+                                        ${!hasBill && !isToday ? 'hover:bg-canvas-subtle' : ''}
+                                    `}
+                                    title={hasBill ? dayBills.map(b => `${b.name}: ₹${b.amount} (${b.status || 'due'})`).join('\n') : ''}
+                                >
+                                    <span className={`text-sm font-bold ${isToday ? '' : isPast ? 'text-text-muted/50' : 'text-text-main'}`}>
+                                        {dayNum}
+                                    </span>
                                     {hasBill && (
-                                        <div className="mt-1 flex flex-col items-center">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-red-500 mb-1"></div>
-                                            <span className="text-[8px] font-bold text-text-main hidden md:block">₹{dayBills.reduce((s, b) => s + parseFloat(b.amount), 0)}</span>
-                                        </div>
+                                        <div className={`w-1.5 h-1.5 rounded-full mt-1 ${allPaid ? 'bg-green-500' : 'bg-red-500'}`} />
                                     )}
                                 </div>
                             );
                         })}
+                    </div>
+
+                    {/* Legend */}
+                    <div className="flex items-center justify-center gap-6 mt-6 pt-4 border-t border-card-border">
+                        <span className="flex items-center gap-2 text-[10px] font-bold text-text-muted uppercase tracking-wider">
+                            <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span> Due
+                        </span>
+                        <span className="flex items-center gap-2 text-[10px] font-bold text-text-muted uppercase tracking-wider">
+                            <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span> Paid
+                        </span>
                     </div>
                 </div>
             )}

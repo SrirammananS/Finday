@@ -11,8 +11,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Finday - Personal Finance Tracker',
-        short_name: 'Finday',
+        name: 'LAKSH - Personal Finance Tracker',
+        short_name: 'LAKSH',
         description: 'Track your expenses and income with Google Sheets sync',
         theme_color: '#6366f1',
         background_color: '#f8fafc',

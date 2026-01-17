@@ -19,6 +19,11 @@ const Transactions = () => {
     const [editing, setEditing] = useState(null);
     const [search, setSearch] = useState('');
 
+    React.useEffect(() => {
+        if (showForm) document.body.classList.add('modal-open');
+        else document.body.classList.remove('modal-open');
+    }, [showForm]);
+
     if (isLoading) return (
         <div className="flex flex-col items-center justify-center min-h-screen gap-4">
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />

@@ -8,6 +8,11 @@ const Categories = () => {
     const [showModal, setShowModal] = useState(false);
     const [form, setForm] = useState({ name: '', icon: '📦', color: '#CCFF00' });
 
+    React.useEffect(() => {
+        if (showModal) document.body.classList.add('modal-open');
+        else document.body.classList.remove('modal-open');
+    }, [showModal]);
+
     if (isLoading) return <div className="p-10 text-center uppercase tracking-widest opacity-20 text-[10px] font-bold">Loading...</div>;
 
     const handleSubmit = async (e) => {
