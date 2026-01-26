@@ -1,10 +1,12 @@
-// Google Sheets Service - Robust Database Integration
+// Google Sheets Service - Robust Database Integration with Realtime Sync
 const DISCOVERY_DOCS = ["https://sheets.googleapis.com/$discovery/rest?version=v4"];
 const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
 
-// Request throttling to prevent 429 errors
-const REQUEST_DELAY_MS = 200; // Min delay between requests
+// Request throttling - reduced for faster sync
+const REQUEST_DELAY_MS = 100; // Reduced from 200ms for faster sync
 let lastRequestTime = 0;
+let requestQueue = [];
+let isProcessingQueue = false;
 
 const throttle = async () => {
     const now = Date.now();
@@ -15,31 +17,47 @@ const throttle = async () => {
     lastRequestTime = Date.now();
 };
 
-// Exponential backoff for 429 errors
-const withRetry = async (fn, maxRetries = 3) => {
+// Enhanced retry with better error handling
+const withRetry = async (fn, maxRetries = 3, context = '') => {
     for (let i = 0; i < maxRetries; i++) {
         try {
             await throttle();
             return await fn();
         } catch (error) {
-            if (error?.status === 429 || error?.result?.error?.code === 429) {
-                const delay = Math.pow(2, i + 1) * 1000; // 2s, 4s, 8s
-                console.log(`[LAKSH] Rate limited, retrying in ${delay}ms...`);
+            const isRateLimit = error?.status === 429 || error?.result?.error?.code === 429;
+            const isUnauth = error?.status === 401 || error?.result?.error?.code === 401;
+            const isNetwork = error?.message?.includes('network') || error?.message?.includes('Failed to fetch');
+
+            if (isRateLimit) {
+                const delay = Math.pow(2, i + 1) * 1000;
+                console.log(`[LAKSH] Rate limited${context ? ` (${context})` : ''}, retry in ${delay}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
+            } else if (isNetwork && i < maxRetries - 1) {
+                const delay = 1000 * (i + 1);
+                console.log(`[LAKSH] Network error${context ? ` (${context})` : ''}, retry in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            } else if (isUnauth) {
+                console.log('[LAKSH] Auth error, token may be expired');
+                throw error;
             } else {
                 throw error;
             }
         }
     }
-    throw new Error('Max retries exceeded');
+    throw new Error(`Max retries exceeded${context ? ` for ${context}` : ''}`);
 };
+
+// Write queue for offline-first with retry
+const pendingWrites = [];
+let isFlushingWrites = false;
 
 class GoogleSheetsService {
     constructor() {
         this.isInitialized = false;
         this.tokenClient = null;
         this.accessToken = null;
-        this.sheetCache = new Map(); // Cache for sheet existence checks
+        this.sheetCache = new Map();
+        this.lastFetchTime = new Map(); // Track when each data type was last fetched
     }
 
     // Wait for Google scripts to load
@@ -60,6 +78,20 @@ class GoogleSheetsService {
             };
             check();
         });
+    }
+
+    // Ensure GAPI client is ready before making requests
+    async ensureClientReady() {
+        if (this.isInitialized && window.gapi?.client?.sheets) return true;
+
+        console.log('[LAKSH] Waiting for GAPI client...');
+        // Wait up to 5 seconds
+        for (let i = 0; i < 50; i++) {
+            if (this.isInitialized && window.gapi?.client?.sheets) return true;
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        throw new Error('Google Sheets API client not ready. Please refresh.');
     }
 
     async init(clientId) {
@@ -189,6 +221,8 @@ class GoogleSheetsService {
     // ===== SHEET MANAGEMENT =====
 
     async ensureSheetExists(spreadsheetId, sheetTitle) {
+        await this.ensureClientReady();
+
         // Check cache first to avoid redundant API calls
         const cacheKey = `${spreadsheetId}:${sheetTitle}`;
         if (this.sheetCache.has(cacheKey)) {
@@ -365,6 +399,7 @@ class GoogleSheetsService {
     }
 
     async updateAccount(spreadsheetId, accountId, updates) {
+        await this.ensureClientReady();
         const response = await window.gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId,
             range: "'_Accounts'!A:H"
@@ -396,6 +431,7 @@ class GoogleSheetsService {
     }
 
     async deleteAccount(spreadsheetId, accountId) {
+        await this.ensureClientReady();
         const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
         const sheet = sheetInfo.result.sheets.find(s => s.properties.title === '_Accounts');
         if (!sheet) return;
@@ -461,6 +497,7 @@ class GoogleSheetsService {
     }
 
     async updateTransaction(spreadsheetId, transaction) {
+        await this.ensureClientReady();
         const sheetName = this.getMonthSheetName(new Date(transaction.date));
 
         const response = await window.gapi.client.sheets.spreadsheets.values.get({
@@ -494,6 +531,7 @@ class GoogleSheetsService {
     }
 
     async deleteTransaction(spreadsheetId, transactionId, transactionDate) {
+        await this.ensureClientReady();
         const sheetName = this.getMonthSheetName(new Date(transactionDate));
 
         const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
@@ -630,6 +668,7 @@ class GoogleSheetsService {
     }
 
     async updateCategory(spreadsheetId, oldName, category) {
+        await this.ensureClientReady();
         const response = await window.gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId,
             range: "'_Categories'!A:D"
@@ -649,6 +688,7 @@ class GoogleSheetsService {
     }
 
     async deleteCategory(spreadsheetId, categoryName) {
+        await this.ensureClientReady();
         const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
         const sheet = sheetInfo.result.sheets.find(s => s.properties.title === '_Categories');
         if (!sheet) return;
@@ -739,6 +779,7 @@ class GoogleSheetsService {
     }
 
     async updateBill(spreadsheetId, billId, updates) {
+        await this.ensureClientReady();
         const response = await window.gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId,
             range: "'_Bills'!A:H"
@@ -770,6 +811,7 @@ class GoogleSheetsService {
     }
 
     async deleteBill(spreadsheetId, billId) {
+        await this.ensureClientReady();
         const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
         const sheet = sheetInfo.result.sheets.find(s => s.properties.title === '_Bills');
         if (!sheet) return;
@@ -862,10 +904,12 @@ class GoogleSheetsService {
 
     async getTransactionsFromSheet(spreadsheetId, sheetName) {
         try {
-            const response = await window.gapi.client.sheets.spreadsheets.values.get({
-                spreadsheetId,
-                range: `'${sheetName}'!A:H`
-            });
+            const response = await withRetry(() =>
+                window.gapi.client.sheets.spreadsheets.values.get({
+                    spreadsheetId,
+                    range: `'${sheetName}'!A:H`
+                }), 3, 'getTransactionsFromSheet'
+            );
 
             const rows = response.result.values || [];
             return rows.slice(1).map(row => ({
@@ -878,10 +922,61 @@ class GoogleSheetsService {
                 type: row[6]
             })).filter(t => t.id);
         } catch (error) {
+            console.error('[LAKSH] getTransactionsFromSheet error:', error);
             return [];
         }
+    }
+
+    // ===== CACHE MANAGEMENT =====
+
+    /**
+     * Clear all caches to force fresh fetch
+     */
+    clearCache() {
+        this.sheetCache.clear();
+        this.lastFetchTime.clear();
+        console.log('[LAKSH] Cache cleared');
+    }
+
+    /**
+     * Invalidate cache for a specific sheet (call after writes)
+     */
+    invalidateSheet(sheetName) {
+        // Clear sheet existence cache entries that match
+        for (const key of this.sheetCache.keys()) {
+            if (key.includes(sheetName)) {
+                this.sheetCache.delete(key);
+            }
+        }
+        this.lastFetchTime.delete(sheetName);
+    }
+
+    /**
+     * Check if data needs refresh (older than 30 seconds)
+     */
+    needsRefresh(dataType) {
+        const lastFetch = this.lastFetchTime.get(dataType);
+        if (!lastFetch) return true;
+        return Date.now() - lastFetch > 30000; // 30 second threshold
+    }
+
+    /**
+     * Mark data as freshly fetched
+     */
+    markFetched(dataType) {
+        this.lastFetchTime.set(dataType, Date.now());
+    }
+
+    /**
+     * Force refresh all data
+     */
+    async forceRefresh(spreadsheetId) {
+        this.clearCache();
+        // The actual data fetch will happen in FinanceContext.refreshData()
+        console.log('[LAKSH] Force refresh triggered');
     }
 }
 
 export const sheetsService = new GoogleSheetsService();
 export { GoogleSheetsService };
+

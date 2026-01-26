@@ -4,7 +4,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { TrendingUp, TrendingDown, RefreshCw, Layers, Users, PieChart as PieIcon } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+
 import PullToRefresh from '../components/PullToRefresh';
+import SkeletonDashboard from '../components/skeletons/SkeletonDashboard';
 
 const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-IN', {
@@ -16,8 +18,13 @@ const formatCurrency = (amount) => {
 };
 
 const Dashboard = () => {
-    const { accounts = [], transactions = [], bills = [], categories, isSyncing, refreshData, secretUnlocked } = useFinance();
+    const { accounts = [], transactions = [], bills = [], categories, isSyncing, isLoading, refreshData, forceSync, secretUnlocked } = useFinance();
     const navigate = useNavigate();
+
+    // Show Skeleton while loading initial data
+    if (isLoading) {
+        return <SkeletonDashboard />;
+    }
 
     // Get IDs of secret accounts (for filtering transactions)
     const secretAccountIds = useMemo(() => {
@@ -91,9 +98,9 @@ const Dashboard = () => {
                     </div>
                     <motion.button
                         whileTap={{ scale: 0.9 }}
-                        onClick={refreshData}
+                        onClick={forceSync}
                         className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-canvas-subtle border border-card-border flex items-center justify-center text-text-main hover:border-primary transition-all group"
-                        title="Refresh Data"
+                        title="Force Sync"
                     >
                         <RefreshCw size={20} className={`text-text-muted group-hover:text-primary transition-colors ${isSyncing ? 'animate-spin' : ''}`} />
                     </motion.button>

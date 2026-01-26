@@ -4,7 +4,7 @@ import { FinanceProvider } from './context/FinanceContext';
 import { FeedbackProvider } from './context/FeedbackContext';
 import { ThemeProvider } from './context/ThemeContext';
 import Layout from './components/Layout';
-import SplashScreen from './components/SplashScreen';
+
 import LockScreen from './components/LockScreen';
 import ErrorBoundary from './components/ErrorBoundary';
 import { biometricAuth } from './services/biometricAuth';
@@ -39,8 +39,8 @@ const PageLoader = () => (
   </div>
 );
 
+
 function App() {
-  const [loading, setLoading] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
 
   // Detect if running as PWA (standalone mode)
@@ -72,9 +72,7 @@ function App() {
       <FeedbackProvider>
         <ThemeProvider>
           <FinanceProvider>
-            {loading ? (
-              <SplashScreen onComplete={() => setLoading(false)} />
-            ) : isLocked ? (
+            {isLocked ? (
               <LockScreen onUnlock={handleUnlock} />
             ) : (
               <BrowserRouter>
@@ -102,5 +100,6 @@ function App() {
     </ErrorBoundary>
   );
 }
+
 
 export default App;

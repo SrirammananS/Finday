@@ -1,0 +1,14 @@
+# Service account credentials - NEVER commit!
+service-account.json
+.env
+.env.local
+
+# Dependencies
+node_modules/
+
+# Vercel
+.vercel/
+
+# Logs
+*.log
+.vercel

@@ -1,0 +1,12 @@
+{
+    "name": "laksh-telegram-bot",
+    "version": "1.0.0",
+    "description": "LAKSH Finance Bot for Telegram",
+    "scripts": {
+        "dev": "vercel dev",
+        "deploy": "vercel --prod"
+    },
+    "dependencies": {
+        "googleapis": "^128.0.0"
+    }
+}

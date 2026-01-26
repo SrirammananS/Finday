@@ -59,6 +59,7 @@ class BiometricAuthService {
                     timeout: 60000,
                     rpId: window.location.hostname,
                     userVerification: 'required',
+                    authenticatorAttachment: 'platform', // Force platform auth (TouchID/FaceID)
                     allowCredentials: []
                 }
             });

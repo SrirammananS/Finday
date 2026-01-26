@@ -117,7 +117,8 @@ const Transactions = () => {
                                             </p>
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); if (confirm('Delete transaction?')) deleteTransaction(t); }}
-                                                className="mt-1 text-text-muted hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
+                                                className="mt-1 text-text-muted hover:text-destructive transition-colors md:opacity-0 md:group-hover:opacity-100"
+                                                title="Delete"
                                             >
                                                 <Trash2 size={14} />
                                             </button>
@@ -138,7 +139,7 @@ const Transactions = () => {
             </div>
 
             {showForm && <TransactionForm onClose={() => { setShowForm(false); setEditing(null); }} editTransaction={editing} />}
-        </motion.div>
+        </motion.div >
     );
 };
 

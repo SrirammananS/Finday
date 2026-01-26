@@ -67,12 +67,20 @@ export const FinanceProvider = ({ children }) => {
         }
     }, []);
 
-    const refreshData = useCallback(async (sheetId) => {
+    const refreshData = useCallback(async (sheetId, forceRefresh = false) => {
         const spreadsheetId = sheetId || config.spreadsheetId;
         if (!spreadsheetId) return;
 
+        // Clear cache if force refresh requested
+        if (forceRefresh) {
+            sheetsService.clearCache();
+        }
+
         setIsSyncing(true);
+        setError(null);
+
         try {
+            // Fetch all data in parallel with retry
             const [fetchedTransactions, fetchedAccounts, fetchedCategories, fetchedBills, fetchedConfig] = await Promise.all([
                 sheetsService.getTransactions(spreadsheetId, 6),
                 sheetsService.getAccounts(spreadsheetId),
@@ -81,6 +89,7 @@ export const FinanceProvider = ({ children }) => {
                 sheetsService.getConfig(spreadsheetId)
             ]);
 
+            // Update state
             setTransactions(fetchedTransactions);
             setAccounts(fetchedAccounts);
             setCategories(fetchedCategories);
@@ -95,13 +104,26 @@ export const FinanceProvider = ({ children }) => {
             });
 
             setLastSyncTime(new Date());
+            console.log('[LAKSH] Sync complete:', {
+                transactions: fetchedTransactions.length,
+                accounts: fetchedAccounts.length,
+                categories: fetchedCategories.length,
+                bills: fetchedBills.length
+            });
         } catch (err) {
             console.error('[LAKSH] Refresh failed:', err);
             setError(err.message);
+
+            // If it's an auth error, don't keep cached data as it may be stale
+            if (err.message?.includes('401') || err.message?.includes('auth')) {
+                toast('Session expired. Please sign in again.', 'error');
+            } else {
+                toast('Sync failed. Using cached data.', 'error');
+            }
         } finally {
             setIsSyncing(false);
         }
-    }, [config.spreadsheetId]);
+    }, [config.spreadsheetId, toast]);
 
     // --- One-Click Setup Logic ---
     const createFinanceSheet = async () => {
@@ -173,47 +195,106 @@ export const FinanceProvider = ({ children }) => {
         }
     };
 
-    // Auto-connect on mount - Stale-while-revalidate pattern
+    // Auto-connect on mount - Robust stale-while-revalidate pattern
     useEffect(() => {
         const autoConnect = async () => {
+            console.log('[LAKSH] Auto-connect starting...');
             const clientId = localStorage.getItem('finday_client_id');
             const spreadsheetId = localStorage.getItem('finday_spreadsheet_id');
             const storedToken = localStorage.getItem('finday_gapi_token');
 
-            // 1. Load cached data immediately (no network) - unblocks UI fast
+            // 1. Always try to load cached data first (instant UI)
+            let hasCachedData = false;
             try {
                 const cachedData = await localDB.getAllData();
                 if (cachedData.hasData) {
-                    setTransactions(cachedData.transactions);
+                    setTransactions(cachedData.transactions || []);
                     setAccounts(cachedData.accounts || []);
                     setCategories(cachedData.categories || []);
                     setBills(cachedData.bills || []);
                     if (cachedData.lastSyncTime) {
                         setLastSyncTime(new Date(cachedData.lastSyncTime));
                     }
-                    setIsLoading(false); // Unblock UI immediately with cached data
-                    console.log('[LAKSH] UI loaded from cache', cachedData.isStale ? '(stale)' : '(fresh)');
+                    hasCachedData = true;
+                    console.log('[LAKSH] Loaded from cache:', {
+                        transactions: cachedData.transactions?.length || 0,
+                        accounts: cachedData.accounts?.length || 0,
+                        isStale: cachedData.isStale
+                    });
                 }
             } catch (e) {
                 console.log('[LAKSH] Cache read failed:', e);
             }
 
-            // 2. Background sync if credentials exist
-            if (clientId && spreadsheetId && storedToken) {
-                try {
-                    await connect(clientId, spreadsheetId);
-                    toast('Synced from cloud ✓');
-                } catch (e) {
-                    console.log('[LAKSH] Background sync failed, using cached data:', e);
-                    setIsLoading(false);
+            // 2. If we have no credentials, just show the UI (setup mode)
+            if (!clientId || !spreadsheetId) {
+                console.log('[LAKSH] No credentials, entering setup mode');
+                setIsLoading(false);
+                return;
+            }
+
+            // 3. If we have cached data, unblock UI immediately
+            if (hasCachedData) {
+                setIsLoading(false);
+            }
+
+            // 4. Try to sync from cloud (background if cached, foreground if not)
+            try {
+                // Initialize sheets service
+                await sheetsService.init(clientId);
+                setConfig(prev => ({ ...prev, clientId, spreadsheetId }));
+                setIsConnected(true);
+
+                // Fetch fresh data
+                setIsSyncing(true);
+                const [fetchedTransactions, fetchedAccounts, fetchedCategories, fetchedBills] = await Promise.all([
+                    sheetsService.getTransactions(spreadsheetId, 6),
+                    sheetsService.getAccounts(spreadsheetId),
+                    sheetsService.getCategories(spreadsheetId),
+                    sheetsService.getBills(spreadsheetId)
+                ]);
+
+                setTransactions(fetchedTransactions);
+                setAccounts(fetchedAccounts);
+                setCategories(fetchedCategories);
+                setBills(fetchedBills);
+
+                // Update cache
+                await localDB.saveData({
+                    transactions: fetchedTransactions,
+                    accounts: fetchedAccounts,
+                    categories: fetchedCategories,
+                    bills: fetchedBills
+                });
+
+                setLastSyncTime(new Date());
+                setIsSyncing(false);
+                console.log('[LAKSH] Cloud sync complete');
+
+                if (!hasCachedData) {
+                    toast('Connected to LAKSH ✓');
                 }
-            } else {
+            } catch (e) {
+                console.error('[LAKSH] Sync failed:', e);
+                setIsSyncing(false);
+                setIsConnected(false);
+
+                // If we have cached data, user can still work
+                if (hasCachedData) {
+                    toast('Offline mode - using cached data', 'warning');
+                } else {
+                    setError('Could not connect. Please check your setup.');
+                    toast('Connection failed', 'error');
+                }
+            } finally {
+                // ALWAYS stop loading
                 setIsLoading(false);
             }
         };
 
-        // No artificial delay - start immediately
+        // Start immediately
         autoConnect();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // ===== NOTIFICATIONS =====
@@ -278,18 +359,31 @@ export const FinanceProvider = ({ children }) => {
 
     useEffect(() => {
         const generateCCBills = async () => {
+            console.log('[Finday CC] generateCCBills triggered. Checking conditions...');
             // Only run if we have data and not currently syncing
-            if (accounts.length === 0 || transactions.length === 0 || !lastSyncTime || isSyncing) return;
+            if (accounts.length === 0 && transactions.length === 0) {
+                console.log('[Finday CC] Skipping: No accounts/transactions loaded yet.');
+                return;
+            }
+            if (isSyncing) {
+                console.log('[Finday CC] Skipping: Currently syncing.');
+                return;
+            }
+            // Relaxing lastSyncTime check since cached data is enough to generate bills
+            // if (!lastSyncTime) ...
 
             // Lock to prevent concurrent execution
             const lockKey = 'finday_cc_bill_lock';
             const lock = localStorage.getItem(lockKey);
             if (lock && Date.now() - parseInt(lock) < 30000) {
+                console.log('[Finday CC] Skipping: Locked (ran recently).');
                 return;
             }
             localStorage.setItem(lockKey, Date.now().toString());
 
             const creditAccounts = accounts.filter(a => a.type === 'credit');
+            console.log(`[Finday CC] Found ${creditAccounts.length} credit accounts.`);
+
             const today = new Date();
             const currentDay = today.getDate();
             const currentMonth = today.getMonth();
@@ -303,12 +397,13 @@ export const FinanceProvider = ({ children }) => {
                 const billingDay = parseInt(acc.billingDay);
                 const dueDay = parseInt(acc.dueDay) || billingDay + 20;
 
+                console.log(`[Finday CC] Checking ${acc.name}. BillingDay: ${billingDay}, CurrentDay: ${currentDay}`);
+
                 // Check if we are past the billing day for this month
                 if (currentDay >= billingDay) {
                     // Billing Cycle: 
                     // Start: Billing Day of Previous Month
                     // End: Billing Day of Current Month
-
                     // Note: JS Months are 0-indexed. 
                     // new Date(2024, 0, 15) -> Jan 15, 2024
 
@@ -330,19 +425,35 @@ export const FinanceProvider = ({ children }) => {
                         b.cycleEnd === cycleEndStr
                     );
 
-                    // 2. Check by Name + Account ID (Fallback for legacy)
-                    const existingBillByName = bills.find(b =>
-                        b.name === billName &&
-                        (b.accountId === acc.id || b.billAccountId === acc.id)
-                    );
+                    // 2. Check by Name + Account ID (Fallback)
+                    // Also check vaguely for same month/year to prevent duplicates if names vary slightly
+                    const existingBillByName = bills.find(b => {
+                        // STRICT NAME MATCH (Most common case for duplicates)
+                        if (b.name === billName) return true;
+
+                        // LOOSE MATCH: Same Month/Year tag + Account ID match
+                        // Only enforce AccountID match if the existing bill HAS an account ID.
+                        // If existing bill has no account ID (legacy), we can't safely dedupe by it so we rely largely on name.
+                        const nameMatches = b.name.includes(monthNames[currentMonth]) && b.name.includes(currentYear.toString());
+                        const accountMatches = b.accountId ? (b.accountId === acc.id) : true;
+
+                        return nameMatches && accountMatches;
+                    });
 
                     const existingBill = existingBillByCycle || existingBillByName;
+                    if (existingBill) {
+                        console.log(`[Finday CC] Skipping ${acc.name}: Bill already exists (${existingBill.name})`);
+                    }
 
                     // Check ephemeral lock for this specific bill (session scope)
                     const billLockKey = `finday_bill_created_${acc.id}_${currentMonth}_${currentYear}`;
-                    const sessionLock = localStorage.getItem(billLockKey);
+                    const inMemoryLock = createdBillsRef.current.has(billLockKey);
 
-                    if (!existingBill && !sessionLock) {
+                    if (inMemoryLock) {
+                        console.log(`[Finday CC] Skipping ${acc.name}: In-memory lock active.`);
+                    }
+
+                    if (!existingBill && !inMemoryLock) {
                         // Calculate total spent
                         const cycleTransactions = transactions.filter(t => {
                             if (t.accountId !== acc.id) return false;
@@ -359,15 +470,14 @@ export const FinanceProvider = ({ children }) => {
                         }, 0);
 
                         // If no transactions, check if negative balance exists (debt)
-                        // If balance is -5000, debt is 5000.
                         const debt = acc.balance < 0 ? Math.abs(acc.balance) : 0;
                         const totalSpent = totalFromTx > 0 ? totalFromTx : debt;
 
-                        console.log(`[Finday CC] ${acc.name}: Cycle ${cycleStartStr} to ${cycleEndStr}. TxTotal: ${totalFromTx}, Debt: ${debt}`);
+                        console.log(`[Finday CC] ${acc.name}: Cycle ${cycleStartStr} to ${cycleEndStr}. TxTotal: ${totalFromTx}, Debt: ${debt}, TotalSpent: ${totalSpent}`);
 
                         if (totalSpent > 0 || totalFromTx > 0) {
                             createdBillsRef.current.add(billLockKey);
-                            localStorage.setItem(billLockKey, 'true');
+                            // REMOVED: localStorage.setItem(billLockKey, 'true'); -> This was preventing regeneration after delete
 
                             const newBill = {
                                 name: billName,
@@ -375,7 +485,7 @@ export const FinanceProvider = ({ children }) => {
                                 dueDay: dueDay,
                                 category: 'Bills',
                                 status: 'due',
-                                accountId: '',
+                                accountId: acc.id, // Linked Account ID
                                 billAccountId: acc.id,
                                 cycleStart: cycleStartStr,
                                 cycleEnd: cycleEndStr
@@ -919,6 +1029,9 @@ export const FinanceProvider = ({ children }) => {
         toggleSecretUnlock: () => setSecretUnlocked(prev => !prev),
         lockSecrets: () => setSecretUnlocked(false),
         unlockSecrets: () => setSecretUnlocked(true),
+
+        // Manual Sync
+        forceSync: () => refreshData(config.spreadsheetId, true),
 
         // CC Helpers
         getCCBillInfo: (accountId) => {
