@@ -1,6 +1,15 @@
 // Google Sheets Service - Robust Database Integration with Realtime Sync
-const DISCOVERY_DOCS = ["https://sheets.googleapis.com/$discovery/rest?version=v4"];
-const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
+import { storage, STORAGE_KEYS } from './storage';
+import { importWithRetry } from '../utils/lazyRetry';
+
+const DISCOVERY_DOCS = [
+    "https://sheets.googleapis.com/$discovery/rest?version=v4",
+    "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"
+];
+// Minimal scopes for Google Sheets integration:
+// - spreadsheets: Read/write access to user's spreadsheets only
+// - drive.readonly: List spreadsheets for selection (read-only)
+const SCOPES = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly";
 
 // Request throttling - reduced for faster sync
 const REQUEST_DELAY_MS = 100; // Reduced from 200ms for faster sync
@@ -60,168 +69,603 @@ class GoogleSheetsService {
         this.lastFetchTime = new Map(); // Track when each data type was last fetched
     }
 
+    // Detect if running in Android WebView
+    isAndroidWebView() {
+        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+        return /Android/i.test(userAgent) && /wv/i.test(userAgent);
+    }
+
+    // Mobile OAuth flow using external browser
+    async initMobileOAuth() {
+        console.log('[LAKSH] Starting mobile OAuth flow');
+
+        // Check if we already have a valid token from previous OAuth
+        const accessToken = sessionStorage.getItem('google_access_token') || localStorage.getItem('google_access_token');
+        const tokenExpiry = sessionStorage.getItem('google_token_expiry') || localStorage.getItem('google_token_expiry');
+
+        if (accessToken && tokenExpiry && new Date() < new Date(parseInt(tokenExpiry))) {
+            console.log('[LAKSH] Using existing access token');
+            this.accessToken = accessToken;
+            return true;
+        }
+
+        // Create OAuth URL for external browser
+        const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+        // Use the web callback URL - the PWA will handle token storage
+        // On Android, after OAuth completes in Chrome, user returns to app
+        // The token will be available in the PWA's localStorage
+        const redirectUri = window.location.origin + '/oauth-callback';
+        const scope = encodeURIComponent(SCOPES);
+        const state = 'mobile_oauth_' + Math.random().toString(36).substring(7);
+
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+            `client_id=${clientId}&` +
+            `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+            `scope=${scope}&` +
+            `response_type=token&` +
+            `state=${state}&` +
+            `prompt=consent`;  // Force consent to ensure fresh token
+
+        console.log('[LAKSH] Opening external browser for OAuth');
+        console.log('[LAKSH] Redirect URI:', redirectUri);
+
+        // Store state for verification
+        localStorage.setItem('oauth_state', state);
+        localStorage.setItem('oauth_pending', 'true');
+
+        // Open external browser
+        if (window.AndroidBridge && typeof window.AndroidBridge.openExternalBrowser === 'function') {
+            // Use Android bridge if available
+            window.AndroidBridge.openExternalBrowser(authUrl);
+        } else {
+            // Fallback: open in new window/tab
+            window.open(authUrl, '_blank');
+        }
+
+        // Listen via BroadcastChannel for a faster, reliable callback
+        let bc;
+        try {
+            bc = new BroadcastChannel('laksh-oauth');
+        } catch { }
+
+        // Show message to user and resolve when token available
+        return new Promise((resolve, reject) => {
+            if (bc) {
+                const onMsg = (evt) => {
+                    if (evt?.data?.type === 'oauth_token' && evt.data.access_token) {
+                        try { bc.close(); } catch { }
+                        this.accessToken = evt.data.access_token;
+                        const expiryMs = Date.now() + (parseInt(evt.data.expires_in || '3600', 10) * 1000);
+                        try {
+                            sessionStorage.setItem('google_access_token', evt.data.access_token);
+                            sessionStorage.setItem('google_token_expiry', String(expiryMs));
+                            localStorage.setItem('google_access_token', evt.data.access_token);
+                            localStorage.setItem('google_token_expiry', String(expiryMs));
+                        } catch { }
+                        this.isInitialized = true;
+                        resolve(true);
+                    }
+                };
+                bc.addEventListener('message', onMsg);
+            }
+
+            const checkInterval = setInterval(() => {
+                const token = sessionStorage.getItem('google_access_token') || localStorage.getItem('google_access_token');
+                const expiry = sessionStorage.getItem('google_token_expiry') || localStorage.getItem('google_token_expiry');
+
+                if (token && expiry && new Date() < new Date(parseInt(expiry))) {
+                    clearInterval(checkInterval);
+                    try { bc && bc.close(); } catch { }
+                    this.accessToken = token;
+                    this.isInitialized = true;
+                    console.log('[LAKSH] OAuth completed successfully');
+                    resolve(true);
+                }
+            }, 1000);
+
+            // Timeout after 5 minutes
+            setTimeout(() => {
+                clearInterval(checkInterval);
+                try { bc && bc.close(); } catch { }
+                reject(new Error('OAuth timeout - please try again'));
+            }, 300000);
+        });
+    }
+
+    // Helper for direct API calls in mobile
+    // Ensure access token is loaded from storage
+    ensureTokenLoaded() {
+        if (!this.accessToken) {
+            const storedToken = localStorage.getItem('google_access_token');
+            const storedExpiry = localStorage.getItem('google_token_expiry');
+
+            if (storedToken && storedExpiry && Date.now() < parseInt(storedExpiry)) {
+                this.accessToken = storedToken;
+                this.isInitialized = true;
+                console.log('[LAKSH] Lazy-loaded OAuth token from storage');
+            }
+        }
+        return !!this.accessToken;
+    }
+
+    async makeApiRequest(url, options = {}) {
+        // Ensure token is loaded before making request
+        this.ensureTokenLoaded();
+
+        if (!this.accessToken) {
+            throw new Error('No access token available');
+        }
+
+        const response = await fetch(url, {
+            ...options,
+            headers: {
+                'Authorization': `Bearer ${this.accessToken}`,
+                'Content-Type': 'application/json',
+                ...options.headers
+            }
+        });
+
+        if (!response.ok) {
+            // Handle 401 specifically
+            if (response.status === 401) {
+                console.log('[LAKSH] 401 in fetch, trying refresh...');
+                const refreshed = await this.refreshToken();
+                if (refreshed) return this.makeApiRequest(url, options);
+            }
+            throw new Error(`API request failed: ${response.status}`);
+        }
+
+        return response.json();
+    }
+
+    // Helper for getting spreadsheet values with GAPI/Fetch fallback and smart sheet detect
+    async getSpreadsheetValues(spreadsheetId, range, isRetry = false) {
+        // Ensure token is loaded from storage
+        this.ensureTokenLoaded();
+
+        try {
+            // Method A: GAPI
+            if (window.gapi?.client?.sheets) {
+                const response = await withRetry(() =>
+                    window.gapi.client.sheets.spreadsheets.values.get({
+                        spreadsheetId,
+                        range
+                    })
+                );
+                return response.result.values || [];
+            }
+
+            // Method B: Fetch
+            if (this.accessToken) {
+                const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`;
+                const data = await this.makeApiRequest(url);
+                return data.values || [];
+            }
+
+            throw new Error('No auth available');
+        } catch (error) {
+            if (isRetry) return [];
+
+            console.warn(`[LAKSH] getSpreadsheetValues failed for ${range}, trying smart fallback...`);
+
+            // Try different sheet name patterns
+            let fallbackRange = null;
+            if (range.includes("'_")) {
+                // Try without underscore
+                fallbackRange = range.replace("'_", "'");
+            } else if (range.includes("'") && !range.includes("'_")) {
+                // Try with underscore
+                fallbackRange = range.replace("'", "'_");
+            }
+
+            if (fallbackRange && fallbackRange !== range) {
+                return this.getSpreadsheetValues(spreadsheetId, fallbackRange, true);
+            }
+
+            return [];
+        }
+    }
+
     // Wait for Google scripts to load
     waitForGapi() {
         return new Promise((resolve, reject) => {
+            // Check if running in Android WebView
+            if (this.isAndroidWebView()) {
+                console.log('[LAKSH] Android WebView detected');
+
+                // If we already have a token, just load the scripts
+                if (this.accessToken || localStorage.getItem('google_access_token')) {
+                    this.loadGoogleAPIsIfNeeded().then(resolve).catch(reject);
+                    return;
+                }
+
+                // Otherwise start the mobile OAuth flow
+                this.initMobileOAuth().then(resolve).catch(reject);
+                return;
+            }
+
             let attempts = 0;
-            const maxAttempts = 50; // 5 seconds total
+            const maxAttempts = 100; // 20 seconds total for slower mobile connections
 
             const check = () => {
                 attempts++;
+                console.log(`[LAKSH] Checking for Google APIs (attempt ${attempts}/${maxAttempts})`);
+                console.log('[LAKSH] window.gapi:', !!window.gapi);
+                console.log('[LAKSH] window.google:', !!window.google);
+                console.log('[LAKSH] window.google.accounts:', !!window.google?.accounts);
+                console.log('[LAKSH] window.google.accounts.oauth2:', !!window.google?.accounts?.oauth2);
+
                 if (window.gapi && window.google?.accounts?.oauth2) {
+                    console.log('[LAKSH] Google APIs are ready!');
                     resolve(true);
                 } else if (attempts >= maxAttempts) {
-                    reject(new Error('Google API scripts not loaded. Please refresh the page.'));
+                    console.error('[LAKSH] Timeout waiting for Google APIs');
+                    // Try to dynamically load if not available
+                    this.loadGoogleAPIsIfNeeded()
+                        .then(() => resolve(true))
+                        .catch(() => reject(new Error('Google API scripts not loaded. Please refresh the page.')));
                 } else {
-                    setTimeout(check, 100);
+                    setTimeout(check, 200); // Check every 200ms
                 }
             };
             check();
         });
     }
 
+    // Dynamically load Google APIs if not loaded (for mobile/PWA environments)
+    async loadGoogleAPIsIfNeeded() {
+        return new Promise((resolve, reject) => {
+            // Check if already loaded
+            if (window.gapi && window.google?.accounts?.oauth2) {
+                resolve();
+                return;
+            }
+
+            let gapiLoaded = !!window.gapi;
+            let gisLoaded = !!window.google?.accounts;
+            let scriptsToLoad = 0;
+            let scriptsLoaded = 0;
+
+            const checkComplete = () => {
+                scriptsLoaded++;
+                if (scriptsLoaded === scriptsToLoad) {
+                    // Wait a bit for initialization
+                    setTimeout(() => {
+                        if (window.gapi && window.google?.accounts?.oauth2) {
+                            resolve();
+                        } else {
+                            reject(new Error('Scripts loaded but APIs not available'));
+                        }
+                    }, 1000);
+                }
+            };
+
+            // Load GAPI if needed
+            if (!gapiLoaded) {
+                scriptsToLoad++;
+                const gapiScript = document.createElement('script');
+                gapiScript.src = 'https://apis.google.com/js/api.js';
+                gapiScript.onload = checkComplete;
+                gapiScript.onerror = () => reject(new Error('Failed to load Google API script'));
+                document.head.appendChild(gapiScript);
+            }
+
+            // Load GIS if needed
+            if (!gisLoaded) {
+                scriptsToLoad++;
+                const gisScript = document.createElement('script');
+                gisScript.src = 'https://accounts.google.com/gsi/client';
+                gisScript.onload = checkComplete;
+                gisScript.onerror = () => reject(new Error('Failed to load Google Identity Services script'));
+                document.head.appendChild(gisScript);
+            }
+
+            // If both already loaded
+            if (scriptsToLoad === 0) {
+                resolve();
+            }
+        });
+    }
+
     // Ensure GAPI client is ready before making requests
     async ensureClientReady() {
-        if (this.isInitialized && window.gapi?.client?.sheets) return true;
+        if (this.isInitialized && (window.gapi?.client?.sheets || this.accessToken)) return true;
 
         console.log('[LAKSH] Waiting for GAPI client...');
-        // Wait up to 5 seconds
-        for (let i = 0; i < 50; i++) {
-            if (this.isInitialized && window.gapi?.client?.sheets) return true;
+        // Wait up to 10 seconds (increased from 5)
+        for (let i = 0; i < 100; i++) {
+            if (this.isInitialized && (window.gapi?.client?.sheets || this.accessToken)) return true;
             await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        throw new Error('Google Sheets API client not ready. Please refresh.');
+        throw new Error('Google Sheets API client not ready. Please ensure internet connection and refresh.');
     }
 
-    async init(clientId) {
-        if (this.isInitialized && this.accessToken) return true;
+    async init(clientId = null) {
+        // 1. Initial check: Do we already have a token in localStorage?
+        if (!this.accessToken) {
+            const storedToken = localStorage.getItem('google_access_token');
+            const storedExpiry = localStorage.getItem('google_token_expiry');
+
+            if (storedToken && storedExpiry) {
+                if (Date.now() < parseInt(storedExpiry)) {
+                    this.accessToken = storedToken;
+                    console.log('[LAKSH] Restored OAuth token from storage');
+                } else {
+                    localStorage.removeItem('google_access_token');
+                    localStorage.removeItem('google_token_expiry');
+                }
+            }
+        }
+
+        // 2. Handle OAuth callback for mobile (tokens in URL hash)
+        if (this.isAndroidWebView()) {
+            const hash = window.location.hash.substring(1);
+            const urlParams = new URLSearchParams(hash);
+            const accessToken = urlParams.get('access_token');
+            const state = urlParams.get('state');
+            const storedState = localStorage.getItem('oauth_state');
+
+            if (accessToken && state && state === storedState) {
+                console.log('[LAKSH] OAuth callback received via URL hash');
+                this.accessToken = accessToken;
+                const expiresIn = urlParams.get('expires_in') || '3600';
+                const expiry = new Date(Date.now() + parseInt(expiresIn) * 1000);
+                localStorage.setItem('google_access_token', accessToken);
+                localStorage.setItem('google_token_expiry', expiry.getTime().toString());
+                localStorage.removeItem('oauth_state');
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        }
+
+        if (this.isInitialized && this.accessToken) {
+            // Even if "initialized", ensure gapi.client is actually loaded if possible
+            if (window.gapi?.client?.sheets) return true;
+            // On mobile, having a token is enough since we have fetch fallbacks
+            if (this.isAndroidWebView()) return true;
+        }
+
+        // For mobile with a token, don't block on GAPI - just mark as ready
+        if (this.accessToken && this.isAndroidWebView()) {
+            console.log('[LAKSH] Mobile mode: Skipping GAPI wait, using token-only mode');
+            this.isInitialized = true;
+            return true;
+        }
 
         try {
-            // Wait for scripts
+            // 3. Load scripts
             await this.waitForGapi();
 
-            // Load GAPI client
+            // 4. Load GAPI client and discovery docs
             await new Promise((resolve, reject) => {
                 window.gapi.load('client', { callback: resolve, onerror: reject });
             });
 
-            // Initialize client
             await window.gapi.client.init({
                 discoveryDocs: DISCOVERY_DOCS,
             });
 
-            // Setup token client
-            this.tokenClient = window.google.accounts.oauth2.initTokenClient({
-                client_id: clientId,
-                scope: SCOPES,
-                callback: () => { }, // Will be set on signin
-            });
+            // 5. If we have a token, set it in the client
+            if (this.accessToken) {
+                window.gapi.client.setToken({ access_token: this.accessToken });
+            } else {
+                // Otherwise try loading from cloudBackup (for web)
+                const { cloudBackup } = await importWithRetry(() => import('./cloudBackup'));
+                await cloudBackup.init();
+                if (cloudBackup.isSignedIn()) {
+                    window.gapi.client.setToken({ access_token: cloudBackup.accessToken });
+                    this.accessToken = cloudBackup.accessToken;
+                }
+            }
 
-            // 1. Check if GAPI already has a valid token (e.g. from previous reload)
-            const existingGapiToken = window.gapi.client.getToken();
-            if (existingGapiToken && existingGapiToken.access_token) {
-                this.accessToken = existingGapiToken.access_token;
+            this.isInitialized = true;
+            return true;
+        } catch (err) {
+            console.warn('[LAKSH] GAPI/GIS Init failed:', err);
+
+            // On mobile, if we have a token but GAPI failed to init,
+            // we can still proceed with direct REST calls (fetch fallbacks)
+            if (this.accessToken) {
+                console.log('[LAKSH] Proceeding with token-only initialization (fetch mode)');
                 this.isInitialized = true;
-                console.log('[LAKSH] GAPI session active');
                 return true;
             }
 
-            // 2. Check LocalStorage for restored session
-            const storedToken = localStorage.getItem('finday_gapi_token');
-            const tokenExpiry = parseInt(localStorage.getItem('finday_token_expiry') || '0');
-            const now = Date.now();
-
-            if (storedToken && tokenExpiry > now) {
-                // Token is fresh enough to try using
-                window.gapi.client.setToken({ access_token: storedToken });
-                this.accessToken = storedToken;
-                this.isInitialized = true;
-                console.log('[LAKSH] Session restored from cache');
-                return true;
-            }
-
-            // 3. Token expired or missing
-            if (storedToken) {
-                console.log('[LAKSH] Token expired, clearing...');
-                localStorage.removeItem('finday_gapi_token');
-                localStorage.removeItem('finday_token_expiry');
-            }
-
-            // 4. Request fresh sign-in (Silent if possible)
-            console.log('[Finday] Requesting fresh sign-in');
-            return await this.signIn(clientId);
-
-        } catch (error) {
-            console.error('Init failed:', error);
-            throw error;
+            throw err;
         }
     }
 
-    signIn(clientId) {
-        return new Promise((resolve, reject) => {
-            if (!this.tokenClient) {
-                reject(new Error('Token client not initialized'));
-                return;
+    getAuthUrl() {
+        const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+        const redirectUri = window.location.origin + '/oauth-callback';
+        const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.appdata');
+        const state = Math.random().toString(36).substring(2);
+        localStorage.setItem('oauth_state', state);
+        return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&state=${state}`;
+    }
+
+    setAccessToken(token) {
+        this.accessToken = token;
+        if (window.gapi?.client) {
+            window.gapi.client.setToken({ access_token: token });
+        }
+        // On mobile/WebView, we can proceed even if GAPI fails
+        if (this.isAndroidWebView()) {
+            this.isInitialized = true;
+        }
+    }
+
+    async handleCopyLink() {
+        const url = this.getAuthUrl();
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(url);
+                return true;
+            } else {
+                // Fallback for older WebViews/non-secure contexts
+                const textArea = document.createElement("textarea");
+                textArea.value = url;
+                textArea.style.position = "fixed";
+                textArea.style.left = "-9999px";
+                textArea.style.top = "0";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                const successful = document.execCommand('copy');
+                document.body.removeChild(textArea);
+                return successful;
             }
+        } catch (err) {
+            console.error('Clipboard copy failed:', err);
+            return false;
+        }
+    }
 
-            this.tokenClient.callback = (response) => {
-                if (response.error) {
-                    reject(new Error(response.error));
-                    return;
-                }
+    async signIn() {
+        if (this.isAndroidWebView()) {
+            console.log('[LAKSH] Mobile mode: Using OAuth redirect flow');
+            const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+            // Use explicit callback path for production redirect
+            const redirectUri = window.location.origin + '/oauth-callback';
+            const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.appdata');
+            const state = Math.random().toString(36).substring(2);
+            localStorage.setItem('oauth_state', state);
 
-                this.accessToken = response.access_token;
-                localStorage.setItem('finday_gapi_token', response.access_token);
-                // Store token expiry for 55 minutes (safe buffer before 1h actual expiry)
-                localStorage.setItem('finday_token_expiry', Date.now() + (55 * 60 * 1000));
-                this.isInitialized = true;
-                console.log('[Finday] New token saved');
-                resolve(true);
-            };
+            const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&state=${state}`;
 
-            // Use empty prompt for returning users (shows account picker only if needed)
-            this.tokenClient.requestAccessToken({ prompt: '' });
-        });
+            console.log('[LAKSH] Redirecting to:', authUrl);
+            window.location.href = authUrl;
+            return new Promise(resolve => setTimeout(resolve, 5000));
+        }
+
+        // Web mode: use cloudBackup's popup flow
+        const { cloudBackup } = await importWithRetry(() => import('./cloudBackup'));
+        await cloudBackup.init();
+        await cloudBackup.signIn();
+        if (cloudBackup.isSignedIn()) {
+            this.accessToken = cloudBackup.accessToken;
+            if (window.gapi?.client) {
+                window.gapi.client.setToken({ access_token: this.accessToken });
+            }
+            this.isInitialized = true;
+            return true;
+        }
+        throw new Error('Sign in failed or cancelled');
     }
 
     // Force refresh the token (used on 401 errors)
     async refreshToken() {
-        const clientId = localStorage.getItem('finday_client_id');
-        if (!clientId || !this.tokenClient) {
-            console.log('[Finday] Cannot refresh - missing client or token client');
-            return false;
+        // Use cloudBackup for token refresh
+        const { cloudBackup } = await importWithRetry(() => import('./cloudBackup'));
+        if (!cloudBackup.isSignedIn()) {
+            await cloudBackup.signIn();
         }
+        if (cloudBackup.isSignedIn()) {
+            window.gapi.client.setToken({ access_token: cloudBackup.accessToken });
+            this.accessToken = cloudBackup.accessToken;
+            return true;
+        }
+        return false;
+    }
 
-        console.log('[Finday] Refreshing token...');
-        localStorage.removeItem('finday_gapi_token');
-        localStorage.removeItem('finday_token_expiry');
+    async signOut() {
+        // Use cloudBackup for sign out (ESM-safe)
+        const { cloudBackup } = await importWithRetry(() => import('./cloudBackup'));
+        cloudBackup.signOut();
+        this.accessToken = null;
+        this.isInitialized = false;
+    }
+
+    // ===== LIST USER'S SPREADSHEETS =====
+
+    async listSpreadsheets() {
+        // Ensure token is loaded from storage
+        this.ensureTokenLoaded();
 
         try {
-            await this.signIn(clientId);
-            return true;
-        } catch (e) {
-            console.error('[Finday] Token refresh failed:', e);
-            return false;
+            // Attempt to ensure GAPI is ready, but don't crash if it's not (we'll fallback to fetch)
+            try {
+                await this.ensureClientReady();
+            } catch (e) {
+                console.warn('[LAKSH] GAPI not ready for listSpreadsheets, trying fetch fallback');
+            }
+
+            // Method A: use GAPI if available
+            if (window.gapi?.client?.drive) {
+                const response = await withRetry(() =>
+                    window.gapi.client.drive.files.list({
+                        q: "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false",
+                        fields: 'files(id, name, modifiedTime)',
+                        orderBy: 'modifiedTime desc',
+                        pageSize: 40
+                    })
+                    , 3, 'listSpreadsheets-gapi');
+                return response.result.files || [];
+            }
+
+            // Method B: use direct Fetch API (more reliable in WebViews)
+            if (this.accessToken) {
+                console.log('[LAKSH] Using direct fetch for listSpreadsheets');
+                const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent("mimeType='application/vnd.google-apps.spreadsheet' and trashed=false")}&fields=${encodeURIComponent('files(id, name, modifiedTime)')}&orderBy=modifiedTime%20desc&pageSize=40`;
+                const data = await this.makeApiRequest(url);
+                return data.files || [];
+            }
+
+            throw new Error('No authentication available to list spreadsheets');
+        } catch (error) {
+            console.error('[LAKSH] Failed to list spreadsheets:', error);
+            if (!this.isInitialized && this.accessToken) {
+                await this.init();
+            }
+            return [];
         }
     }
 
-    signOut() {
-        if (this.accessToken) {
-            try {
-                window.google?.accounts?.oauth2?.revoke(this.accessToken);
-            } catch (e) { }
-            localStorage.removeItem('finday_gapi_token');
-            localStorage.removeItem('finday_token_expiry');
-            this.accessToken = null;
-            this.isInitialized = false;
+    // Check if a spreadsheet has LAKSH data structure
+    async isLakshSheet(spreadsheetId) {
+        try {
+            let sheetNames = [];
+
+            // Method A: GAPI
+            if (window.gapi?.client?.sheets) {
+                const response = await withRetry(() =>
+                    window.gapi.client.sheets.spreadsheets.get({
+                        spreadsheetId,
+                        fields: 'sheets.properties.title'
+                    })
+                );
+                sheetNames = (response.result.sheets || []).map(s => s.properties.title);
+            }
+            // Method B: Fetch
+            else if (this.accessToken) {
+                const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=${encodeURIComponent('sheets.properties.title')}`;
+                const data = await this.makeApiRequest(url);
+                sheetNames = (data.sheets || []).map(s => s.properties.title);
+            }
+
+            // Check for LAKSH sheets (either old format or has Transactions)
+            return sheetNames.includes('_Config') ||
+                sheetNames.includes('Transactions') ||
+                sheetNames.includes('_Accounts') ||
+                sheetNames.some(name => /^[A-Z][a-z]{2} \d{4}$/.test(name)); // Monthly sheets like "Jan 2026"
+        } catch (error) {
+            return false;
         }
     }
 
     // ===== SHEET MANAGEMENT =====
 
     async ensureSheetExists(spreadsheetId, sheetTitle) {
-        await this.ensureClientReady();
+        try {
+            await this.ensureClientReady();
+        } catch (e) {
+            if (this.isAndroidWebView() && this.accessToken) {
+                console.warn('[LAKSH] ensureSheetExists: GAPI not ready, skipping check and proceeding with fetch fallback');
+                return true;
+            }
+            throw e;
+        }
 
         // Check cache first to avoid redundant API calls
         const cacheKey = `${spreadsheetId}:${sheetTitle}`;
@@ -299,21 +743,16 @@ class GoogleSheetsService {
     // ===== CONFIG =====
 
     async getConfig(spreadsheetId) {
-        await this.ensureSheetExists(spreadsheetId, '_Config');
-
         try {
-            const response = await window.gapi.client.sheets.spreadsheets.values.get({
-                spreadsheetId,
-                range: "'_Config'!A:B"
-            });
-
-            const rows = response.result.values || [];
+            await this.ensureSheetExists(spreadsheetId, '_Config');
+            const rows = await this.getSpreadsheetValues(spreadsheetId, "'_Config'!A:B");
             const config = {};
-            rows.slice(1).forEach(row => {
+            rows.forEach(row => {
                 if (row[0]) config[row[0]] = row[1] || '';
             });
             return config;
         } catch (error) {
+            console.error('[LAKSH] Error getting config:', error);
             return {};
         }
     }
@@ -350,29 +789,27 @@ class GoogleSheetsService {
     // ===== ACCOUNTS CRUD =====
 
     async getAccounts(spreadsheetId) {
-        await this.ensureSheetExists(spreadsheetId, '_Accounts');
-
         try {
-            const response = await window.gapi.client.sheets.spreadsheets.values.get({
-                spreadsheetId,
-                range: "'_Accounts'!A:H"
-            });
-
-            const rows = response.result.values || [];
-            return rows.slice(1).map(row => ({
-                id: row[0],
-                name: row[1],
-                type: row[2],
-                balance: parseFloat(row[3]) || 0,
-                billingDay: row[4] || '',
-                dueDay: row[5] || '',
-                createdAt: row[6],
-                isSecret: row[7] === 'true' || row[7] === true
-            })).filter(acc => acc.id);
+            // No need for ensureSheetExists here, getSpreadsheetValues handles fallbacks
+            const rows = await this.getSpreadsheetValues(spreadsheetId, "'_Accounts'!A:H");
+            return this.parseAccountRows(rows);
         } catch (error) {
             console.error('Error getting accounts:', error);
             return [];
         }
+    }
+
+    parseAccountRows(rows) {
+        return rows.slice(1).map(row => ({
+            id: row[0],
+            name: row[1],
+            type: row[2],
+            balance: parseFloat(row[3]) || 0,
+            billingDay: row[4] || '',
+            dueDay: row[5] || '',
+            createdAt: row[6],
+            isSecret: row[7] === 'true' || row[7] === true
+        })).filter(acc => acc.id);
     }
 
     async addAccount(spreadsheetId, account) {
@@ -568,57 +1005,66 @@ class GoogleSheetsService {
     async getTransactions(spreadsheetId, months = 3) {
         const transactions = [];
         const now = new Date();
+        const seenIds = new Set();
 
+        // Strategy 1: Look for generic "Transactions" sheet first
+        try {
+            const genericRows = await this.getSpreadsheetValues(spreadsheetId, "'Transactions'!A:I");
+            if (genericRows.length > 1) {
+                genericRows.slice(1).forEach(row => {
+                    if (row[0]) {
+                        transactions.push(this.parseTransactionRow(row));
+                        seenIds.add(row[0]);
+                    }
+                });
+            }
+        } catch (e) { }
+
+        // Strategy 2: Look for individual monthly sheets
         for (let i = 0; i < months; i++) {
             const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const sheetName = this.getMonthSheetName(date);
 
             try {
-                await this.ensureSheetExists(spreadsheetId, sheetName);
-                const response = await window.gapi.client.sheets.spreadsheets.values.get({
-                    spreadsheetId,
-                    range: `'${sheetName}'!A:I`
-                });
+                // Don't call ensureSheetExists here to avoid extra API calls
+                const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:I`);
 
-                const rows = response.result.values || [];
                 rows.slice(1).forEach(row => {
-                    if (row[0]) {
-                        transactions.push({
-                            id: row[0],
-                            date: row[1],
-                            description: row[2],
-                            amount: parseFloat(row[3]) || 0,
-                            category: row[4],
-                            accountId: row[5],
-                            type: row[6],
-                            createdAt: row[7],
-                            friend: row[8] || '',
-                            synced: true
-                        });
+                    if (row[0] && !seenIds.has(row[0])) {
+                        transactions.push(this.parseTransactionRow(row));
+                        seenIds.add(row[0]);
                     }
                 });
             } catch (error) {
-                console.log(`Sheet ${sheetName} fetch error:`, error);
+                // Silently skip missing monthly sheets
             }
         }
 
         return transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
     }
 
+    parseTransactionRow(row) {
+        return {
+            id: row[0],
+            date: row[1],
+            description: row[2],
+            amount: parseFloat(row[3]) || 0,
+            category: row[4],
+            accountId: row[5],
+            type: row[6],
+            createdAt: row[7],
+            friend: row[8] || '',
+            synced: true
+        };
+    }
+
     // ===== CATEGORIES CRUD =====
 
     async getCategories(spreadsheetId) {
-        await this.ensureSheetExists(spreadsheetId, '_Categories');
-
         try {
-            const response = await window.gapi.client.sheets.spreadsheets.values.get({
-                spreadsheetId,
-                range: "'_Categories'!A:D"
-            });
+            const rows = await this.getSpreadsheetValues(spreadsheetId, "'_Categories'!A:D");
 
-            const rows = response.result.values || [];
             if (rows.length <= 1) {
-                // Initialize with defaults
                 const defaults = [
                     ['Groceries', 'walmart,kroger,grocery,supermarket', '#22c55e', '🛒'],
                     ['Dining', 'restaurant,cafe,mcdonalds,starbucks,pizza', '#f59e0b', '🍕'],
@@ -631,15 +1077,6 @@ class GoogleSheetsService {
                     ['Income', 'salary,payment,deposit,transfer in', '#10b981', '💰'],
                     ['Other', '', '#94a3b8', '📦']
                 ];
-
-                await window.gapi.client.sheets.spreadsheets.values.append({
-                    spreadsheetId,
-                    range: "'_Categories'!A:D",
-                    valueInputOption: 'RAW',
-                    insertDataOption: 'INSERT_ROWS',
-                    resource: { values: defaults }
-                });
-
                 return defaults.map(row => ({ name: row[0], keywords: row[1], color: row[2], icon: row[3] }));
             }
 
@@ -650,7 +1087,7 @@ class GoogleSheetsService {
                 icon: row[3] || '📦'
             })).filter(c => c.name);
         } catch (error) {
-            console.error('Error getting categories:', error);
+            console.error('[LAKSH] Error getting categories:', error);
             return [];
         }
     }
@@ -723,17 +1160,9 @@ class GoogleSheetsService {
     // ===== BILLS CRUD =====
 
     async getBills(spreadsheetId) {
-        await this.ensureSheetExists(spreadsheetId, '_Bills');
-
         try {
-            const response = await window.gapi.client.sheets.spreadsheets.values.get({
-                spreadsheetId,
-                range: "'_Bills'!A:H"
-            });
-
-            const rows = response.result.values || [];
+            const rows = await this.getSpreadsheetValues(spreadsheetId, "'_Bills'!A:H");
             const seenIds = new Set();
-
             return rows.slice(1).map(row => ({
                 id: row[0],
                 name: row[1],
@@ -744,7 +1173,6 @@ class GoogleSheetsService {
                 accountId: row[6],
                 createdAt: row[7]
             })).filter(b => {
-                // Filter out empty and duplicate IDs
                 if (!b.id || seenIds.has(b.id)) return false;
                 seenIds.add(b.id);
                 return true;

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OAuth Callback - LAKSH</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+            padding: 20px;
+        }
+        .container {
+            max-width: 400px;
+            padding: 30px;
+            background: #1e293b;
+            border-radius: 16px;
+            border: 1px solid #334155;
+        }
+        h1 { 
+            color: #6366f1; 
+            font-size: 24px; 
+            margin-bottom: 20px; 
+        }
+        .success {
+            color: #10b981;
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        .error {
+            color: #ef4444;
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        .info {
+            color: #94a3b8;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        .button {
+            background: #6366f1;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .button:hover {
+            background: #5856eb;
+        }
+        .spinner {
+            border: 2px solid #334155;
+            border-top: 2px solid #6366f1;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 LAKSH OAuth</h1>
+        <div id="loading">
+            <div class="spinner"></div>
+            <div class="info">Processing authentication...</div>
+        </div>
+        <div id="success" style="display: none;">
+            <div class="success">✅ Authentication successful!</div>
+            <div class="info">You can now return to the LAKSH app.</div>
+            <a href="#" onclick="closeWindow()" class="button">Return to App</a>
+        </div>
+        <div id="error" style="display: none;">
+            <div class="error">❌ Authentication failed</div>
+            <div class="info" id="errorMessage">Please try again.</div>
+            <a href="/" class="button">Back to LAKSH</a>
+        </div>
+    </div>
+
+    <script>
+        function parseHashParams() {
+            const hash = window.location.hash.substring(1);
+            const params = new URLSearchParams(hash);
+            return {
+                access_token: params.get('access_token'),
+                token_type: params.get('token_type'),
+                expires_in: params.get('expires_in'),
+                state: params.get('state'),
+                error: params.get('error'),
+                error_description: params.get('error_description')
+            };
+        }
+
+        function closeWindow() {
+            // Try to close the window/tab
+            window.close();
+            
+            // If that doesn't work, redirect to the main app
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 1000);
+        }
+
+        function handleOAuthCallback() {
+            const params = parseHashParams();
+            
+            if (params.error) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('errorMessage').textContent = params.error_description || params.error;
+                return;
+            }
+
+            if (params.access_token && params.state) {
+                // Store the token for the main app to pick up
+                try {
+                    // Prefer sessionStorage to reduce persistence; also mirror to localStorage for WebView polling
+                    sessionStorage.setItem('google_access_token', params.access_token);
+                    localStorage.setItem('google_access_token', params.access_token);
+                } catch {}
+                
+                if (params.expires_in) {
+                    const expiryTime = new Date(Date.now() + parseInt(params.expires_in) * 1000);
+                    try {
+                        sessionStorage.setItem('google_token_expiry', expiryTime.getTime().toString());
+                        localStorage.setItem('google_token_expiry', expiryTime.getTime().toString());
+                    } catch {}
+                }
+                
+                // Store state for verification
+                try {
+                    localStorage.setItem('oauth_callback_state', params.state);
+                    localStorage.setItem('oauth_state', params.state);
+                } catch {}
+
+                // Notify any listening app instance via BroadcastChannel
+                try {
+                    const bc = new BroadcastChannel('laksh-oauth');
+                    bc.postMessage({
+                        type: 'oauth_token',
+                        access_token: params.access_token,
+                        expires_in: parseInt(params.expires_in || '3600', 10),
+                        state: params.state
+                    });
+                } catch {}
+
+                // If Android bridge is available, attempt a direct callback
+                try {
+                    if (window.AndroidBridge && typeof window.AndroidBridge.onOAuthToken === 'function') {
+                        window.AndroidBridge.onOAuthToken(params.access_token, params.expires_in || '3600', params.state);
+                    }
+                } catch {}
+                
+                // Show success message
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('success').style.display = 'block';
+                
+                // Auto-close after 3 seconds
+                setTimeout(closeWindow, 3000);
+                
+                console.log('OAuth token stored successfully');
+            } else {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('errorMessage').textContent = 'Invalid OAuth response';
+            }
+        }
+
+        // Run when page loads
+        window.onload = handleOAuthCallback;
+    </script>
+</body>
+</html>

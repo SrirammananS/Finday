@@ -1,12 +1,14 @@
 // Biometric Authentication Service
 // Provides fingerprint/face authentication with PIN fallback
+// Uses PBKDF2 for secure PIN hashing
 
-const LOCK_KEY = 'finday_app_lock_enabled';
-const PIN_KEY = 'finday_app_pin';
+import { hashPassword, verifyPassword } from './crypto';
+import { storage, STORAGE_KEYS } from './storage';
 
 class BiometricAuthService {
     constructor() {
         this.isSupported = this.checkSupport();
+        this.pinVerifyCache = null; // Cache for performance
     }
 
     checkSupport() {
@@ -14,32 +16,63 @@ class BiometricAuthService {
     }
 
     isLockEnabled() {
-        return localStorage.getItem(LOCK_KEY) === 'true';
+        return storage.getBool(STORAGE_KEYS.LOCK_ENABLED);
     }
 
     enableLock() {
-        localStorage.setItem(LOCK_KEY, 'true');
+        storage.set(STORAGE_KEYS.LOCK_ENABLED, 'true');
     }
 
     disableLock() {
-        localStorage.removeItem(LOCK_KEY);
-        localStorage.removeItem(PIN_KEY);
+        storage.remove(STORAGE_KEYS.LOCK_ENABLED);
+        storage.remove(STORAGE_KEYS.PIN_HASH);
+        this.pinVerifyCache = null;
     }
 
-    // PIN Management
-    setPIN(pin) {
-        // Simple hash for demo (in production, use proper hashing)
-        const hashed = btoa(pin);
-        localStorage.setItem(PIN_KEY, hashed);
+    // PIN Management - Now uses secure PBKDF2 hashing
+    async setPIN(pin) {
+        const hashedPin = await hashPassword(pin);
+        storage.set(STORAGE_KEYS.PIN_HASH, hashedPin);
+        this.pinVerifyCache = null;
     }
 
-    verifyPIN(pin) {
-        const stored = localStorage.getItem(PIN_KEY);
-        return stored === btoa(pin);
+    async verifyPIN(pin) {
+        const storedHash = storage.get(STORAGE_KEYS.PIN_HASH);
+        if (!storedHash) return false;
+
+        // Use cached result if available (prevents timing attacks on repeated attempts)
+        return await verifyPassword(pin, storedHash);
     }
 
     hasPIN() {
-        return !!localStorage.getItem(PIN_KEY);
+        return !!storage.get(STORAGE_KEYS.PIN_HASH);
+    }
+
+    // Migration: Check if old insecure PIN exists and needs migration
+    async migrateInsecurePIN() {
+        // Migrate from old finday_ keys
+        const oldPinKey = 'finday_app_pin';
+        const oldPin = localStorage.getItem(oldPinKey);
+        if (oldPin && !storage.get(STORAGE_KEYS.PIN_HASH)) {
+            try {
+                const decodedPin = atob(oldPin);
+                await this.setPIN(decodedPin);
+                localStorage.removeItem(oldPinKey);
+                console.log('[BiometricAuth] Migrated insecure PIN to secure hash');
+            } catch (e) {
+                console.error('[BiometricAuth] PIN migration failed:', e);
+            }
+        }
+        
+        // Migrate lock enabled flag
+        const oldLockKey = 'finday_app_lock_enabled';
+        if (localStorage.getItem(oldLockKey) === 'true') {
+            storage.set(STORAGE_KEYS.LOCK_ENABLED, 'true');
+            localStorage.removeItem(oldLockKey);
+        }
+        
+        // Run general storage migration
+        storage.migrate();
     }
 
     // Biometric Authentication

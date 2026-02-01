@@ -87,6 +87,49 @@ class LocalDB {
         });
     }
 
+    async get(storeName, key) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                const store = await this.getStore(storeName);
+                const request = store.get(key);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            } catch (e) {
+                console.error(`[LAKSH DB] get(${storeName}, ${key}) failed:`, e);
+                resolve(undefined);
+            }
+        });
+    }
+
+    async loadData() {
+        try {
+            const [transactions, accounts, categories, bills, lastSync] = await Promise.all([
+                this.getAll(STORES.transactions),
+                this.getAll(STORES.accounts),
+                this.getAll(STORES.categories),
+                this.getAll(STORES.bills),
+                this.get(STORES.meta, 'lastSync')
+            ]);
+
+            return {
+                transactions,
+                accounts,
+                categories,
+                bills,
+                lastSync: lastSync?.value
+            };
+        } catch (error) {
+            console.error('[LAKSH DB] Failed to load initial data:', error);
+            return {
+                transactions: [],
+                accounts: [],
+                categories: [],
+                bills: [],
+                lastSync: null
+            };
+        }
+    }
+
     async putAll(storeName, items) {
         if (!items || items.length === 0) return;
 

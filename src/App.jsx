@@ -1,27 +1,34 @@
 import React, { useState, useEffect, Suspense } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { FinanceProvider } from './context/FinanceContext';
-import { FeedbackProvider } from './context/FeedbackContext';
-import { ThemeProvider } from './context/ThemeContext';
+import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
+import ProtectedRoute from './components/ProtectedRoute';
+import SmartAnalytics from './components/SmartAnalytics';
 
 import LockScreen from './components/LockScreen';
 import ErrorBoundary from './components/ErrorBoundary';
+import PendingTransactionsBadge from './components/PendingTransactionsBadge';
 import { biometricAuth } from './services/biometricAuth';
+import { transactionDetector } from './services/transactionDetector';
+import { parseSMS, formatParsedTransaction } from './services/smsParser';
+import { pendingTransactionsService } from './services/pendingTransactions';
+
+import { lazyWithRetry } from './utils/lazyRetry';
 
 // Code splitting - lazy load pages for faster initial bundle
-const Dashboard = React.lazy(() => import('./pages/Dashboard'));
-const Transactions = React.lazy(() => import('./pages/Transactions'));
-const Accounts = React.lazy(() => import('./pages/Accounts'));
-const AccountDetail = React.lazy(() => import('./pages/AccountDetail'));
-const Categories = React.lazy(() => import('./pages/Categories'));
-const Insights = React.lazy(() => import('./pages/Insights'));
-const Settings = React.lazy(() => import('./pages/Settings'));
-const Bills = React.lazy(() => import('./pages/Bills'));
-const Friends = React.lazy(() => import('./pages/Friends'));
+const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
+const Transactions = lazyWithRetry(() => import('./pages/Transactions'));
+const Accounts = lazyWithRetry(() => import('./pages/Accounts'));
+const AccountDetail = lazyWithRetry(() => import('./pages/AccountDetail'));
+const Categories = lazyWithRetry(() => import('./pages/Categories'));
+const Insights = lazyWithRetry(() => import('./pages/Insights'));
+const Settings = lazyWithRetry(() => import('./pages/Settings'));
+const Bills = lazyWithRetry(() => import('./pages/Bills'));
+const Friends = lazyWithRetry(() => import('./pages/Friends'));
+const Welcome = lazyWithRetry(() => import('./pages/Welcome'));
+const OAuthCallback = lazyWithRetry(() => import('./pages/OAuthCallback'));
 
 import Lenis from 'lenis';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 
 import ScrollToTop from './components/ScrollToTop';
 
@@ -43,12 +50,10 @@ const PageLoader = () => (
 function App() {
   const [isLocked, setIsLocked] = useState(false);
 
-  // Detect if running as PWA (standalone mode)
   const isPWA = window.matchMedia('(display-mode: standalone)').matches ||
     window.navigator.standalone === true;
 
   useEffect(() => {
-    // Only apply lock when running as PWA, not in browser
     if (isPWA && biometricAuth.isLockEnabled()) {
       setIsLocked(true);
     }
@@ -63,40 +68,65 @@ function App() {
     requestAnimationFrame(raf);
   }, []);
 
+  useEffect(() => {
+    const handleSharedContent = () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const sharedText = urlParams.get('text') || urlParams.get('title') || '';
+
+      if (sharedText && urlParams.get('share') === 'true') {
+        const parsed = parseSMS(sharedText);
+        if (parsed) {
+          const transaction = formatParsedTransaction(parsed, []);
+          if (transaction && !pendingTransactionsService.isDuplicate(transaction.amount, transaction.date)) {
+            pendingTransactionsService.add(transaction);
+          }
+        }
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    };
+
+    handleSharedContent();
+  }, []);
+
   const handleUnlock = () => {
     setIsLocked(false);
   };
 
   return (
     <ErrorBoundary>
-      <FeedbackProvider>
-        <ThemeProvider>
-          <FinanceProvider>
-            {isLocked ? (
-              <LockScreen onUnlock={handleUnlock} />
-            ) : (
-              <BrowserRouter>
-                <ScrollToTop />
-                <Suspense fallback={<PageLoader />}>
-                  <Routes>
-                    <Route path="/" element={<Layout />}>
-                      <Route index element={<Dashboard />} />
-                      <Route path="transactions" element={<Transactions />} />
-                      <Route path="accounts" element={<Accounts />} />
-                      <Route path="accounts/:accountId" element={<AccountDetail />} />
-                      <Route path="categories" element={<Categories />} />
-                      <Route path="insights" element={<Insights />} />
-                      <Route path="settings" element={<Settings />} />
-                      <Route path="bills" element={<Bills />} />
-                      <Route path="friends" element={<Friends />} />
-                    </Route>
-                  </Routes>
-                </Suspense>
-              </BrowserRouter>
-            )}
-          </FinanceProvider>
-        </ThemeProvider>
-      </FeedbackProvider>
+      {isLocked ? (
+        <LockScreen onUnlock={handleUnlock} />
+      ) : (
+        <>
+          <ScrollToTop />
+          <PendingTransactionsBadge />
+          <SmartAnalytics />
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              <Route path="/welcome" element={<Welcome />} />
+              <Route path="/oauth-callback" element={<OAuthCallback />} />
+              <Route
+                path="/"
+                element={
+                  <ProtectedRoute>
+                    <Layout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Dashboard />} />
+                <Route path="transactions" element={<Transactions />} />
+                <Route path="accounts" element={<Accounts />} />
+                <Route path="accounts/:accountId" element={<AccountDetail />} />
+                <Route path="categories" element={<Categories />} />
+                <Route path="insights" element={<Insights />} />
+                <Route path="settings" element={<Settings />} />
+                <Route path="bills" element={<Bills />} />
+                <Route path="friends" element={<Friends />} />
+              </Route>
+            </Routes>
+          </Suspense>
+        </>
+      )}
     </ErrorBoundary>
   );
 }

@@ -17,6 +17,23 @@ class ErrorBoundary extends React.Component {
     componentDidCatch(error, errorInfo) {
         this.setState({ error, errorInfo });
         console.error('[LAKSH Error Boundary]', error, errorInfo);
+
+        // Auto-reload if it's a module load error (e.g. after a new deployment)
+        const isModuleError =
+            error?.name === 'ChunkLoadError' ||
+            error?.message?.includes('Importing a module script failed') ||
+            error?.message?.includes('Failed to fetch dynamically imported module');
+
+        if (isModuleError) {
+            const pageHasAlreadyBeenForceRefreshed = JSON.parse(
+                window.localStorage.getItem('page-has-been-force-refreshed') || 'false'
+            );
+
+            if (!pageHasAlreadyBeenForceRefreshed) {
+                window.localStorage.setItem('page-has-been-force-refreshed', 'true');
+                this.handleReload();
+            }
+        }
     }
 
     handleReload = () => {

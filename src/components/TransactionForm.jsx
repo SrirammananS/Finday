@@ -2,10 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import gsap from 'gsap';
-import { X, Calendar, Wallet, Mic } from 'lucide-react';
+import { X, Calendar, Wallet, Mic, Users, Plus, Sparkles, TrendingUp } from 'lucide-react';
+import { friendsService } from '../services/friendsService';
+import { smartAI } from '../services/smartAI';
 
 const TransactionForm = ({ onClose, editTransaction }) => {
-    const { addTransaction, updateTransaction, accounts, categories, bills } = useFinance();
+    const { addTransaction, updateTransaction, accounts, categories, bills, transactions } = useFinance();
     const [form, setForm] = useState({
         date: new Date().toISOString().split('T')[0],
         description: '',
@@ -19,9 +21,19 @@ const TransactionForm = ({ onClose, editTransaction }) => {
         friend: ''
     });
 
+    const [suggestedCategory, setSuggestedCategory] = useState(null);
+    const [spendingInsight, setSpendingInsight] = useState(null);
     const [isListening, setIsListening] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [friends, setFriends] = useState([]);
+    const [showAddFriend, setShowAddFriend] = useState(false);
+    const [newFriendName, setNewFriendName] = useState('');
     const amountRef = useRef(null);
+
+    // Load friends list
+    useEffect(() => {
+        setFriends(friendsService.getAll());
+    }, []);
 
     const handleVoiceInput = () => {
         if (!('webkitSpeechRecognition' in window)) {
@@ -71,6 +83,33 @@ const TransactionForm = ({ onClose, editTransaction }) => {
         }
     }, [categories]);
 
+    // AI Suggestions & Insights
+    useEffect(() => {
+        if (!form.description) {
+            setSuggestedCategory(null);
+            return;
+        }
+
+        // Predict category
+        const prediction = smartAI.predictCategory(form.description, parseFloat(form.amount) || 0);
+        if (prediction.confidence > 0.4) {
+            setSuggestedCategory(prediction.category);
+        } else {
+            setSuggestedCategory(null);
+        }
+
+        // Calculate insight
+        const currentCategory = form.category;
+        const now = new Date();
+        const startOfMonthDate = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        const monthlyTotal = (transactions || [])
+            .filter(t => t.category === currentCategory && new Date(t.date) >= startOfMonthDate && (t.type === 'expense' || t.amount < 0))
+            .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+        setSpendingInsight(monthlyTotal);
+    }, [form.description, form.category, form.amount, transactions]);
+
     const handleSubmit = async (e) => {
         e?.preventDefault();
         const amountNum = parseFloat(form.amount);
@@ -94,7 +133,7 @@ const TransactionForm = ({ onClose, editTransaction }) => {
     const creditCards = accounts.filter(a => a.type === 'credit');
 
     return (
-        <div className="fixed inset-0 z-[10000] flex items-end md:items-center justify-center">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 md:p-6">
             <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -105,17 +144,17 @@ const TransactionForm = ({ onClose, editTransaction }) => {
 
             <motion.div
                 layoutId="form-sheet"
-                initial={{ y: '100%' }}
-                animate={{ y: 0 }}
-                exit={{ y: '100%' }}
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
                 transition={{ type: "spring", damping: 30, stiffness: 300 }}
-                className="form-sheet relative w-full max-w-lg bg-card border border-card-border rounded-t-[2rem] md:rounded-[2rem] shadow-2xl flex flex-col max-h-[90vh]"
+                className="form-sheet relative w-full max-w-lg bg-card border border-card-border rounded-2xl shadow-2xl flex flex-col max-h-[85vh] md:max-h-[80vh] overflow-hidden"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}
                 <header className="flex justify-between items-center p-6 pb-4 border-b border-card-border">
                     <div>
-                        <h2 className="text-2xl font-black tracking-tight text-text-main">
+                        <h2 className="text-xl font-black tracking-tight text-text-main">
                             {editTransaction ? 'Edit' : 'New'} Transaction
                         </h2>
                     </div>
@@ -135,7 +174,7 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                                 ref={amountRef}
                                 value={form.amount}
                                 onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-                                className="w-48 text-5xl font-black text-center outline-none bg-transparent caret-primary text-text-main placeholder-text-muted/20"
+                                className="w-40 text-4xl font-black text-center outline-none bg-transparent caret-primary text-text-main placeholder-text-muted/20"
                                 placeholder="0"
                                 autoFocus
                                 required
@@ -201,7 +240,7 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                                                     </button>
                                                     <button
                                                         type="button"
-                                                        onClick={() => setForm(f => ({ ...f, paymentType: 'cc', billId: '' }))}
+                                                        onClick={() => setForm(f => ({ ...f, paymentType: 'cc', linkedAccountId: '' }))}
                                                         className={`py-2.5 text-xs font-bold uppercase tracking-wider rounded-xl transition-all ${form.paymentType === 'cc'
                                                             ? 'bg-primary text-primary-foreground'
                                                             : 'bg-canvas border border-card-border text-text-muted'}`}
@@ -269,14 +308,31 @@ const TransactionForm = ({ onClose, editTransaction }) => {
 
                     {/* Description with Mic */}
                     <div>
-                        <label className="text-[10px] font-bold uppercase tracking-widest text-text-muted ml-1 mb-2 block">Description</label>
+                        <div className="flex justify-between items-center mb-2">
+                            <label className="text-[10px] font-bold uppercase tracking-widest text-text-muted ml-1">Description</label>
+                            <AnimatePresence>
+                                {suggestedCategory && suggestedCategory !== form.category && (
+                                    <motion.button
+                                        initial={{ opacity: 0, x: 10 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        exit={{ opacity: 0, x: 10 }}
+                                        type="button"
+                                        onClick={() => setForm(f => ({ ...f, category: suggestedCategory }))}
+                                        className="flex items-center gap-1.5 px-2 py-1 bg-primary/10 text-primary border border-primary/20 rounded-lg text-[10px] font-bold"
+                                    >
+                                        <Sparkles size={10} />
+                                        Suggest: {suggestedCategory}
+                                    </motion.button>
+                                )}
+                            </AnimatePresence>
+                        </div>
                         <div className="relative">
                             <input
                                 type="text"
                                 value={form.description}
                                 onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
                                 placeholder="What's this for?"
-                                className="w-full bg-canvas-subtle border border-card-border py-4 px-5 rounded-2xl font-bold text-base outline-none focus:border-primary transition-all text-text-main placeholder:text-text-muted/40 pr-14"
+                                className="w-full bg-canvas-subtle border border-card-border py-3.5 px-5 rounded-xl font-bold text-sm outline-none focus:border-primary transition-all text-text-main placeholder:text-text-muted/40 pr-14"
                                 required
                             />
                             <button
@@ -290,9 +346,17 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                         </div>
                     </div>
 
-                    {/* Category - Horizontal Scroll (fetched from sheet) */}
+                    {/* Category - Horizontal Scroll */}
                     <div>
-                        <label className="text-[10px] font-bold uppercase tracking-widest text-text-muted ml-1 mb-3 block">Category</label>
+                        <div className="flex justify-between items-center mb-3">
+                            <label className="text-[10px] font-bold uppercase tracking-widest text-text-muted ml-1">Category</label>
+                            {spendingInsight !== null && (
+                                <span className="flex items-center gap-1 text-[10px] font-bold text-text-muted">
+                                    <TrendingUp size={10} />
+                                    Spent ₹{spendingInsight.toLocaleString()} this month
+                                </span>
+                            )}
+                        </div>
                         <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
                             {categories.length > 0 ? categories.map(c => (
                                 <button
@@ -345,16 +409,82 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                         </div>
                     </div>
 
-                    {/* Friend Tag */}
+                    {/* Friend Dropdown */}
                     <div>
                         <label className="text-[10px] font-bold uppercase tracking-widest text-text-muted ml-1 mb-2 block">Split with Friend (Optional)</label>
-                        <input
-                            type="text"
-                            value={form.friend || ''}
-                            onChange={e => setForm(f => ({ ...f, friend: e.target.value }))}
-                            placeholder="Friend's name"
-                            className="w-full bg-canvas-subtle border border-card-border py-3.5 px-4 rounded-xl font-bold text-sm outline-none focus:border-primary transition-all text-text-main placeholder:text-text-muted/40"
-                        />
+                        <div className="flex gap-2">
+                            <div className="relative flex-1">
+                                <Users className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={16} />
+                                <select
+                                    value={form.friend || ''}
+                                    onChange={e => setForm(f => ({ ...f, friend: e.target.value }))}
+                                    className="w-full bg-canvas-subtle border border-card-border py-3.5 pl-11 pr-4 rounded-xl font-bold text-sm outline-none focus:border-primary transition-all appearance-none text-text-main"
+                                >
+                                    <option value="">-- No Friend --</option>
+                                    {friends.map(f => (
+                                        <option key={f.id} value={f.name}>{f.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowAddFriend(true)}
+                                className="w-12 h-12 bg-canvas-subtle border border-card-border rounded-xl flex items-center justify-center text-text-muted hover:text-primary hover:border-primary transition-all"
+                                title="Add new friend"
+                            >
+                                <Plus size={20} />
+                            </button>
+                        </div>
+
+                        {/* Add Friend Inline */}
+                        <AnimatePresence>
+                            {showAddFriend && (
+                                <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: 'auto', opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    className="overflow-hidden"
+                                >
+                                    <div className="mt-3 flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={newFriendName}
+                                            onChange={e => setNewFriendName(e.target.value)}
+                                            placeholder="Friend's name"
+                                            className="flex-1 bg-canvas-subtle border border-card-border py-3 px-4 rounded-xl font-bold text-sm outline-none focus:border-primary text-text-main placeholder:text-text-muted/40"
+                                            autoFocus
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (newFriendName.trim()) {
+                                                    const added = friendsService.add(newFriendName);
+                                                    if (added) {
+                                                        setFriends(friendsService.getAll());
+                                                        setForm(f => ({ ...f, friend: added.name }));
+                                                    }
+                                                }
+                                                setNewFriendName('');
+                                                setShowAddFriend(false);
+                                            }}
+                                            className="px-4 py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm"
+                                        >
+                                            Add
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setNewFriendName('');
+                                                setShowAddFriend(false);
+                                            }}
+                                            className="px-3 py-3 border border-card-border rounded-xl text-text-muted"
+                                        >
+                                            <X size={16} />
+                                        </button>
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
                     </div>
                 </div>
 

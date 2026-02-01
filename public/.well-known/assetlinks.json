@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.laksh.finance",
+      "sha256_cert_fingerprints": [
+        "4B:0C:14:94:80:1C:A2:F7:57:EC:BA:48:27:F4:B9:E5:21:6B:EE:65:59:E2:B2:94:BE:59:DC:A4:BB:A3:BF:55"
+      ]
+    }
+  }
+]

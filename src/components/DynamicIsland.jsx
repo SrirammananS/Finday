@@ -2,23 +2,25 @@ import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import TransactionForm from './TransactionForm';
-import { LayoutDashboard, Wallet, PieChart, Settings, Plus, FileText } from 'lucide-react';
+import SMSInput from './SMSInput';
+import { LayoutDashboard, Wallet, PieChart, Settings, Plus, MessageSquare, CalendarClock } from 'lucide-react';
 
 const links = [
     { to: '/', icon: <LayoutDashboard size={20} />, label: 'Home' },
     { to: '/accounts', icon: <Wallet size={20} />, label: 'Accounts' },
-    { to: '/bills', icon: <FileText size={20} />, label: 'Subs' },
+    { to: '/bills', icon: <CalendarClock size={20} />, label: 'Bills' },
     { to: '/insights', icon: <PieChart size={20} />, label: 'Insights' },
     { to: '/settings', icon: <Settings size={20} />, label: 'Settings' },
 ];
 
 const DynamicIsland = () => {
     const [showForm, setShowForm] = useState(false);
+    const [showSMS, setShowSMS] = useState(false);
 
     React.useEffect(() => {
-        if (showForm) document.body.classList.add('modal-open');
+        if (showForm || showSMS) document.body.classList.add('modal-open');
         else document.body.classList.remove('modal-open');
-    }, [showForm]);
+    }, [showForm, showSMS]);
 
     return (
         <>
@@ -52,6 +54,16 @@ const DynamicIsland = () => {
 
                 <div className="w-[1px] h-4 md:h-5 bg-card-border mx-1" />
 
+                {/* SMS Button */}
+                <button
+                    onClick={() => setShowSMS(true)}
+                    className="w-10 h-10 md:w-11 md:h-11 flex items-center justify-center text-text-muted hover:text-primary hover:bg-primary/10 rounded-full transition-all"
+                    title="Add from SMS"
+                >
+                    <MessageSquare size={20} />
+                </button>
+
+                {/* Add Button */}
                 <button
                     onClick={() => setShowForm(true)}
                     className="w-10 h-10 md:w-11 md:h-11 flex items-center justify-center bg-primary text-primary-foreground rounded-full hover:scale-110 active:scale-95 transition-all shadow-lg shadow-primary/25"
@@ -65,6 +77,8 @@ const DynamicIsland = () => {
                     <TransactionForm onClose={() => setShowForm(false)} />
                 )}
             </AnimatePresence>
+
+            <SMSInput isOpen={showSMS} onClose={() => setShowSMS(false)} />
         </>
     );
 };

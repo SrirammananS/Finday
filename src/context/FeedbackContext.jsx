@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, AlertCircle, X } from 'lucide-react';
 
@@ -8,18 +8,37 @@ export const useFeedback = () => useContext(FeedbackContext);
 
 export const FeedbackProvider = ({ children }) => {
     const [toasts, setToasts] = useState([]);
+    const isMountedRef = useRef(true);
+    const timeoutRefs = useRef(new Set());
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            isMountedRef.current = false;
+            timeoutRefs.current.forEach(clearTimeout);
+            timeoutRefs.current.clear();
+        };
+    }, []);
 
     const toast = useCallback((message, type = 'success') => {
+        if (!isMountedRef.current) return;
+        
         const id = Math.random().toString(36).substr(2, 9);
         setToasts(prev => [...prev, { id, message, type }]);
 
         // Auto-remove after 4s
-        setTimeout(() => {
-            setToasts(prev => prev.filter(t => t.id !== id));
+        const timeoutId = setTimeout(() => {
+            if (isMountedRef.current) {
+                setToasts(prev => prev.filter(t => t.id !== id));
+            }
+            timeoutRefs.current.delete(timeoutId);
         }, 4000);
+        
+        timeoutRefs.current.add(timeoutId);
     }, []);
 
     const removeToast = (id) => {
+        if (!isMountedRef.current) return;
         setToasts(prev => prev.filter(t => t.id !== id));
     };
 

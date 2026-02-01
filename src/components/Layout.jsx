@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import DynamicIsland from './DynamicIsland';
@@ -38,6 +38,11 @@ const Layout = () => {
 
             {/* Global Dynamic Hub */}
             <DynamicIsland />
+
+            {/* Footer with Version */}
+            <footer className="fixed bottom-4 right-4 z-50 text-xs text-text-muted/50 font-mono">
+                v{import.meta.env.VITE_APP_VERSION}
+            </footer>
         </div>
     );
 };

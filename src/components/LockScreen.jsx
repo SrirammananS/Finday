@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Fingerprint, Lock, KeyRound } from 'lucide-react';
 import { biometricAuth } from '../services/biometricAuth';
@@ -8,6 +8,14 @@ const LockScreen = ({ onUnlock }) => {
     const [error, setError] = useState('');
     const [showPinInput, setShowPinInput] = useState(false);
     const [isAuthenticating, setIsAuthenticating] = useState(false);
+    const isMountedRef = useRef(true);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
 
     useEffect(() => {
         // Try biometric on mount if supported
@@ -19,8 +27,10 @@ const LockScreen = ({ onUnlock }) => {
     }, []);
 
     const handleBiometricAuth = async () => {
+        if (!isMountedRef.current) return;
         setIsAuthenticating(true);
         const result = await biometricAuth.authenticate();
+        if (!isMountedRef.current) return;
         setIsAuthenticating(false);
 
         if (result.success) {
@@ -32,13 +42,28 @@ const LockScreen = ({ onUnlock }) => {
         }
     };
 
-    const handlePinSubmit = (e) => {
+    const handlePinSubmit = async (e) => {
         e.preventDefault();
-        if (biometricAuth.verifyPIN(pin)) {
-            onUnlock();
-        } else {
-            setError('Incorrect PIN');
-            setPin('');
+        if (!isMountedRef.current) return;
+        setIsAuthenticating(true);
+        try {
+            const isValid = await biometricAuth.verifyPIN(pin);
+            if (!isMountedRef.current) return;
+            if (isValid) {
+                onUnlock();
+            } else {
+                setError('Incorrect PIN');
+                setPin('');
+            }
+        } catch (err) {
+            if (isMountedRef.current) {
+                setError('Verification failed');
+                setPin('');
+            }
+        } finally {
+            if (isMountedRef.current) {
+                setIsAuthenticating(false);
+            }
         }
     };
 

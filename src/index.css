@@ -29,19 +29,20 @@
 
 @layer base {
   :root {
-    /* Dark Mode (Default) */
+    /* Obsidian & Silver Palette (2025 Elegant) */
     --primary: #CCFF00;
-    /* Toxic Lime */
+    /* Keeping the signature lime but as an accent */
     --primary-foreground: #000000;
 
-    --canvas: #050505;
-    --canvas-subtle: #121214;
+    --canvas: #0A0A0B;
+    --canvas-subtle: #161618;
 
-    --card: rgba(18, 18, 20, 0.8);
-    --card-border: rgba(255, 255, 255, 0.1);
+    --card: rgba(22, 22, 24, 0.6);
+    --card-border: rgba(255, 255, 255, 0.06);
 
-    --text-main: #FFFFFF;
-    --text-muted: rgba(255, 255, 255, 0.4);
+    --text-main: #F5F5F7;
+    /* Apple-style silver-white */
+    --text-muted: rgba(245, 245, 247, 0.45);
   }
 
   :root.light {
@@ -68,10 +69,26 @@
 
   h1,
   h2,
-  h3 {
-    font-family: var(--font-display);
-    letter-spacing: -0.03em;
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-sans);
+    letter-spacing: -0.02em;
+    font-weight: 800;
     @apply text-text-main;
+  }
+
+  h1 {
+    @apply tracking-[-0.04em] font-black;
+  }
+
+  h2 {
+    @apply tracking-[-0.03em] font-extrabold;
+  }
+
+  h3 {
+    @apply tracking-[-0.02em] font-bold;
   }
 }
 
@@ -223,4 +240,62 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 :root.light input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(0.3);
+}
+
+/* Premium Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+
+/* Noise Overlay */
+.noise-bg {
+  position: relative;
+}
+
+.noise-bg::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.03;
+  z-index: 9999;
+  background-image: url("https://grainy-gradients.vercel.app/noise.svg");
+}
+
+/* Bento Shadows */
+.bento-shadow {
+  box-shadow: 0 0 50px -10px rgba(0, 0, 0, 0.5);
+}
+
+/* Alpha Colors */
+.alpha-20 {
+  opacity: 0.2;
+}
+
+.alpha-40 {
+  opacity: 0.4;
+}
+
+.alpha-60 {
+  opacity: 0.6;
+}
+
+.alpha-80 {
+  opacity: 0.8;
 }

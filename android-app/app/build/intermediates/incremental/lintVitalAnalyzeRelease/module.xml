@@ -1,0 +1,24 @@
+<lint-module
+    format="1"
+    dir="/Users/srirammanan.s/AI/LAKSH/android-app/app"
+    name=":app"
+    type="APP"
+    maven="LAKSH:app:"
+    agpVersion="8.2.2"
+    buildFolder="build"
+    bootClassPath="/Users/srirammanan.s/Library/Android/sdk/platforms/android-34/android.jar:/Users/srirammanan.s/Library/Android/sdk/build-tools/34.0.0/core-lambda-stubs.jar"
+    javaSourceLevel="1.8"
+    compileTarget="android-34">
+  <lintOptions
+      disable="ExpiredTargetSdkVersion"
+      absolutePaths="true"
+      checkReleaseBuilds="true"
+      explainIssues="true">
+    <severities>
+      <severity
+        id="ExpiredTargetSdkVersion"
+        severity="IGNORE" />
+    </severities>
+  </lintOptions>
+  <variant name="release"/>
+</lint-module>

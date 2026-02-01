@@ -6,18 +6,44 @@
   <link rel="icon" type="image/png" href="/mascot.png" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#6366f1" />
-  <meta name="description" content="LAKSH - Your personal finance tracker with Google Sheets sync" />
+  <meta name="description"
+    content="LAKSH - Your personal finance tracker with Google Sheets sync. Private, secure, and offline-first." />
+
+  <!-- UI / Theme -->
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LAKSH" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+  <!-- Open Graph / SEO -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="LAKSH - Personal Finance Tracker" />
+  <meta property="og:description"
+    content="Track your expenses and income with Google Sheets sync. Private, secure, and offline-first." />
+  <meta property="og:image" content="/pwa-512x512.png" />
   <title>LAKSH - Personal Finance Tracker</title>
 
-  <!-- Google API Scripts -->
-  <script src="https://apis.google.com/js/api.js" async defer></script>
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script type="module" crossorigin src="/assets/index-BK9pIzFp.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-BS_uPyMD.css">
+  <!-- Google API Scripts - Preload for better mobile performance -->
+  <link rel="preconnect" href="https://apis.google.com">
+  <link rel="preconnect" href="https://accounts.google.com">
+
+  <!-- Critical Google API Scripts -->
+  <script>
+    // Ensure global error handler for failed script loads
+    window.addEventListener('error', function (e) {
+      if (e.filename && (e.filename.includes('apis.google.com') || e.filename.includes('accounts.google.com'))) {
+        console.warn('[LAKSH] Google API script failed to load, will retry dynamically');
+      }
+    });
+  </script>
+  <script src="https://apis.google.com/js/api.js" async defer onload="window.gapiLoaded=true"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer onload="window.gisLoaded=true"></script>
+  <script type="module" crossorigin src="/assets/index-BsPIG2rf.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/react-vendor-BRmZC9gO.js">
+  <link rel="modulepreload" crossorigin href="/assets/ui-vendor-De5hZzbI.js">
+  <link rel="modulepreload" crossorigin href="/assets/animation-vendor-Bof6PphJ.js">
+  <link rel="stylesheet" crossorigin href="/assets/index-CsZ8UIF7.css">
 <link rel="manifest" href="/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/registerSW.js"></script></head>
 
 <body>

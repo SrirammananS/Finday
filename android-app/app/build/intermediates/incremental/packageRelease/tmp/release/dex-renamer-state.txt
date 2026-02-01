@@ -1,0 +1,4 @@
+#Sun Feb 01 23:23:48 IST 2026
+base.0=/Users/srirammanan.s/AI/LAKSH/android-app/app/build/intermediates/dex/release/minifyReleaseWithR8/classes.dex
+path.0=classes.dex
+renamed.0=classes.dex

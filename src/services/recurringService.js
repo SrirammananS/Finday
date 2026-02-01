@@ -3,8 +3,7 @@
  * Automatically creates transactions based on recurring schedules
  */
 
-const RECURRING_KEY = 'laksh_recurring_transactions';
-const LAST_RUN_KEY = 'laksh_recurring_last_run';
+import { storage, STORAGE_KEYS } from './storage';
 
 // Frequency options
 export const FREQUENCIES = {
@@ -23,8 +22,8 @@ class RecurringService {
 
     loadFromStorage() {
         try {
-            const stored = localStorage.getItem(RECURRING_KEY);
-            this.recurring = stored ? JSON.parse(stored) : [];
+            const stored = storage.getJSON(STORAGE_KEYS.RECURRING_DATA);
+            this.recurring = stored || [];
         } catch (e) {
             console.error('[LAKSH Recurring] Failed to load:', e);
             this.recurring = [];
@@ -33,7 +32,7 @@ class RecurringService {
 
     saveToStorage() {
         try {
-            localStorage.setItem(RECURRING_KEY, JSON.stringify(this.recurring));
+            storage.setJSON(STORAGE_KEYS.RECURRING_DATA, this.recurring);
         } catch (e) {
             console.error('[LAKSH Recurring] Failed to save:', e);
         }
@@ -126,7 +125,7 @@ class RecurringService {
      * Returns array of transactions to be created
      */
     checkDue() {
-        const lastRun = localStorage.getItem(LAST_RUN_KEY);
+        const lastRun = storage.get(STORAGE_KEYS.RECURRING_LAST_RUN);
         const today = new Date().toISOString().split('T')[0];
 
         // Only run once per day
@@ -165,7 +164,7 @@ class RecurringService {
             this.saveToStorage();
         }
 
-        localStorage.setItem(LAST_RUN_KEY, today);
+        storage.set(STORAGE_KEYS.RECURRING_LAST_RUN, today);
         return dueTransactions;
     }
 }

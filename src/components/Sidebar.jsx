@@ -15,11 +15,13 @@ const Sidebar = () => {
     return (
         <aside className="sidebar">
             {/* Logo */}
-            <div className="flex items-center gap-3 mb-12 px-2">
-                <div className="text-3xl">🧩</div>
-                <div>
-                    <h2 className="text-xl font-bold text-text leading-none tracking-tight">Finday</h2>
-                    <p className="text-[11px] font-bold text-text-secondary uppercase tracking-[0.05em] mt-1">Smart Asset</p>
+            <div className="mb-12 px-2">
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary font-bold">L</div>
+                    <div>
+                        <h2 className="text-lg font-extrabold text-text-main leading-none tracking-[-0.04em]">LAKSH</h2>
+                        <p className="text-[8px] font-semibold text-text-muted uppercase tracking-[0.2em] mt-1 opacity-60">System Ledger</p>
+                    </div>
                 </div>
             </div>
 

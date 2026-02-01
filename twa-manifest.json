@@ -1,0 +1,52 @@
+{
+  "packageId": "com.laksh.finance",
+  "host": "finma-ea199.web.app",
+  "name": "LAKSH",
+  "launcherName": "LAKSH",
+  "display": "standalone",
+  "themeColor": "#6366f1",
+  "navigationColor": "#0f172a",
+  "navigationColorDark": "#0f172a",
+  "navigationDividerColor": "#1e293b",
+  "navigationDividerColorDark": "#1e293b",
+  "backgroundColor": "#f8fafc",
+  "enableNotifications": true,
+  "startUrl": "/",
+  "iconUrl": "/pwa-512x512.png",
+  "maskableIconUrl": "/pwa-512x512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android-app/laksh-release.keystore",
+    "alias": "laksh-key"
+  },
+  "appVersionCode": 1,
+  "appVersionName": "3.0.0",
+  "shortcuts": [
+    {
+      "name": "Add Transaction",
+      "shortName": "Add",
+      "url": "/transactions?action=add",
+      "icons": [
+        { "src": "/icons/add-96x96.png", "sizes": "96x96" }
+      ]
+    },
+    {
+      "name": "View Insights",
+      "shortName": "Insights",
+      "url": "/insights",
+      "icons": [
+        { "src": "/icons/insights-96x96.png", "sizes": "96x96" }
+      ]
+    }
+  ],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": true,
+  "minSdkVersion": 21,
+  "orientation": "portrait",
+  "fingerprints": []
+}

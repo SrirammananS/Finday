@@ -1,0 +1,14 @@
+R_DEF: Internal format may change without notice
+local
+color background
+color black
+color primary
+color primary_dark
+color surface
+color white
+id webView
+layout activity_main
+mipmap ic_launcher
+mipmap ic_launcher_round
+string app_name
+style Theme.LAKSH
