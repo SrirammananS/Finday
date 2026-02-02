@@ -1,7 +1,7 @@
 {
   "name": "finday",
   "private": true,
-  "version": "1.0.76",
+  "version": "1.0.81",
   "type": "module",
   "scripts": {
     "dev": "vite",

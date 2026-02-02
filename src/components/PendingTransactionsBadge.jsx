@@ -150,7 +150,7 @@ const PendingTransactionsBadge = () => {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end justify-center"
+                        className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm"
                         onClick={() => setShowModal(false)}
                     >
                         <motion.div
@@ -159,7 +159,7 @@ const PendingTransactionsBadge = () => {
                             exit={{ y: '100%' }}
                             transition={{ type: 'spring', damping: 25 }}
                             onClick={e => e.stopPropagation()}
-                            className="w-full max-w-lg bg-card border-t border-card-border rounded-t-3xl overflow-hidden"
+                            className="fixed bottom-0 left-0 right-0 w-full max-w-lg mx-auto bg-card border-t border-card-border rounded-t-3xl overflow-hidden max-h-[80vh] overflow-y-auto"
                         >
                             {/* Header */}
                             <div className="p-4 bg-primary/10 flex items-center justify-between">

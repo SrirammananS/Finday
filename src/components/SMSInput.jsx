@@ -40,7 +40,7 @@ const SMSInput = ({ isOpen, onClose }) => {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-md flex items-end md:items-center justify-center"
+                        className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-md"
                         onClick={onClose}
                     >
                         <motion.div
@@ -48,7 +48,7 @@ const SMSInput = ({ isOpen, onClose }) => {
                             animate={{ y: 0, opacity: 1 }}
                             exit={{ y: 100, opacity: 0 }}
                             onClick={e => e.stopPropagation()}
-                            className="w-full max-w-lg bg-card border border-card-border rounded-t-3xl md:rounded-2xl overflow-hidden"
+                            className="fixed bottom-0 left-0 right-0 w-full max-w-lg mx-auto bg-card border border-card-border rounded-t-3xl md:rounded-2xl overflow-hidden md:bottom-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2"
                         >
                             {/* Header */}
                             <div className="p-6 border-b border-card-border flex justify-between items-center">

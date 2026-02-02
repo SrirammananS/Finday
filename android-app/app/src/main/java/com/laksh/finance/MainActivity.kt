@@ -105,7 +105,31 @@ class MainActivity : AppCompatActivity() {
         
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                Log.d("LAKSH", "Loading URL: ${request?.url}")
+                val url = request?.url?.toString() ?: return false
+                Log.d("LAKSH", "Loading URL: $url")
+                
+                // Intercept Google OAuth URLs - must open in external browser
+                if (url.contains("accounts.google.com") || 
+                    url.contains("googleapis.com/oauth") ||
+                    url.contains("myaccount.google.com")) {
+                    Log.d("LAKSH", "Opening OAuth URL in external browser: $url")
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(intent)
+                        return true // We handled it
+                    } catch (e: Exception) {
+                        Log.e("LAKSH", "Failed to open external browser: ${e.message}")
+                    }
+                }
+                
+                // Handle deep links back to our app
+                if (url.startsWith("laksh://")) {
+                    Log.d("LAKSH", "Deep link detected: $url")
+                    return true
+                }
+                
+                // Let WebView handle everything else
                 return false
             }
             
@@ -265,18 +289,27 @@ class MainActivity : AppCompatActivity() {
                     val expiryMs = System.currentTimeMillis() + (expires.toLong() * 1000)
                     Log.d("LAKSH", "Injecting OAuth token from deep link")
                     
-                    webView.evaluateJavascript(
-                        """
-                        (function() {
-                            localStorage.setItem('google_access_token', '$token');
-                            localStorage.setItem('google_token_expiry', '$expiryMs');
-                            sessionStorage.setItem('google_access_token', '$token');
-                            sessionStorage.setItem('google_token_expiry', '$expiryMs');
-                            window.location.reload();
-                        })();
-                        """.trimIndent(),
-                        null
-                    )
+                    // Wait for WebView to be ready before injecting
+                    webView.post {
+                        webView.evaluateJavascript(
+                            """
+                            (function() {
+                                try {
+                                    localStorage.setItem('google_access_token', '$token');
+                                    localStorage.setItem('google_token_expiry', '$expiryMs');
+                                    // Set a flag to trigger auto-connect
+                                    localStorage.setItem('oauth_success_trigger', Date.now().toString());
+                                    console.log('Token injected successfully');
+                                    // Use React Router navigation if available or reload
+                                    window.location.href = '$WEB_URL/welcome';
+                                } catch(e) {
+                                    console.error('Token injection failed', e);
+                                    window.location.reload();
+                                }
+                            })();
+                            """.trimIndent(), null
+                        )
+                    }
                 }
             }
         } else {

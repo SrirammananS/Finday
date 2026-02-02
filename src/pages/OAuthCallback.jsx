@@ -154,36 +154,46 @@ export default function OAuthCallback() {
 
             {status === 'manual' && (
                 <>
-                    <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mb-6">
-                        <CheckCircle2 className="text-green-500" size={32} />
+                    <div className="w-20 h-20 bg-green-500/10 rounded-full flex items-center justify-center mb-6">
+                        <CheckCircle2 className="text-green-500" size={40} />
                     </div>
-                    <h2 className="text-xl font-bold text-text-main mb-2">Sign-in Successful!</h2>
-                    <p className="text-text-muted max-w-xs mb-6">
-                        Tap the button below to return to LAKSH app
+                    <h2 className="text-2xl font-bold text-text-main mb-2">Sign-in Successful!</h2>
+                    <p className="text-text-muted max-w-xs mb-8 text-center">
+                        Tap the button below to return to LAKSH
                     </p>
 
-                    <div className="w-full max-w-md space-y-4">
-                        {/* Primary action - Open App via deep link */}
-                        <button
-                            onClick={() => {
+                    <div className="w-full max-w-md space-y-4 px-4">
+                        {/* Primary action - Open App via deep link using anchor */}
+                        <a
+                            id="deeplink-btn"
+                            href={(() => {
                                 const hash = window.location.hash.substring(1);
-                                const deepLink = `laksh://oauth-callback#${hash}`;
-                                window.location.href = deepLink;
-                            }}
-                            className="w-full py-4 bg-primary text-primary-foreground rounded-xl font-bold text-lg"
+                                // Try Intent URL format for better Android compatibility
+                                const intentUrl = `intent://oauth-callback#${hash}#Intent;scheme=laksh;package=com.laksh.finance;end`;
+                                return intentUrl;
+                            })()}
+                            className="block w-full py-5 bg-primary text-primary-foreground rounded-2xl font-bold text-xl text-center shadow-lg shadow-primary/30"
                         >
                             📱 Open LAKSH App
-                        </button>
+                        </a>
+
+                        {/* Alternative - direct deep link */}
+                        <a
+                            href={`laksh://oauth-callback${window.location.hash}`}
+                            className="block w-full py-4 bg-canvas-subtle border border-card-border text-text-main rounded-xl font-medium text-center"
+                        >
+                            Alternative: Try Direct Link
+                        </a>
 
                         {/* Fallback - Copy URL */}
                         <div className="p-4 bg-card rounded-xl border border-card-border">
-                            <p className="text-xs text-text-muted mb-2">If the button doesn't work:</p>
+                            <p className="text-xs text-text-muted mb-3 text-center">If buttons don't work, copy and paste in app:</p>
                             <button
                                 onClick={handleCopyUrl}
                                 className="w-full py-3 bg-canvas-subtle text-text-main rounded-lg font-medium flex items-center justify-center gap-2"
                             >
                                 <Copy size={16} />
-                                {copied ? 'Copied!' : 'Copy URL & Go Back Manually'}
+                                {copied ? 'Copied! Now go back to app' : 'Copy Token URL'}
                             </button>
                         </div>
                     </div>

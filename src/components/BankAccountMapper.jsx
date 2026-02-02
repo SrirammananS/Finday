@@ -11,7 +11,7 @@ const BankAccountMapper = ({ isOpen, onClose, detectedBank, accounts, onMappingC
         if (selectedAccountId && rememberChoice) {
             smsParser.saveBankAccountMapping(detectedBank, selectedAccountId);
         }
-        
+
         const selectedAccount = accounts.find(acc => acc.id === selectedAccountId);
         onMappingComplete(selectedAccount, rememberChoice);
         onClose();
@@ -30,14 +30,14 @@ const BankAccountMapper = ({ isOpen, onClose, detectedBank, accounts, onMappingC
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] flex items-center justify-center p-4"
+                className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999]"
                 onClick={(e) => e.target === e.currentTarget && onClose()}
             >
                 <motion.div
                     initial={{ scale: 0.9, opacity: 0, y: 20 }}
                     animate={{ scale: 1, opacity: 1, y: 0 }}
                     exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                    className="w-full max-w-md bg-card-bg/95 backdrop-blur-md border border-card-border rounded-2xl shadow-2xl overflow-hidden"
+                    className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md mx-4 bg-card/95 backdrop-blur-md border border-card-border rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] overflow-y-auto"
                     onClick={e => e.stopPropagation()}
                 >
                     {/* Header */}
@@ -82,11 +82,10 @@ const BankAccountMapper = ({ isOpen, onClose, detectedBank, accounts, onMappingC
                                 {accounts.map((account) => (
                                     <label
                                         key={account.id}
-                                        className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
-                                            selectedAccountId === account.id
+                                        className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${selectedAccountId === account.id
                                                 ? 'border-primary bg-primary/10'
                                                 : 'border-card-border hover:border-card-border/60'
-                                        }`}
+                                            }`}
                                     >
                                         <input
                                             type="radio"
@@ -96,11 +95,10 @@ const BankAccountMapper = ({ isOpen, onClose, detectedBank, accounts, onMappingC
                                             onChange={(e) => setSelectedAccountId(e.target.value)}
                                             className="sr-only"
                                         />
-                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                                            selectedAccountId === account.id
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedAccountId === account.id
                                                 ? 'border-primary bg-primary'
                                                 : 'border-card-border'
-                                        }`}>
+                                            }`}>
                                             {selectedAccountId === account.id && (
                                                 <div className="w-2 h-2 rounded-full bg-white" />
                                             )}

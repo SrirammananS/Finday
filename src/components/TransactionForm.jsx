@@ -133,13 +133,13 @@ const TransactionForm = ({ onClose, editTransaction }) => {
     const creditCards = accounts.filter(a => a.type === 'credit');
 
     return (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 md:p-6">
+        <div className="fixed inset-0 z-[10000] flex items-start md:items-center justify-center p-4 pt-16 md:p-6 overflow-y-auto">
             <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={onClose}
-                className="absolute inset-0 bg-black/70 backdrop-blur-md"
+                className="fixed inset-0 bg-black/70 backdrop-blur-md"
             />
 
             <motion.div
@@ -148,7 +148,7 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.9, opacity: 0, y: 20 }}
                 transition={{ type: "spring", damping: 30, stiffness: 300 }}
-                className="form-sheet relative w-full max-w-lg bg-card border border-card-border rounded-2xl shadow-2xl flex flex-col max-h-[85vh] md:max-h-[80vh] overflow-hidden"
+                className="form-sheet relative w-full max-w-lg bg-card border border-card-border rounded-2xl shadow-2xl flex flex-col max-h-[85vh] md:max-h-[80vh] overflow-hidden my-auto"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}

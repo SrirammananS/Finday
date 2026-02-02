@@ -1,74 +1,112 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { Cloud, Database, RefreshCw, CheckCircle } from 'lucide-react';
+
+const loadingSteps = [
+    { id: 1, text: 'Connecting to Google...', icon: Cloud },
+    { id: 2, text: 'Loading your accounts...', icon: Database },
+    { id: 3, text: 'Fetching transactions...', icon: RefreshCw },
+    { id: 4, text: 'Almost ready...', icon: CheckCircle },
+];
 
 const SkeletonDashboard = () => {
+    const [currentStep, setCurrentStep] = useState(0);
+    const [progress, setProgress] = useState(0);
+
+    useEffect(() => {
+        // Animate through steps
+        const stepInterval = setInterval(() => {
+            setCurrentStep(prev => {
+                if (prev < loadingSteps.length - 1) {
+                    return prev + 1;
+                }
+                return prev;
+            });
+        }, 1500);
+
+        // Animate progress bar
+        const progressInterval = setInterval(() => {
+            setProgress(prev => {
+                if (prev < 90) {
+                    return prev + Math.random() * 10;
+                }
+                return prev;
+            });
+        }, 500);
+
+        return () => {
+            clearInterval(stepInterval);
+            clearInterval(progressInterval);
+        };
+    }, []);
+
+    const CurrentIcon = loadingSteps[currentStep]?.icon || Cloud;
+
     return (
-        <div className="px-4 py-8 md:px-6 md:py-16 max-w-4xl mx-auto min-h-screen pb-40 animate-pulse">
-            {/* Header Skeleton */}
-            <div className="flex justify-between items-end mb-8 md:mb-12">
-                <div>
-                    <div className="h-3 w-32 bg-card-border/50 rounded mb-2"></div>
-                    <div className="h-10 md:h-14 w-48 bg-card-border/50 rounded"></div>
-                </div>
-                <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-card-border/50"></div>
-            </div>
+        <div className="min-h-screen bg-canvas flex flex-col items-center justify-center p-6">
+            {/* Main Loading Container */}
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-center max-w-sm w-full"
+            >
+                {/* Logo/Icon */}
+                <motion.div
+                    animate={{ scale: [1, 1.05, 1] }}
+                    transition={{ repeat: Infinity, duration: 2 }}
+                    className="w-20 h-20 mx-auto mb-8 bg-primary/10 rounded-full flex items-center justify-center"
+                >
+                    <motion.div
+                        key={currentStep}
+                        initial={{ scale: 0, rotate: -180 }}
+                        animate={{ scale: 1, rotate: 0 }}
+                        transition={{ type: 'spring', damping: 15 }}
+                    >
+                        <CurrentIcon size={32} className="text-primary" />
+                    </motion.div>
+                </motion.div>
 
-            {/* Main Balance Card Skeleton */}
-            <div className="modern-card p-7 md:p-8 mb-8 md:mb-10 bg-canvas-subtle border-none">
-                <div className="h-3 w-24 bg-card-border rounded mb-4"></div>
-                <div className="h-12 md:h-16 w-64 bg-card-border rounded mb-8"></div>
-                <div className="flex gap-8 border-t border-card-border/30 pt-6">
-                    <div>
-                        <div className="h-3 w-16 bg-card-border rounded mb-2"></div>
-                        <div className="h-6 w-24 bg-card-border rounded"></div>
-                    </div>
-                    <div>
-                        <div className="h-3 w-16 bg-card-border rounded mb-2"></div>
-                        <div className="h-6 w-24 bg-card-border rounded"></div>
-                    </div>
-                </div>
-            </div>
+                {/* App Name */}
+                <h1 className="text-3xl font-black text-text-main mb-2 tracking-tight">LAKSH</h1>
 
-            {/* Accounts Ribbon Skeleton */}
-            <div className="mb-8">
-                <div className="flex justify-between items-center mb-4 ml-1">
-                    <div className="h-3 w-24 bg-card-border/50 rounded"></div>
-                    <div className="h-3 w-16 bg-card-border/50 rounded"></div>
+                {/* Current Step */}
+                <motion.p
+                    key={currentStep}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-sm text-text-muted mb-8"
+                >
+                    {loadingSteps[currentStep]?.text}
+                </motion.p>
+
+                {/* Progress Bar */}
+                <div className="w-full h-1.5 bg-card-border/30 rounded-full overflow-hidden mb-6">
+                    <motion.div
+                        className="h-full bg-gradient-to-r from-primary to-primary/60 rounded-full"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${Math.min(progress, 95)}%` }}
+                        transition={{ ease: 'easeOut' }}
+                    />
                 </div>
-                <div className="flex gap-4 overflow-x-hidden pb-4">
-                    {[1, 2, 3].map((i) => (
-                        <div key={i} className="flex-shrink-0 w-48 p-5 modern-card bg-canvas-subtle border-none h-32 flex flex-col justify-between">
-                            <div className="w-8 h-8 rounded-lg bg-card-border/50"></div>
-                            <div>
-                                <div className="h-3 w-20 bg-card-border/50 rounded mb-2"></div>
-                                <div className="h-6 w-32 bg-card-border/50 rounded"></div>
-                            </div>
-                        </div>
+
+                {/* Step Indicators */}
+                <div className="flex justify-center gap-2">
+                    {loadingSteps.map((step, index) => (
+                        <motion.div
+                            key={step.id}
+                            className={`w-2 h-2 rounded-full transition-colors duration-300 ${index <= currentStep ? 'bg-primary' : 'bg-card-border/50'
+                                }`}
+                            animate={index === currentStep ? { scale: [1, 1.3, 1] } : {}}
+                            transition={{ repeat: Infinity, duration: 1 }}
+                        />
                     ))}
                 </div>
-            </div>
 
-            {/* Recent Activity Skeleton */}
-            <div className="mb-10">
-                <div className="flex justify-between items-center mb-6">
-                    <div className="h-3 w-32 bg-card-border/50 rounded"></div>
-                    <div className="h-3 w-16 bg-card-border/50 rounded"></div>
-                </div>
-
-                <div className="space-y-3">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                        <div key={i} className="modern-card p-4 flex items-center justify-between bg-canvas-subtle border-none">
-                            <div className="flex items-center gap-4 w-full">
-                                <div className="w-10 h-10 rounded-xl bg-card-border/50 flex-shrink-0"></div>
-                                <div className="space-y-2 w-full max-w-[200px]">
-                                    <div className="h-4 w-3/4 bg-card-border/50 rounded"></div>
-                                    <div className="h-3 w-1/2 bg-card-border/50 rounded"></div>
-                                </div>
-                            </div>
-                            <div className="h-5 w-20 bg-card-border/50 rounded ml-4"></div>
-                        </div>
-                    ))}
-                </div>
-            </div>
+                {/* Tip */}
+                <p className="text-[10px] text-text-muted/50 mt-8">
+                    Syncing your financial data securely
+                </p>
+            </motion.div>
         </div>
     );
 };

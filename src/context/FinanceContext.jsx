@@ -156,6 +156,7 @@ export const FinanceProvider = ({ children }) => {
             }
         } finally {
             setIsSyncing(false);
+            setIsLoading(false); // Ensure loading state is cleared
         }
     }, [config.spreadsheetId, isGuest, toast]);
 
@@ -235,6 +236,19 @@ export const FinanceProvider = ({ children }) => {
     useEffect(() => {
         const autoConnect = async () => {
             if (!isMountedRef.current) return;
+
+            // Skip auto-connect if already connected - prevents blinking on navigation
+            const savedId = storage.get(STORAGE_KEYS.SPREADSHEET_ID) || localStorage.getItem('finday_spreadsheet_id');
+            const savedToken = localStorage.getItem('google_access_token');
+            const tokenExpiry = localStorage.getItem('google_token_expiry');
+            const isTokenValid = savedToken && tokenExpiry && Date.now() < parseInt(tokenExpiry);
+
+            if (savedId && isTokenValid && isConnected) {
+                console.log('[LAKSH] Already connected, skipping autoConnect');
+                setIsLoading(false);
+                return;
+            }
+
             setIsLoading(true);
             let hasCachedData = false;
 
@@ -388,15 +402,28 @@ export const FinanceProvider = ({ children }) => {
             // Check if user has selected a spreadsheet (from Welcome page)
             const savedSpreadsheetId = storage.get(STORAGE_KEYS.SPREADSHEET_ID) || localStorage.getItem('finday_spreadsheet_id');
 
+            // Check for token directly in localStorage (important for Android WebView)
+            const directToken = localStorage.getItem('google_access_token');
+            const directExpiry = localStorage.getItem('google_token_expiry');
+            const hasValidDirectToken = directToken && directExpiry && Date.now() < parseInt(directExpiry);
+
+            console.log('[LAKSH] Auth check:', {
+                savedSpreadsheetId: !!savedSpreadsheetId,
+                cloudBackupSignedIn: cloudBackup.isSignedIn(),
+                cloudBackupToken: !!cloudBackup.accessToken,
+                hasValidDirectToken,
+                hasCachedData
+            });
+
             // If we have a spreadsheet ID and some form of authentication, proceed
-            if (savedSpreadsheetId && (cloudBackup.isSignedIn() || cloudBackup.accessToken || hasCachedData)) {
+            if (savedSpreadsheetId && (cloudBackup.isSignedIn() || cloudBackup.accessToken || hasValidDirectToken || hasCachedData)) {
                 if (isMountedRef.current) {
                     setConfig(prev => ({ ...prev, spreadsheetId: savedSpreadsheetId }));
                 }
 
                 // Try to get user info, but don't fail if it's not available
                 let user = cloudBackup.getUser();
-                if (!user && cloudBackup.accessToken) {
+                if (!user && (cloudBackup.accessToken || hasValidDirectToken)) {
                     // We have a token but no user info, that's okay for now
                     user = { id: 'temp_user' };
                 } else if (!user && hasCachedData) {
@@ -415,9 +442,13 @@ export const FinanceProvider = ({ children }) => {
                             setIsGuest(false);
                             storage.set(STORAGE_KEYS.GUEST_MODE, 'false');
                         }
-                        // Trigger initial sync if online
-                        if (cloudBackup.isSignedIn() || cloudBackup.accessToken) {
+                        // Trigger initial sync if we have any valid token
+                        if (cloudBackup.isSignedIn() || cloudBackup.accessToken || hasValidDirectToken) {
+                            console.log('[LAKSH] Triggering data refresh...');
                             refreshData(savedSpreadsheetId);
+                        } else {
+                            console.log('[LAKSH] No valid token, skipping refresh');
+                            setIsLoading(false);
                         }
                     }
                 } else {

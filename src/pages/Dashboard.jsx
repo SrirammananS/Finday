@@ -160,7 +160,7 @@ const Dashboard = () => {
             <motion.main
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="px-4 py-8 md:px-6 md:py-16 max-w-4xl mx-auto min-h-screen pb-40"
+                className="px-4 py-6 md:px-6 md:py-16 max-w-4xl mx-auto min-h-screen pb-32"
             >
                 <header className="flex items-center justify-between mb-8">
                     <div className="flex flex-col">
@@ -184,24 +184,24 @@ const Dashboard = () => {
                     <TransactionDetectorUI />
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 mb-6 items-start">
-                    <button onClick={() => setShowTransactionForm(true)} className="flex flex-col items-center gap-1.5 group w-full">
-                        <div className="w-full aspect-square md:w-16 md:h-16 rounded-2xl bg-secondary text-secondary-foreground flex items-center justify-center shadow-lg hover:scale-105 transition-transform border border-secondary">
-                            <Plus size={20} strokeWidth={2.5} />
+                <div className="flex justify-center gap-4 mb-6">
+                    <button onClick={() => setShowTransactionForm(true)} className="flex flex-col items-center gap-1.5 group">
+                        <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-secondary text-secondary-foreground flex items-center justify-center shadow-lg hover:scale-105 transition-transform border border-secondary">
+                            <Plus size={22} strokeWidth={2.5} />
                         </div>
-                        <span className="text-[8px] font-bold uppercase tracking-widest text-text-muted text-center">NEW</span>
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted">New</span>
                     </button>
-                    <button onClick={() => setIsAIModalOpen(true)} className="flex flex-col items-center gap-1.5 group w-full">
-                        <div className="w-full aspect-square md:w-16 md:h-16 rounded-2xl bg-canvas-subtle border border-card-border flex items-center justify-center group-hover:border-primary transition-all group-hover:scale-105">
-                            <Search size={20} className="text-primary" />
+                    <button onClick={() => setIsAIModalOpen(true)} className="flex flex-col items-center gap-1.5 group">
+                        <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-canvas-subtle border border-card-border flex items-center justify-center group-hover:border-primary transition-all group-hover:scale-105">
+                            <Search size={22} className="text-primary" />
                         </div>
-                        <span className="text-[8px] font-bold uppercase tracking-widest text-text-muted text-center">SCAN</span>
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted">Scan</span>
                     </button>
-                    <Link to="/accounts" className="flex flex-col items-center gap-1.5 group no-underline w-full">
-                        <div className="w-full aspect-square md:w-16 md:h-16 rounded-2xl bg-canvas-subtle border border-card-border flex items-center justify-center group-hover:border-primary transition-all group-hover:scale-105">
-                            <ArrowLeftRight size={20} className="text-text-main" />
+                    <Link to="/accounts" className="flex flex-col items-center gap-1.5 group no-underline">
+                        <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-canvas-subtle border border-card-border flex items-center justify-center group-hover:border-primary transition-all group-hover:scale-105">
+                            <ArrowLeftRight size={22} className="text-text-main" />
                         </div>
-                        <span className="text-[8px] font-bold uppercase tracking-widest text-text-muted text-center">TRANSFER</span>
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted">Transfer</span>
                     </Link>
                 </div>
 
