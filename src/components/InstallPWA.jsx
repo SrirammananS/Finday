@@ -13,10 +13,10 @@ const InstallPWA = () => {
 
     return (
         <div className="fixed bottom-20 left-4 right-4 z-50 animate-in slide-in-from-bottom-4">
-            <div className="card-lg bg-indigo-600 text-white p-4 shadow-2xl flex items-center justify-between border-none">
+            <div className="card-lg bg-primary text-primary-foreground p-4 shadow-2xl flex items-center justify-between border-none">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                        <Download size={20} className="text-white" />
+                        <Download size={20} className="text-primary-foreground" />
                     </div>
                     <div>
                         <p className="text-sm font-black">Install FinFlow</p>
@@ -26,7 +26,7 @@ const InstallPWA = () => {
                 <div className="flex items-center gap-2">
                     <button
                         onClick={installPWA}
-                        className="btn bg-white text-indigo-600 border-none px-4 py-2 rounded-xl text-xs font-black shadow-sm"
+                        className="btn bg-canvas text-text-main border-none px-4 py-2 rounded-xl text-xs font-black shadow-sm"
                     >
                         Install
                     </button>

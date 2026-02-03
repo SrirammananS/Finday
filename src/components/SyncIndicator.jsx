@@ -67,7 +67,7 @@ const SyncIndicator = () => {
         <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-card border border-card-border"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-xl border border-white/10 shadow-lg"
         >
             <AnimatePresence mode="wait">
                 <motion.div
@@ -77,7 +77,7 @@ const SyncIndicator = () => {
                     exit={{ scale: 0 }}
                     className="relative"
                 >
-                    <div className={`w-2 h-2 rounded-full ${color}`} />
+                    <div className={`w-2 h-2 rounded-full ${color} shadow-[0_0_8px_currentColor]`} />
                     {isSyncing && (
                         <motion.div
                             className={`absolute inset-0 w-2 h-2 rounded-full ${color}`}
@@ -87,12 +87,12 @@ const SyncIndicator = () => {
                     )}
                 </motion.div>
             </AnimatePresence>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">
+            <span className="text-[9px] font-black uppercase tracking-widest text-text-muted">
                 {label}
             </span>
             <Icon
-                size={14}
-                className={`text-text-muted ${isSyncing ? 'animate-spin' : ''}`}
+                size={12}
+                className={`text-text-muted/50 ${isSyncing ? 'animate-spin' : ''}`}
             />
         </motion.div>
     );

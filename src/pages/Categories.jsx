@@ -1,12 +1,26 @@
 import React, { useState } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, X, Trash2, Tag, Fingerprint, Layers, Sparkles } from 'lucide-react';
+import { Plus, X, Trash2, Tag, Fingerprint, Layers, Sparkles, TrendingUp, TrendingDown, PieChart } from 'lucide-react';
 
 const Categories = () => {
-    const { categories = [], addCategory, deleteCategory, isLoading } = useFinance();
+    const { categories = [], transactions = [], addCategory, deleteCategory, isLoading } = useFinance();
     const [showModal, setShowModal] = useState(false);
     const [form, setForm] = useState({ name: '', icon: '📦', color: '#CCFF00' });
+
+    const formatCurrency = (amount) => {
+        return new Intl.NumberFormat('en-IN', {
+            style: 'currency',
+            currency: 'INR',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(Math.abs(amount) || 0);
+    };
+
+    const incomeList = transactions.filter(t => t.type === 'income' || t.amount > 0);
+    const expenses = transactions.filter(t => t.type === 'expense' || t.amount < 0);
+    const totalIncome = incomeList.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    const totalExpenses = expenses.reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
     React.useEffect(() => {
         if (showModal) document.body.classList.add('overflow-hidden');
@@ -21,14 +35,14 @@ const Categories = () => {
     };
 
     if (isLoading) return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-black">
+        <div className="flex flex-col items-center justify-center min-h-screen bg-canvas">
             <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }} className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full" />
         </div>
     );
 
     return (
-        <div className="min-h-screen bg-black text-white selection:bg-primary selection:text-black">
-            <div className="fixed inset-0 pointer-events-none opacity-[0.03] bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
+        <div className="min-h-screen text-text-main selection:bg-primary selection:text-black">
+            {/* Background handled by Layout */}
 
             <motion.main
                 initial={{ opacity: 0 }}
@@ -78,14 +92,14 @@ const Categories = () => {
                         </div>
                         <span className="text-[10px] font-black uppercase tracking-[0.4em] text-text-muted">Classification</span>
                     </div>
-                    <h1 className="text-xl font-black tracking-[-0.04em] leading-none mb-1 transition-all text-white uppercase">
+                    <h1 className="text-xl font-black tracking-[-0.04em] leading-none mb-1 transition-all text-text-main uppercase">
                         Categories
                     </h1>
                     <p className="text-[8px] font-semibold text-text-muted uppercase tracking-[0.4em] opacity-60">Classification Framework</p>
                 </header>
 
                 {/* Categories Grid */}
-                <div className="grid grid-cols-3 md:grid-cols-4 gap-2 md:gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4">
                     {categories.map((cat, idx) => (
                         <motion.div
                             key={String(cat.name)}
@@ -95,10 +109,10 @@ const Categories = () => {
                             className="group relative"
                         >
                             <div className="absolute -inset-[1px] rounded-[2rem] bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-500" />
-                            <div className="relative aspect-square p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex flex-col items-center justify-center gap-2 transition-all group-hover:bg-white/[0.06] group-hover:-translate-y-1">
+                            <div className="relative aspect-square p-4 rounded-2xl bg-card border border-card-border flex flex-col items-center justify-center gap-2 transition-all group-hover:bg-canvas-elevated group-hover:-translate-y-1">
                                 <span className="text-3xl group-hover:scale-125 transition-transform duration-500">{cat.icon}</span>
                                 <div className="text-center">
-                                    <h3 className="text-sm font-black uppercase tracking-tighter text-white/80 group-hover:text-white transition-colors">{cat.name}</h3>
+                                    <h3 className="text-sm font-black uppercase tracking-tighter text-text-main group-hover:text-primary transition-colors">{cat.name}</h3>
                                     <div className="flex items-center justify-center gap-1.5 mt-2 opacity-30 group-hover:opacity-60 transition-all">
                                         <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cat.color }} />
                                         <span className="text-[8px] font-black uppercase tracking-widest">Active Link</span>
@@ -117,13 +131,13 @@ const Categories = () => {
 
                     <motion.button
                         onClick={() => setShowModal(true)}
-                        className="group relative aspect-square p-4 rounded-2xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center gap-2 transition-all hover:border-primary/50 hover:bg-primary/[0.02]"
+                        className="group relative aspect-square p-4 rounded-2xl border-2 border-dashed border-card-border flex flex-col items-center justify-center gap-2 transition-all hover:border-primary/50 hover:bg-primary/[0.02]"
                     >
-                        <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-text-muted group-hover:bg-primary group-hover:text-black transition-all">
+                        <div className="w-10 h-10 rounded-full bg-canvas-subtle border border-card-border flex items-center justify-center text-text-muted group-hover:bg-primary group-hover:text-black transition-all">
                             <Plus size={20} />
                         </div>
                         <div className="text-center">
-                            <h3 className="text-sm font-black uppercase tracking-tighter text-text-muted group-hover:text-white">New Tag</h3>
+                            <h3 className="text-sm font-black uppercase tracking-tighter text-text-muted group-hover:text-text-main">New Tag</h3>
                             <p className="text-[8px] font-black uppercase tracking-widest text-text-muted/40 mt-1">Create Category</p>
                         </div>
                     </motion.button>
@@ -145,7 +159,7 @@ const Categories = () => {
                             initial={{ y: '100%', opacity: 0 }}
                             animate={{ y: 0, opacity: 1 }}
                             exit={{ y: '100%', opacity: 0 }}
-                            className="relative bg-[#050505] border border-white/10 p-8 md:p-16 rounded-t-[3rem] md:rounded-[4rem] w-full max-w-xl shadow-3xl overflow-hidden"
+                            className="relative bg-card border border-card-border p-8 md:p-16 rounded-t-[3rem] md:rounded-[4rem] w-full max-w-xl shadow-3xl overflow-hidden"
                             onClick={e => e.stopPropagation()}
                         >
                             <div className="absolute top-0 right-0 p-16 opacity-[0.02] pointer-events-none">
@@ -154,8 +168,8 @@ const Categories = () => {
 
                             <div className="relative z-10">
                                 <div className="flex justify-between items-center mb-12">
-                                    <h2 className="text-2xl md:text-3xl font-black tracking-tighter text-white">NEW SIGNAL TAG</h2>
-                                    <button onClick={() => setShowModal(false)} className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-all">
+                                    <h2 className="text-2xl md:text-3xl font-black tracking-tighter text-text-main">NEW SIGNAL TAG</h2>
+                                    <button onClick={() => setShowModal(false)} className="w-12 h-12 rounded-full bg-canvas-subtle border border-card-border flex items-center justify-center hover:bg-canvas-elevated transition-all">
                                         <X size={24} />
                                     </button>
                                 </div>
@@ -168,7 +182,7 @@ const Categories = () => {
                                             placeholder="e.g. LUXURY"
                                             value={form.name}
                                             onChange={e => setForm({ ...form, name: e.target.value })}
-                                            className="w-full h-20 bg-white/5 border border-white/10 px-8 rounded-3xl outline-none focus:border-primary transition-all font-black text-xl text-white uppercase tracking-widest"
+                                            className="w-full h-20 bg-canvas-subtle border border-card-border px-8 rounded-3xl outline-none focus:border-primary transition-all font-black text-xl text-text-main uppercase tracking-widest"
                                             required
                                         />
                                     </div>
@@ -181,13 +195,13 @@ const Categories = () => {
                                                 placeholder="Emoji"
                                                 value={form.icon}
                                                 onChange={e => setForm({ ...form, icon: e.target.value })}
-                                                className="w-full h-20 bg-white/5 border border-white/10 px-8 rounded-3xl outline-none focus:border-primary transition-all font-black text-3xl text-center"
+                                                className="w-full h-20 bg-canvas-subtle border border-card-border px-8 rounded-3xl outline-none focus:border-primary transition-all font-black text-3xl text-center"
                                                 required
                                             />
                                         </div>
                                         <div className="space-y-4">
                                             <label className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted ml-4 block">Color Node</label>
-                                            <div className="h-20 w-full bg-white/5 border border-white/10 rounded-3xl p-3 flex items-center justify-center cursor-pointer relative">
+                                            <div className="h-20 w-full bg-canvas-subtle border border-card-border rounded-3xl p-3 flex items-center justify-center cursor-pointer relative">
                                                 <input
                                                     type="color"
                                                     value={form.color}
@@ -205,7 +219,7 @@ const Categories = () => {
                                         <button type="submit" className="h-20 bg-primary text-black flex-1 rounded-3xl font-black text-lg uppercase tracking-widest shadow-[0_0_50px_rgba(16,185,129,0.3)] hover:shadow-[0_0_60px_rgba(16,185,129,0.5)] transition-all">
                                             ADD CATEGORY
                                         </button>
-                                        <button type="button" onClick={() => setShowModal(false)} className="h-20 px-12 rounded-3xl border border-white/10 text-[10px] font-black uppercase tracking-widest hover:bg-white/5 transition-all">
+                                        <button type="button" onClick={() => setShowModal(false)} className="h-20 px-12 rounded-3xl border border-card-border text-[10px] font-black uppercase tracking-widest hover:bg-canvas-subtle transition-all">
                                             CANCEL
                                         </button>
                                     </div>

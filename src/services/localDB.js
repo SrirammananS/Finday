@@ -2,12 +2,13 @@
 // Implements stale-while-revalidate pattern for PWA
 
 const DB_NAME = 'laksh_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORES = {
     transactions: 'transactions',
     accounts: 'accounts',
     categories: 'categories',
     bills: 'bills',
+    billPayments: 'billPayments',
     meta: 'meta'
 };
 
@@ -54,6 +55,9 @@ class LocalDB {
                 }
                 if (!db.objectStoreNames.contains(STORES.bills)) {
                     db.createObjectStore(STORES.bills, { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains(STORES.billPayments)) {
+                    db.createObjectStore(STORES.billPayments, { keyPath: 'id' });
                 }
                 if (!db.objectStoreNames.contains(STORES.meta)) {
                     db.createObjectStore(STORES.meta, { keyPath: 'key' });
@@ -103,11 +107,12 @@ class LocalDB {
 
     async loadData() {
         try {
-            const [transactions, accounts, categories, bills, lastSync] = await Promise.all([
+            const [transactions, accounts, categories, bills, billPayments, lastSync] = await Promise.all([
                 this.getAll(STORES.transactions),
                 this.getAll(STORES.accounts),
                 this.getAll(STORES.categories),
                 this.getAll(STORES.bills),
+                this.getAll(STORES.billPayments),
                 this.get(STORES.meta, 'lastSync')
             ]);
 
@@ -116,6 +121,7 @@ class LocalDB {
                 accounts,
                 categories,
                 bills,
+                billPayments,
                 lastSync: lastSync?.value
             };
         } catch (error) {
@@ -125,6 +131,7 @@ class LocalDB {
                 accounts: [],
                 categories: [],
                 bills: [],
+                billPayments: [],
                 lastSync: null
             };
         }
@@ -202,11 +209,12 @@ class LocalDB {
      */
     async getAllData() {
         try {
-            const [transactions, accounts, categories, bills, lastSyncTime] = await Promise.all([
+            const [transactions, accounts, categories, bills, billPayments, lastSyncTime] = await Promise.all([
                 this.getAll(STORES.transactions),
                 this.getAll(STORES.accounts),
                 this.getAll(STORES.categories),
                 this.getAll(STORES.bills),
+                this.getAll(STORES.billPayments),
                 this.getMeta('lastSyncTime')
             ]);
 
@@ -217,26 +225,28 @@ class LocalDB {
                 accounts,
                 categories,
                 bills,
+                billPayments,
                 lastSyncTime,
                 isStale,
-                hasData: transactions.length > 0 || accounts.length > 0
+                hasData: transactions.length > 0 || accounts.length > 0 || billPayments.length > 0
             };
         } catch (e) {
             console.error('[LAKSH DB] getAllData failed:', e);
-            return { transactions: [], accounts: [], categories: [], bills: [], lastSyncTime: null, isStale: true, hasData: false };
+            return { transactions: [], accounts: [], categories: [], bills: [], billPayments: [], lastSyncTime: null, isStale: true, hasData: false };
         }
     }
 
     /**
      * Save all data after sync
      */
-    async saveData({ transactions, accounts, categories, bills }) {
+    async saveData({ transactions, accounts, categories, bills, billPayments }) {
         try {
             await Promise.all([
-                this.putAll(STORES.transactions, transactions),
-                this.putAll(STORES.accounts, accounts),
-                this.putAll(STORES.categories, categories),
-                this.putAll(STORES.bills, bills),
+                this.putAll(STORES.transactions, transactions || []),
+                this.putAll(STORES.accounts, accounts || []),
+                this.putAll(STORES.categories, categories || []),
+                this.putAll(STORES.bills, bills || []),
+                this.putAll(STORES.billPayments, billPayments || []),
                 this.setMeta('lastSyncTime', new Date().toISOString())
             ]);
             console.log('[LAKSH DB] Data cached successfully');
@@ -257,6 +267,7 @@ class LocalDB {
                 this.clear(STORES.accounts),
                 this.clear(STORES.categories),
                 this.clear(STORES.bills),
+                this.clear(STORES.billPayments),
                 this.clear(STORES.meta)
             ]);
             console.log('[LAKSH DB] Cache cleared');

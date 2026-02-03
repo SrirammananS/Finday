@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import tailwindcss from '@tailwindcss/vite'
 import { readFileSync } from 'fs';
+import typegpu from 'unplugin-typegpu/vite';
 
 // Read version from package.json and add timestamp
 const packageJson = JSON.parse(readFileSync('./package.json', 'utf8'));
@@ -13,6 +14,7 @@ process.env.VITE_APP_VERSION = version;
 
 export default defineConfig({
   plugins: [
+    typegpu(),
     tailwindcss(),
     react(),
     // Security headers plugin for production
@@ -144,19 +146,19 @@ export default defineConfig({
         manualChunks: {
           // React ecosystem
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          
+
           // UI and animation libraries
           'ui-vendor': ['framer-motion', 'lucide-react'],
-          
+
           // Animation and scroll libraries
           'animation-vendor': ['gsap', 'lenis'],
-          
+
           // Date/time utilities
           'date-vendor': ['date-fns'],
-          
+
           // Chart and visualization
           'chart-vendor': ['recharts'],
-          
+
           // Utilities
           'utils-vendor': ['uuid', 'idb'],
         }

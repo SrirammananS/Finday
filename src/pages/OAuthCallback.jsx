@@ -64,6 +64,9 @@ export default function OAuthCallback() {
 
                 // Fallback for storage event listeners
                 localStorage.setItem('oauth_success_trigger', Date.now().toString());
+                
+                // Set flag to trigger data refresh after navigation
+                localStorage.setItem('oauth_refresh_required', 'true');
 
                 setStatus('success');
 
@@ -73,7 +76,10 @@ export default function OAuthCallback() {
 
                 if (isInAppWebView) {
                     // We're IN the WebView, token is saved, redirect directly
-                    setTimeout(() => navigate('/welcome', { replace: true }), 1500);
+                    // Force a reload to ensure the app picks up the new token
+                    setTimeout(() => {
+                        window.location.href = '/welcome';
+                    }, 1500);
                 } else if (isAndroidExternalBrowser) {
                     // We're in Chrome/external browser
                     // Try to redirect to the app using deep link

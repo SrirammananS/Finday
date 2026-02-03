@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { sheetsService } from '../services/sheets';
 import { transactionDetector } from '../services/transactionDetector';
 import { localDB } from '../services/localDB';
@@ -6,6 +6,8 @@ import { recurringService } from '../services/recurringService';
 import { storage, STORAGE_KEYS } from '../services/storage';
 import { importWithRetry } from '../utils/lazyRetry';
 import { enrichTransaction } from '../services/smsParser';
+import { friendsService } from '../services/friendsService';
+import { format, subMonths, startOfMonth, endOfMonth, isWithinInterval, parseISO, subDays, addDays } from 'date-fns';
 
 const FinanceContext = createContext();
 
@@ -32,12 +34,14 @@ const isAndroidWebView = () => {
 
 export const FinanceProvider = ({ children }) => {
     const isMountedRef = useRef(true);
+    const generatedBuffer = useRef(new Set());
     const [isGuest, setIsGuest] = useState(() => {
         const hasSheet = !!(storage.get(STORAGE_KEYS.SPREADSHEET_ID) || localStorage.getItem('finday_spreadsheet_id'));
         return storage.getBool(STORAGE_KEYS.GUEST_MODE) && !hasSheet;
     });
     const [isConnected, setIsConnected] = useState(!!(storage.get(STORAGE_KEYS.SPREADSHEET_ID) || localStorage.getItem('finday_spreadsheet_id')) || storage.getBool(STORAGE_KEYS.GUEST_MODE));
     const [isLoading, setIsLoading] = useState(true);
+    const [loadingStatus, setLoadingStatus] = useState({ step: 0, message: 'Initializing...', error: null });
     const [isSyncing, setIsSyncing] = useState(false);
     const [lastSyncTime, setLastSyncTime] = useState(null);
     const [error, setError] = useState(null);
@@ -52,6 +56,7 @@ export const FinanceProvider = ({ children }) => {
     const [accounts, setAccounts] = useState([]);
     const [categories, setCategories] = useState([]);
     const [bills, setBills] = useState([]);
+    const [billPayments, setBillPayments] = useState([]);
     const [closedPeriods, setClosedPeriods] = useState(storage.getJSON(STORAGE_KEYS.CLOSED_PERIODS) || []);
     const [secretUnlocked, setSecretUnlocked] = useState(false);
     const [config, setConfig] = useState({
@@ -60,6 +65,37 @@ export const FinanceProvider = ({ children }) => {
         currency: 'INR',
         isGuest: storage.getBool(STORAGE_KEYS.GUEST_MODE) && !(storage.get(STORAGE_KEYS.SPREADSHEET_ID) || localStorage.getItem('finday_spreadsheet_id'))
     });
+
+    // Valid friends state initialized from local service
+    const [friends, setFriends] = useState(friendsService.getAll());
+
+    // Sync friends when transactions change (e.g. after sync or add)
+    useEffect(() => {
+        if (transactions.length > 0) {
+            friendsService.syncFromTransactions(transactions);
+            setFriends(friendsService.getAll());
+        }
+    }, [transactions]);
+
+    // Calculate dynamic balances for friends based on transactions
+    const friendsWithBalance = useMemo(() => {
+        const balances = {};
+        friends.forEach(f => balances[f.name] = 0);
+
+        transactions.filter(t => !t.hidden && t.friend).forEach(t => {
+            const name = t.friend.trim();
+            if (balances[name] === undefined) balances[name] = 0;
+            // Formula: Expense (negative amount) means I paid -> Friend owes me (+).
+            // Income (positive amount) means Friend paid me -> Friend owes me less (-).
+            // Therefore: Balance -= Amount
+            balances[name] -= t.amount;
+        });
+
+        return friends.map(f => ({
+            ...f,
+            balance: balances[f.name] || 0
+        }));
+    }, [friends, transactions]);
 
     const toggleSecretUnlock = useCallback(() => {
         setSecretUnlocked(prev => !prev);
@@ -79,6 +115,144 @@ export const FinanceProvider = ({ children }) => {
         await cloudBackup.init();
         if (!sheetsService.isInitialized || !cloudBackup.isSignedIn()) {
             await sheetsService.init();
+        }
+    };
+    const generateBillInstances = async (billsList, paymentsList, txnsList, spreadsheetId) => {
+        if (!spreadsheetId || billsList.length === 0) return;
+
+        const today = new Date();
+        const currentMonthKey = format(today, 'yyyy-MM');
+        const newPayments = [];
+
+        // Load persistent flags to avoid re-generating for the same cycle
+        const existingCycles = new Set(paymentsList.map(p => `${p.billId}:${p.cycle}`));
+
+        console.log(`[LAKSH] Running Smart Bill Audit (Cycle: ${currentMonthKey})...`);
+
+        // Phase 1: Status Sync (Auto-detect payments for EXISTING bills)
+        for (const payment of paymentsList.filter(p => p.status === 'pending')) {
+            const bill = billsList.find(b => b.id === payment.billId);
+            if (!bill) continue;
+
+            const pDate = parseISO(payment.dueDate);
+            const searchStart = subDays(pDate, 15);
+            const searchEnd = addDays(pDate, 20);
+
+            const match = txnsList.find(t => {
+                const txDate = parseISO(t.date);
+                const isExpense = parseFloat(t.amount) < 0;
+                const txAmt = Math.abs(parseFloat(t.amount));
+                const pAmt = parseFloat(payment.amount);
+
+                // Allow 10% variance or exact name match
+                const amtMatch = Math.abs(txAmt - pAmt) <= (pAmt || 1) * 0.1;
+                const nameMatch = t.description?.toLowerCase().includes(bill.name?.toLowerCase().split(' ')[0]);
+
+                return txDate >= searchStart && txDate <= searchEnd && isExpense && (amtMatch || nameMatch);
+            });
+
+            if (match) {
+                console.log(`[LAKSH] Auto-detected payment for ${payment.name}! Linking TxID: ${match.id}`);
+                await updateBillPayment(payment.id, {
+                    status: 'paid',
+                    paidDate: match.date,
+                    transactionId: match.id
+                });
+            }
+        }
+
+        // Phase 2: Signal Generation (Create new cycles)
+        for (const bill of billsList) {
+            try {
+                let cycleKey;
+                let dueDate;
+                let calculationStart;
+                let calculationEnd;
+
+                if (bill.billType === 'credit_card') {
+                    const billingDay = parseInt(bill.billingDay) || 1;
+                    const dueDay = parseInt(bill.dueDay) || 1;
+                    const todayDay = today.getDate();
+
+                    if (todayDay >= billingDay) {
+                        cycleKey = format(new Date(today.getFullYear(), today.getMonth(), billingDay), 'yyyy-MM');
+                        const dueMonth = (dueDay < billingDay) ? today.getMonth() + 1 : today.getMonth();
+                        dueDate = format(new Date(today.getFullYear(), dueMonth, dueDay), 'yyyy-MM-dd');
+
+                        calculationEnd = new Date(today.getFullYear(), today.getMonth(), billingDay);
+                        calculationStart = subMonths(calculationEnd, 1);
+                    } else {
+                        const lastMonth = subMonths(today, 1);
+                        cycleKey = format(new Date(lastMonth.getFullYear(), lastMonth.getMonth(), billingDay), 'yyyy-MM');
+                        const dueMonth = (dueDay < billingDay) ? lastMonth.getMonth() + 1 : lastMonth.getMonth();
+                        dueDate = format(new Date(lastMonth.getFullYear(), dueMonth, dueDay), 'yyyy-MM-dd');
+
+                        calculationEnd = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), billingDay);
+                        calculationStart = subMonths(calculationEnd, 1);
+                    }
+                } else {
+                    cycleKey = currentMonthKey;
+                    const dueDay = parseInt(bill.dueDay) || 1;
+                    dueDate = format(new Date(today.getFullYear(), today.getMonth(), dueDay), 'yyyy-MM-dd');
+                }
+
+                const uniqueKey = `${bill.id}:${cycleKey}`;
+                if (existingCycles.has(uniqueKey) || generatedBuffer.current.has(uniqueKey)) {
+                    continue;
+                }
+
+                // Smart CC Amount Logic
+                let amount = parseFloat(bill.amount) || 0;
+                if (bill.billType === 'credit_card' && calculationStart && calculationEnd) {
+                    const cardTag = bill.name.toLowerCase().split(' ')[0];
+                    const cardTxns = txnsList.filter(t => {
+                        const amt = parseFloat(t.amount);
+                        if (amt >= 0) return false;
+                        const dt = parseISO(t.date);
+                        return dt >= calculationStart && dt < calculationEnd &&
+                            t.description?.toLowerCase().includes(cardTag);
+                    });
+
+                    amount = Math.abs(cardTxns.reduce((sum, t) => sum + parseFloat(t.amount), 0));
+                    // Skip if no spending detected for CC unless it's a fixed bill
+                    if (amount === 0 && bill.billType === 'credit_card') continue;
+                }
+
+                const meshDate = parseISO(dueDate);
+                const instanceName = `${bill.name} - ${format(meshDate, 'MMM yy')}`;
+
+                const newPayment = {
+                    id: generateId(),
+                    billId: bill.id,
+                    name: instanceName,
+                    cycle: cycleKey,
+                    amount: amount,
+                    dueDate: dueDate,
+                    status: 'pending'
+                };
+
+                try {
+                    await sheetsService.addBillPayment(spreadsheetId, newPayment);
+                    newPayments.push(newPayment);
+                    generatedBuffer.current.add(uniqueKey);
+                } catch (sheetsErr) {
+                    console.error(`[LAKSH] Smart generate fail for ${bill.name}:`, sheetsErr);
+                }
+            } catch (err) {
+                console.error(`[LAKSH] Generation error for ${bill.name}:`, err);
+            }
+        }
+
+        if (newPayments.length > 0) {
+            setBillPayments(prev => [...prev, ...newPayments]);
+            toast(`Smart Brain: Detected ${newPayments.length} new bill signals`);
+        }
+
+        // Store flag in _Config to mark this check as complete
+        try {
+            await sheetsService.setConfig(spreadsheetId, 'last_bill_audit', new Date().toISOString());
+        } catch (e) {
+            console.warn('[LAKSH] Failed to update bill audit flag in cloud');
         }
     };
 
@@ -110,13 +284,27 @@ export const FinanceProvider = ({ children }) => {
         setError(null);
 
         try {
+            // Ensure sheets service is initialized before fetching
+            console.log('[LAKSH] Ensuring sheets service is initialized...');
+            if (!sheetsService.isInitialized) {
+                await sheetsService.init();
+            }
+            
+            // Double-check token is loaded
+            sheetsService.ensureTokenLoaded();
+            
+            if (!sheetsService.accessToken && !isGuest) {
+                throw new Error('Authentication required. Please sign in again.');
+            }
+
             // Fetch all data in parallel with retry
-            console.log('[LAKSH] Fetching transactions, accounts, categories, bills, config...');
-            const [fetchedTransactions, fetchedAccounts, fetchedCategories, fetchedBills, fetchedConfig] = await Promise.all([
-                sheetsService.getTransactions(spreadsheetId, 6),
+            console.log('[LAKSH] Fetching transactions, accounts, categories, bills, billPayments, config...');
+            const [fetchedTransactions, fetchedAccounts, fetchedCategories, fetchedBills, fetchedBillPayments, fetchedConfig] = await Promise.all([
+                sheetsService.getTransactions(spreadsheetId, 12), // Get more months for bill detection
                 sheetsService.getAccounts(spreadsheetId),
                 sheetsService.getCategories(spreadsheetId),
                 sheetsService.getBills(spreadsheetId),
+                sheetsService.getBillPayments(spreadsheetId),
                 sheetsService.getConfig(spreadsheetId)
             ]);
 
@@ -125,6 +313,7 @@ export const FinanceProvider = ({ children }) => {
                 accounts: fetchedAccounts?.length || 0,
                 categories: fetchedCategories?.length || 0,
                 bills: fetchedBills?.length || 0,
+                billPayments: fetchedBillPayments?.length || 0,
                 configKeys: Object.keys(fetchedConfig || {})
             });
 
@@ -133,26 +322,44 @@ export const FinanceProvider = ({ children }) => {
             setAccounts(fetchedAccounts);
             setCategories(fetchedCategories);
             setBills(fetchedBills);
+            setBillPayments(fetchedBillPayments);
+
+            // Smart Bill Instance Generation (Logic to reduce client-side manual work)
+            await generateBillInstances(fetchedBills, fetchedBillPayments, fetchedTransactions, spreadsheetId);
 
             // Cache data locally for offline access
             await localDB.saveData({
                 transactions: fetchedTransactions,
                 accounts: fetchedAccounts,
                 categories: fetchedCategories,
-                bills: fetchedBills
+                bills: fetchedBills,
+                billPayments: fetchedBillPayments
             });
 
             setLastSyncTime(new Date());
+            setLoadingStatus({ step: 4, message: 'Ready!', error: null });
             console.log('[LAKSH] Sync complete!');
         } catch (err) {
             console.error('[LAKSH] Refresh failed:', err);
-            setError(err.message);
+            const errorMessage = err.message || 'Unknown error occurred';
+            setError(errorMessage);
+            setLoadingStatus({ step: 3, message: 'Sync failed', error: errorMessage });
 
-            // If it's an auth error, don't keep cached data as it may be stale
-            if (err.message?.includes('401') || err.message?.includes('auth')) {
+            // Provide more specific error messages
+            if (err.message?.includes('401') || err.message?.includes('auth') || err.message?.includes('Authentication')) {
+                const detailedError = 'Authentication failed. Your session may have expired. Please sign in again from Settings.';
+                setError(detailedError);
                 toast('Session expired. Please sign in again.', 'error');
+            } else if (err.message?.includes('network') || err.message?.includes('fetch')) {
+                const detailedError = 'Network error. Please check your internet connection and try again.';
+                setError(detailedError);
+                toast('Connection failed. Check your internet.', 'error');
+            } else if (err.message?.includes('403') || err.message?.includes('permission')) {
+                const detailedError = 'Permission denied. Please ensure the app has access to your Google Sheets.';
+                setError(detailedError);
+                toast('Permission denied. Check app access.', 'error');
             } else {
-                toast('Sync failed. Using cached data.', 'error');
+                toast(`Sync failed: ${errorMessage}. Using cached data if available.`, 'error');
             }
         } finally {
             setIsSyncing(false);
@@ -171,11 +378,11 @@ export const FinanceProvider = ({ children }) => {
                 resource: {
                     properties: { title: "Finday Ledger" },
                     sheets: [
-                        { properties: { title: "Transactions" } },
-                        { properties: { title: "Accounts" } },
-                        { properties: { title: "Categories" } },
-                        { properties: { title: "Bills" } },
-                        { properties: { title: "Config" } }
+                        { properties: { title: "Transactions" } }, // Keep Transactions generic
+                        { properties: { title: "_Accounts" } },
+                        { properties: { title: "_Categories" } },
+                        { properties: { title: "_Bills" } },
+                        { properties: { title: "_Config" } }
                     ]
                 }
             });
@@ -193,29 +400,34 @@ export const FinanceProvider = ({ children }) => {
                     valueInputOption: "USER_ENTERED",
                     data: [
                         {
-                            range: "Transactions!A1:G1",
-                            values: [["ID", "Date", "Amount", "Type", "Category", "Account", "Description"]]
+                            range: "Transactions!A1:I1",
+                            values: [["ID", "Date", "Description", "Amount", "Category", "AccountID", "Type", "CreatedAt", "Friend"]]
                         },
                         {
-                            range: "Accounts!A1:G1",
+                            range: "_Accounts!A1:H1",
                             values: [
-                                ["ID", "Name", "Type", "Balance", "BillingDay", "DueDay", "CreatedAt"]
+                                ["ID", "Name", "Type", "Balance", "BillingDay", "DueDay", "CreatedAt", "IsSecret"]
                             ]
                         },
                         {
-                            range: "Categories!A1:F6",
+                            range: "_Categories!A1:D11",
                             values: [
-                                ["Name", "Type", "Keywords", "Target", "Icon", "Color"],
-                                ["Food", "expense", "food,groceries", "", "🍔", "#FF5733"],
-                                ["Transport", "expense", "uber,train,bus", "", "🚗", "#33FF57"],
-                                ["Shopping", "expense", "amazon,clothes", "", "🛍️", "#3357FF"],
-                                ["Salary", "income", "salary,paycheck", "", "💰", "#F1C40F"],
-                                ["Bills", "expense", "bill,utility", "", "📄", "#E74C3C"]
+                                ["Name", "Keywords", "Color", "Icon"],
+                                ["Groceries", "walmart,kroger,grocery,supermarket", "#22c55e", "🛒"],
+                                ["Dining", "restaurant,cafe,mcdonalds,starbucks,pizza", "#f59e0b", "🍕"],
+                                ["Transportation", "uber,lyft,gas,petrol,shell,parking", "#3b82f6", "🚗"],
+                                ["Entertainment", "netflix,spotify,movie,cinema,game", "#8b5cf6", "🎬"],
+                                ["Utilities", "electric,water,internet,phone,bill", "#64748b", "💡"],
+                                ["Healthcare", "pharmacy,doctor,hospital,medical", "#ef4444", "🏥"],
+                                ["Shopping", "amazon,target,mall,store", "#ec4899", "🛍️"],
+                                ["Subscriptions", "subscription,monthly,annual", "#06b6d4", "📱"],
+                                ["Income", "salary,payment,deposit,transfer in", "#10b981", "💰"],
+                                ["Other", "", "#94a3b8", "📦"]
                             ]
                         },
                         {
-                            range: "Bills!A1:H1",
-                            values: [["ID", "Name", "Amount", "DueDay", "Category", "Status", "AccountID", "CreatedAt"]]
+                            range: "_Bills!A1:J1",
+                            values: [["ID", "Name", "Amount", "DueDay", "BillingDay", "Category", "Status", "BillType", "Cycle", "CreatedAt"]]
                         }
                     ]
                 }
@@ -237,6 +449,8 @@ export const FinanceProvider = ({ children }) => {
         const autoConnect = async () => {
             if (!isMountedRef.current) return;
 
+            setLoadingStatus({ step: 0, message: 'Checking credentials...', error: null });
+
             // Skip auto-connect if already connected - prevents blinking on navigation
             const savedId = storage.get(STORAGE_KEYS.SPREADSHEET_ID) || localStorage.getItem('finday_spreadsheet_id');
             const savedToken = localStorage.getItem('google_access_token');
@@ -245,6 +459,7 @@ export const FinanceProvider = ({ children }) => {
 
             if (savedId && isTokenValid && isConnected) {
                 console.log('[LAKSH] Already connected, skipping autoConnect');
+                setLoadingStatus({ step: 4, message: 'Ready!', error: null });
                 setIsLoading(false);
                 return;
             }
@@ -252,9 +467,39 @@ export const FinanceProvider = ({ children }) => {
             setIsLoading(true);
             let hasCachedData = false;
 
+            // Check for guest mode first
+            const isGuestMode = storage.getBool(STORAGE_KEYS.GUEST_MODE);
+            if (isGuestMode) {
+                console.log('[LAKSH] Guest mode detected, loading local data');
+                setLoadingStatus({ step: 1, message: 'Loading local data...', error: null });
+                try {
+                    const cachedData = await localDB.getAllData();
+                    if (cachedData.hasData) {
+                        setTransactions(cachedData.transactions || []);
+                        setAccounts(cachedData.accounts || []);
+                        setCategories(cachedData.categories || []);
+                        setBills(cachedData.bills || []);
+                    } else {
+                        await initializeDefaultData();
+                    }
+                    setIsConnected(true);
+                    setLoadingStatus({ step: 4, message: 'Ready!', error: null });
+                    setIsLoading(false);
+                    return;
+                } catch (e) {
+                    console.error('[LAKSH] Guest mode init failed:', e);
+                    await initializeDefaultData();
+                    setIsConnected(true);
+                    setLoadingStatus({ step: 4, message: 'Ready!', error: null });
+                    setIsLoading(false);
+                    return;
+                }
+            }
+
             // Special handling for Android WebView - but respect first-time setup
             if (isAndroidWebView()) {
                 console.log('[LAKSH] Detected Android WebView');
+                setLoadingStatus({ step: 1, message: 'Checking local storage...', error: null });
 
                 // Check if user has ever connected to Google Sheets
                 const hasEverConnected = storage.get(STORAGE_KEYS.SPREADSHEET_ID) ||
@@ -265,10 +510,12 @@ export const FinanceProvider = ({ children }) => {
                     console.log('[LAKSH] Fresh install - needs Google Sheets setup');
                     setIsConnected(false);
                     setIsLoading(false);
+                    setLoadingStatus({ step: 0, message: 'Setup required', error: null });
                     return;
                 }
 
                 console.log('[LAKSH] Previously connected - initializing offline mode');
+                setLoadingStatus({ step: 2, message: 'Loading cached data...', error: null });
                 try {
                     const cachedData = await localDB.getAllData();
                     if (!isMountedRef.current) return;
@@ -279,6 +526,7 @@ export const FinanceProvider = ({ children }) => {
                         setAccounts(cachedData.accounts || []);
                         setCategories(cachedData.categories || []);
                         setBills(cachedData.bills || []);
+                        setBillPayments(cachedData.billPayments || []);
                         if (cachedData.lastSyncTime) {
                             setLastSyncTime(new Date(cachedData.lastSyncTime));
                         }
@@ -329,7 +577,6 @@ export const FinanceProvider = ({ children }) => {
                     // Set as connected in offline mode only after previous connection
                     console.log('[LAKSH] WebView offline mode activated');
                     setIsConnected(true);
-                    setIsLoading(false);
 
                     // Show toast to indicate data loaded
                     // toast('Loaded local data', 'info');
@@ -386,6 +633,8 @@ export const FinanceProvider = ({ children }) => {
 
             if (!isMountedRef.current) return;
 
+            setLoadingStatus({ step: 2, message: 'Connecting to Google...', error: null });
+
             // Use cloudBackup for session restoration
             const { cloudBackup } = await importWithRetry(() => import('../services/cloudBackup'));
 
@@ -393,8 +642,10 @@ export const FinanceProvider = ({ children }) => {
             try {
                 await cloudBackup.init();
                 console.log('[FinanceContext] CloudBackup initialized successfully');
+                setLoadingStatus({ step: 3, message: 'Fetching your data...', error: null });
             } catch (error) {
                 console.log('[FinanceContext] CloudBackup init error, continuing with offline mode:', error);
+                setLoadingStatus({ step: 2, message: 'Using offline mode...', error: error.message });
             }
 
             if (!isMountedRef.current) return;
@@ -444,8 +695,21 @@ export const FinanceProvider = ({ children }) => {
                         }
                         // Trigger initial sync if we have any valid token
                         if (cloudBackup.isSignedIn() || cloudBackup.accessToken || hasValidDirectToken) {
-                            console.log('[LAKSH] Triggering data refresh...');
-                            refreshData(savedSpreadsheetId);
+                            console.log('[LAKSH] Triggering data refresh after login...');
+                            setLoadingStatus({ step: 3, message: 'Fetching your data...', error: null });
+                            try {
+                                // Ensure sheets service is initialized before refresh
+                                await ensureSheetsReady();
+                                await refreshData(savedSpreadsheetId, true); // Force refresh after login
+                            } catch (refreshError) {
+                                console.error('[LAKSH] Refresh after login failed:', refreshError);
+                                setError(refreshError.message || 'Failed to load data after login');
+                                setLoadingStatus({ step: 3, message: 'Failed to load data', error: refreshError.message });
+                                // Still show as connected if we have cached data
+                                if (hasCachedData) {
+                                    console.log('[LAKSH] Using cached data due to refresh failure');
+                                }
+                            }
                         } else {
                             console.log('[LAKSH] No valid token, skipping refresh');
                             setIsLoading(false);
@@ -463,6 +727,7 @@ export const FinanceProvider = ({ children }) => {
                 if (isMountedRef.current) {
                     setConfig(prev => ({ ...prev, user: { id: 'offline_user', name: 'Offline User' } }));
                     setIsConnected(true);
+                    setIsLoading(false);
                 }
             } else {
                 if (isMountedRef.current) {
@@ -479,7 +744,7 @@ export const FinanceProvider = ({ children }) => {
                     const seen = new Set();
                     const deduped = [];
                     for (const t of prev) {
-                        const key = t.id + t.date + t.amount;
+                        const key = (t.id || '') + (t.date || '') + (t.amount || '');
                         if (!seen.has(key)) {
                             seen.add(key);
                             deduped.push(t);
@@ -489,7 +754,6 @@ export const FinanceProvider = ({ children }) => {
                 });
                 // Placeholder: Add advanced reconciliation logic here (e.g., match cloud vs SMS vs manual, resolve conflicts)
                 setIsSyncing(false);
-                setIsLoading(false);
             }
         };
 
@@ -503,6 +767,31 @@ export const FinanceProvider = ({ children }) => {
         });
 
     }, []);
+
+    // ===== POLL FOR TOKEN (WebView Fix) =====
+    useEffect(() => {
+        if (isConnected) return;
+
+        const interval = setInterval(() => {
+            const token = localStorage.getItem('google_access_token');
+            const refreshRequired = localStorage.getItem('oauth_refresh_required');
+            // Ensure we don't reload if we are already in the process of connecting
+            if (token && !isConnected && !isLoading) {
+                console.log('[LAKSH] Token detected via polling, reloading to initialize...');
+                window.location.reload();
+            }
+            // Check if OAuth callback set refresh flag
+            if (refreshRequired === 'true' && config.spreadsheetId && !isSyncing) {
+                console.log('[LAKSH] OAuth refresh required, triggering data refresh...');
+                localStorage.removeItem('oauth_refresh_required');
+                refreshData(config.spreadsheetId, true).catch(err => {
+                    console.error('[LAKSH] OAuth refresh failed:', err);
+                });
+            }
+        }, 2000);
+
+        return () => clearInterval(interval);
+    }, [isConnected, isLoading, config.spreadsheetId, isSyncing, refreshData]);
 
     // ===== NOTIFICATIONS =====
     useEffect(() => {
@@ -1216,16 +1505,59 @@ export const FinanceProvider = ({ children }) => {
 
     const updateBill = async (billId, updates) => {
         const newBills = bills.map(b => b.id === billId ? { ...b, ...updates } : b);
+
+        // Smart Propagation: If bill details change, update all PENDING payments for this bill
+        const newPayments = billPayments.map(p => {
+            if (p.billId === billId && p.status === 'pending') {
+                const meshDate = parseISO(p.dueDate);
+                return {
+                    ...p,
+                    amount: updates.amount !== undefined ? parseFloat(updates.amount) : p.amount,
+                    name: updates.name !== undefined ? `${updates.name} - ${format(meshDate, 'MMM yy')}` : p.name
+                };
+            }
+            return p;
+        });
+
         setBills(newBills);
-        localDB.saveData({ transactions, accounts, categories, bills: newBills });
+        setBillPayments(newPayments);
+        localDB.saveData({ transactions, accounts, categories, bills: newBills, billPayments: newPayments });
 
         if (!config.spreadsheetId) return;
 
         setIsSyncing(true);
         try {
             await sheetsService.updateBill(config.spreadsheetId, billId, updates);
+
+            // Push payment updates to cloud too
+            for (const p of newPayments.filter(p => p.billId === billId && p.status === 'pending')) {
+                await sheetsService.updateBillPayment(config.spreadsheetId, p.id, {
+                    amount: p.amount,
+                    name: p.name
+                });
+            }
+
             setLastSyncTime(new Date());
         } catch (err) {
+            console.error('[LAKSH] updateBill failed:', err);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    const updateBillPayment = async (paymentId, updates) => {
+        const newPayments = billPayments.map(p => p.id === paymentId ? { ...p, ...updates } : p);
+        setBillPayments(newPayments);
+        localDB.saveData({ transactions, accounts, categories, bills, billPayments: newPayments });
+
+        if (!config.spreadsheetId) return;
+
+        setIsSyncing(true);
+        try {
+            await sheetsService.updateBillPayment(config.spreadsheetId, paymentId, updates);
+            setLastSyncTime(new Date());
+        } catch (err) {
+            console.error('[LAKSH] updateBillPayment failed:', err);
             throw err;
         } finally {
             setIsSyncing(false);
@@ -1235,18 +1567,31 @@ export const FinanceProvider = ({ children }) => {
     const deleteBill = async (billId) => {
         const bill = bills.find(b => b.id === billId);
         const newBills = bills.filter(b => b.id !== billId);
+
+        // Smart Cleanup: Delete all PENDING payments associated with this bill
+        const paymentsToDelete = billPayments.filter(p => p.billId === billId && p.status === 'pending');
+        const newPayments = billPayments.filter(p => !(p.billId === billId && p.status === 'pending'));
+
         setBills(newBills);
-        localDB.saveData({ transactions, accounts, categories, bills: newBills });
+        setBillPayments(newPayments);
+        localDB.saveData({ transactions, accounts, categories, bills: newBills, billPayments: newPayments });
 
         if (!config.spreadsheetId) return;
 
         setIsSyncing(true);
         try {
             await sheetsService.deleteBill(config.spreadsheetId, billId);
+
+            // Clean up cloud payments
+            for (const p of paymentsToDelete) {
+                await sheetsService.deleteBillPayment(config.spreadsheetId, p.id);
+            }
+
             setLastSyncTime(new Date());
         } catch (err) {
+            console.error('[LAKSH] deleteBill failed:', err);
+            // Restore local state on failure
             setBills(prev => [...prev, bill]);
-            throw err;
         } finally {
             setIsSyncing(false);
         }
@@ -1458,6 +1803,7 @@ export const FinanceProvider = ({ children }) => {
         isGuest,
         isConnected,
         isLoading,
+        loadingStatus,
         isSyncing,
         lastSyncTime,
         error,
@@ -1465,6 +1811,7 @@ export const FinanceProvider = ({ children }) => {
         accounts,
         categories,
         bills,
+        friends: friendsWithBalance,
         config,
         secretUnlocked,
         toggleSecretUnlock,
@@ -1478,9 +1825,11 @@ export const FinanceProvider = ({ children }) => {
         addCategory,
         updateCategory,
         deleteCategory,
+        billPayments,
         addBill,
         updateBill,
         deleteBill,
+        updateBillPayment,
         smartQuery,
         autoCategorize,
         updateConfig,
@@ -1513,6 +1862,7 @@ export const FinanceProvider = ({ children }) => {
                 if (data.accounts) setAccounts(data.accounts);
                 if (data.categories) setCategories(data.categories);
                 if (data.bills) setBills(data.bills);
+                if (data.billPayments) setBillPayments(data.billPayments);
                 if (data.closedPeriods) {
                     setClosedPeriods(data.closedPeriods);
                     storage.setJSON(STORAGE_KEYS.CLOSED_PERIODS, data.closedPeriods);
@@ -1522,7 +1872,8 @@ export const FinanceProvider = ({ children }) => {
                     transactions: data.transactions || [],
                     accounts: data.accounts || [],
                     categories: data.categories || [],
-                    bills: data.bills || []
+                    bills: data.bills || [],
+                    billPayments: data.billPayments || []
                 });
                 return true;
             } catch (e) {
@@ -1544,7 +1895,14 @@ export const FinanceProvider = ({ children }) => {
                 toast(`Period ${periodKey} closed successfully.`);
             }
         },
-        createFinanceSheet
+        createFinanceSheet,
+        addFriend: (name) => {
+            const result = friendsService.add(name);
+            if (result) {
+                setFriends(friendsService.getAll());
+            }
+            return result;
+        }
     };
 
     return (

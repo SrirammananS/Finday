@@ -7,6 +7,7 @@
 import { storage, STORAGE_KEYS } from './storage';
 import { parseSMS } from './smsParser';
 import { smartAI } from './smartAI';
+import pendingService from './pendingTransactions';
 
 // Common bank SMS patterns (Indian banks)
 const SMS_PATTERNS = [
@@ -86,29 +87,16 @@ function extractUPIMerchant(text) {
     return extractMerchant(text);
 }
 
-// Storage key for pending transactions
-const PENDING_KEY = 'laksh_pending_transactions';
-
 class TransactionDetectorService {
     constructor() {
-        this.pendingTransactions = [];
         this.listeners = [];
-        this.loadPending();
-    }
-
-    // Load pending transactions from storage
-    loadPending() {
-        try {
-            const stored = localStorage.getItem(PENDING_KEY);
-            this.pendingTransactions = stored ? JSON.parse(stored) : [];
-        } catch (e) {
-            this.pendingTransactions = [];
-        }
-    }
-
-    // Save pending transactions
-    savePending() {
-        localStorage.setItem(PENDING_KEY, JSON.stringify(this.pendingTransactions));
+        // Subscribe to changes in the underlying service to relay notifications
+        pendingService.subscribe((pending) => {
+            // We can just notify that "something changed" or pass the latest list
+            // For compatibility with listeners expecting a single transaction, we might need adjustments,
+            // but mostly listeners just want to know to refresh.
+            this.notify(pending);
+        });
     }
 
     // Subscribe to new detections
@@ -120,8 +108,8 @@ class TransactionDetectorService {
     }
 
     // Notify listeners
-    notify(transaction) {
-        this.listeners.forEach(cb => cb(transaction));
+    notify(data) {
+        this.listeners.forEach(cb => cb(data));
     }
 
     /**
@@ -201,20 +189,16 @@ class TransactionDetectorService {
 
     /**
      * Add a detected transaction to pending list
+     * Uses pendingTransactionsService as single source of truth
      */
     addPending(transaction) {
-        // Check for duplicates (same amount/desc within 24 hours OR same rawText)
-        const isDuplicate = this.pendingTransactions.some(t => {
-            const sameRaw = t.rawText && transaction.rawText && t.rawText === transaction.rawText;
-            const sameLogic = t.amount === transaction.amount &&
-                t.description === transaction.description &&
-                Math.abs(new Date(t.detectedAt) - new Date(transaction.detectedAt)) < 24 * 60 * 60 * 1000;
-            return sameRaw || sameLogic;
+        // Use the imported service directly
+        const added = pendingService.add({
+            ...transaction,
+            source: transaction.source || 'manual',
         });
 
-        if (!isDuplicate) {
-            this.pendingTransactions.unshift(transaction);
-            this.savePending();
+        if (added) {
             this.notify(transaction);
             return true;
         }
@@ -225,38 +209,32 @@ class TransactionDetectorService {
      * Get all pending transactions
      */
     getPending() {
-        return this.pendingTransactions.filter(t => t.status === 'pending');
+        return pendingService.getAll();
     }
 
     /**
      * Confirm a pending transaction (mark as added)
+     * Effectively removes it from pending list as it's now in main ledger
      */
     confirmTransaction(id) {
-        const transaction = this.pendingTransactions.find(t => t.id === id);
-        if (transaction) {
-            transaction.status = 'confirmed';
-            this.savePending();
-        }
-        return transaction;
+        // When confirmed, we remove from pending because it's moved to real transactions
+        pendingService.remove(id);
+        const t = { id, status: 'confirmed' };
+        return t;
     }
 
     /**
      * Dismiss a pending transaction
      */
     dismissTransaction(id) {
-        const transaction = this.pendingTransactions.find(t => t.id === id);
-        if (transaction) {
-            transaction.status = 'dismissed';
-            this.savePending();
-        }
+        pendingService.remove(id);
     }
 
     /**
      * Clear all pending transactions
      */
     clearPending() {
-        this.pendingTransactions = [];
-        this.savePending();
+        pendingService.clear();
     }
 
     /**

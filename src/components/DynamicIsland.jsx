@@ -31,8 +31,8 @@ const DynamicIsland = () => {
                         to={link.to}
                         className={({ isActive }) =>
                             `relative w-10 h-10 md:w-11 md:h-11 flex items-center justify-center rounded-full transition-all duration-300 z-10 ${isActive
-                                ? 'text-canvas'
-                                : 'text-text-muted hover:bg-text-main/5 hover:text-text-main'
+                                ? 'text-primary-foreground'
+                                : 'text-text-muted hover:bg-canvas-subtle hover:text-text-main'
                             }`
                         }
                         title={link.label}
@@ -43,7 +43,7 @@ const DynamicIsland = () => {
                                 {isActive && (
                                     <motion.div
                                         layoutId="island-active-bg"
-                                        className="absolute inset-0 bg-text-main rounded-full z-0"
+                                        className="absolute inset-0 bg-primary rounded-full z-0 shadow-[0_0_20px_rgba(var(--primary-rgb),0.5)]"
                                         transition={{ type: 'spring', damping: 25, stiffness: 400 }}
                                     />
                                 )}
@@ -70,7 +70,7 @@ const DynamicIsland = () => {
                 >
                     <Plus size={22} />
                 </button>
-            </div>
+            </div >
 
             <AnimatePresence>
                 {showForm && (

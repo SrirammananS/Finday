@@ -31,7 +31,7 @@ const TransactionInsights = ({ transactions, categories }) => {
             .filter(t => t.amount < 0)
             .reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
-        const expenseChange = lastMonthExpenses === 0 ? 0 : 
+        const expenseChange = lastMonthExpenses === 0 ? 0 :
             ((thisMonthExpenses - lastMonthExpenses) / lastMonthExpenses) * 100;
 
         // Most frequent category
@@ -43,10 +43,10 @@ const TransactionInsights = ({ transactions, categories }) => {
         }, {});
 
         const topCategory = Object.entries(categoryCount)
-            .sort(([,a], [,b]) => b - a)[0];
+            .sort(([, a], [, b]) => b - a)[0];
 
         // Average transaction amount
-        const avgTransaction = thisMonthTxns.length > 0 ? 
+        const avgTransaction = thisMonthTxns.length > 0 ?
             thisMonthTxns.reduce((sum, t) => sum + Math.abs(t.amount), 0) / thisMonthTxns.length : 0;
 
         // Biggest expense this month
@@ -92,7 +92,7 @@ const TransactionInsights = ({ transactions, categories }) => {
                 <motion.div
                     initial={{ y: 20, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
-                    className="modern-card p-4 border-card-border bg-card-bg/80 backdrop-blur-sm hover:bg-card-bg transition-all"
+                    className="modern-card p-4 border-card-border bg-card/80 backdrop-blur-sm hover:bg-card transition-all"
                 >
                     <div className="flex items-center gap-3 mb-2">
                         {insights.expenseChange >= 0 ? (
@@ -104,9 +104,8 @@ const TransactionInsights = ({ transactions, categories }) => {
                             Spending Trend
                         </span>
                     </div>
-                    <p className={`text-xl font-black ${
-                        insights.expenseChange >= 0 ? 'text-red-500' : 'text-green-500'
-                    }`}>
+                    <p className={`text-xl font-black ${insights.expenseChange >= 0 ? 'text-red-500' : 'text-green-500'
+                        }`}>
                         {insights.expenseChange >= 0 ? '+' : ''}{insights.expenseChange.toFixed(1)}%
                     </p>
                     <p className="text-xs text-text-muted/80 mt-1">
@@ -120,7 +119,7 @@ const TransactionInsights = ({ transactions, categories }) => {
                         initial={{ y: 20, opacity: 0 }}
                         animate={{ y: 0, opacity: 1 }}
                         transition={{ delay: 0.1 }}
-                        className="modern-card p-4 border-card-border bg-card-bg/80 backdrop-blur-sm hover:bg-card-bg transition-all"
+                        className="modern-card p-4 border-card-border bg-card/80 backdrop-blur-sm hover:bg-card transition-all"
                     >
                         <div className="flex items-center gap-3 mb-2">
                             <span className="text-lg">{insights.topCategory.icon}</span>
@@ -142,7 +141,7 @@ const TransactionInsights = ({ transactions, categories }) => {
                     initial={{ y: 20, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
                     transition={{ delay: 0.2 }}
-                    className="modern-card p-4 border-card-border bg-card-bg/80 backdrop-blur-sm hover:bg-card-bg transition-all"
+                    className="modern-card p-4 border-card-border bg-card/80 backdrop-blur-sm hover:bg-card transition-all"
                 >
                     <div className="flex items-center gap-3 mb-2">
                         <Target size={16} className="text-primary" />
@@ -164,7 +163,7 @@ const TransactionInsights = ({ transactions, categories }) => {
                         initial={{ y: 20, opacity: 0 }}
                         animate={{ y: 0, opacity: 1 }}
                         transition={{ delay: 0.3 }}
-                        className="modern-card p-4 border-card-border bg-card-bg/80 backdrop-blur-sm hover:bg-card-bg transition-all"
+                        className="modern-card p-4 border-card-border bg-card/80 backdrop-blur-sm hover:bg-card transition-all"
                     >
                         <div className="flex items-center gap-3 mb-2">
                             <Calendar size={16} className="text-destructive" />

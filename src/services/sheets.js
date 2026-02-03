@@ -6,24 +6,27 @@ const DISCOVERY_DOCS = [
     "https://sheets.googleapis.com/$discovery/rest?version=v4",
     "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"
 ];
-// Minimal scopes for Google Sheets integration:
 // - spreadsheets: Read/write access to user's spreadsheets only
 // - drive.readonly: List spreadsheets for selection (read-only)
 const SCOPES = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly";
 
 // Request throttling - reduced for faster sync
-const REQUEST_DELAY_MS = 100; // Reduced from 200ms for faster sync
+const REQUEST_DELAY_MS = 100;
 let lastRequestTime = 0;
-let requestQueue = [];
-let isProcessingQueue = false;
-
+let throttleLock = Promise.resolve();
 const throttle = async () => {
+    const previousLock = throttleLock;
+    let resolveLock;
+    throttleLock = new Promise(resolve => { resolveLock = resolve; });
+
+    await previousLock;
     const now = Date.now();
     const timeSinceLastRequest = now - lastRequestTime;
     if (timeSinceLastRequest < REQUEST_DELAY_MS) {
         await new Promise(resolve => setTimeout(resolve, REQUEST_DELAY_MS - timeSinceLastRequest));
     }
     lastRequestTime = Date.now();
+    resolveLock();
 };
 
 // Enhanced retry with better error handling
@@ -66,6 +69,7 @@ class GoogleSheetsService {
         this.tokenClient = null;
         this.accessToken = null;
         this.sheetCache = new Map();
+        this.pendingSheetChecks = new Map(); // Track in-flight sheet listing requests
         this.lastFetchTime = new Map(); // Track when each data type was last fetched
     }
 
@@ -220,12 +224,20 @@ class GoogleSheetsService {
     }
 
     // Helper for getting spreadsheet values with GAPI/Fetch fallback and smart sheet detect
-    async getSpreadsheetValues(spreadsheetId, range, isRetry = false) {
-        // Ensure token is loaded from storage
+    async getSpreadsheetValues(spreadsheetId, range) {
         this.ensureTokenLoaded();
 
+        // Extract sheet name from range
+        const sheetMatch = range.match(/'(.*?)'/);
+        if (sheetMatch) {
+            const sheetName = sheetMatch[1];
+            // Only check existence for non-core sheets to avoid recursive loops
+            if (!sheetName.startsWith('_') && !await this.doesSheetExist(spreadsheetId, sheetName)) {
+                return [];
+            }
+        }
+
         try {
-            // Method A: GAPI
             if (window.gapi?.client?.sheets) {
                 const response = await withRetry(() =>
                     window.gapi.client.sheets.spreadsheets.values.get({
@@ -236,33 +248,18 @@ class GoogleSheetsService {
                 return response.result.values || [];
             }
 
-            // Method B: Fetch
             if (this.accessToken) {
                 const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`;
                 const data = await this.makeApiRequest(url);
                 return data.values || [];
             }
 
-            throw new Error('No auth available');
+            return [];
         } catch (error) {
-            if (isRetry) return [];
-
-            console.warn(`[LAKSH] getSpreadsheetValues failed for ${range}, trying smart fallback...`);
-
-            // Try different sheet name patterns
-            let fallbackRange = null;
-            if (range.includes("'_")) {
-                // Try without underscore
-                fallbackRange = range.replace("'_", "'");
-            } else if (range.includes("'") && !range.includes("'_")) {
-                // Try with underscore
-                fallbackRange = range.replace("'", "'_");
+            const isNotFound = error?.status === 400 || error?.result?.error?.code === 400;
+            if (!isNotFound) {
+                console.warn(`[LAKSH] getSpreadsheetValues failed for ${range}:`, error);
             }
-
-            if (fallbackRange && fallbackRange !== range) {
-                return this.getSpreadsheetValues(spreadsheetId, fallbackRange, true);
-            }
-
             return [];
         }
     }
@@ -369,14 +366,43 @@ class GoogleSheetsService {
     }
 
     // Ensure GAPI client is ready before making requests
+    // Returns true if ready, false if not (but we can still use fetch fallback)
     async ensureClientReady() {
-        if (this.isInitialized && (window.gapi?.client?.sheets || this.accessToken)) return true;
+        // If we have access token, we can use fetch fallback - consider it "ready"
+        if (this.accessToken) {
+            this.isInitialized = true;
+            return true;
+        }
+
+        if (this.isInitialized && window.gapi?.client?.sheets) return true;
 
         console.log('[LAKSH] Waiting for GAPI client...');
-        // Wait up to 10 seconds (increased from 5)
-        for (let i = 0; i < 100; i++) {
-            if (this.isInitialized && (window.gapi?.client?.sheets || this.accessToken)) return true;
+
+        // Wait up to 5 seconds for GAPI
+        for (let i = 0; i < 50; i++) {
+            if (window.gapi?.client?.sheets) {
+                this.isInitialized = true;
+                return true;
+            }
+            // Check if token became available during wait
+            if (this.accessToken || localStorage.getItem('google_access_token')) {
+                this.ensureTokenLoaded();
+                if (this.accessToken) {
+                    this.isInitialized = true;
+                    return true;
+                }
+            }
             await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        // Don't throw - return false so caller can use fallback
+        console.warn('[LAKSH] GAPI client not ready after timeout, will use fetch fallback if possible');
+
+        // One more check for token
+        this.ensureTokenLoaded();
+        if (this.accessToken) {
+            this.isInitialized = true;
+            return true;
         }
 
         throw new Error('Google Sheets API client not ready. Please ensure internet connection and refresh.');
@@ -524,19 +550,75 @@ class GoogleSheetsService {
 
     async signIn() {
         if (this.isAndroidWebView()) {
-            console.log('[LAKSH] Mobile mode: Using OAuth redirect flow');
+            console.log('[LAKSH] Mobile mode: Using OAuth redirect flow via external browser');
             const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
             // Use explicit callback path for production redirect
             const redirectUri = window.location.origin + '/oauth-callback';
             const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.appdata');
             const state = Math.random().toString(36).substring(2);
             localStorage.setItem('oauth_state', state);
+            localStorage.setItem('oauth_pending', 'true');
 
             const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&state=${state}`;
 
-            console.log('[LAKSH] Redirecting to:', authUrl);
-            window.location.href = authUrl;
-            return new Promise(resolve => setTimeout(resolve, 5000));
+            console.log('[LAKSH] Opening external browser for OAuth:', authUrl);
+
+            // CRITICAL: Use AndroidBridge to open external browser to avoid disallowed_useragent error
+            if (window.AndroidBridge && typeof window.AndroidBridge.openExternalBrowser === 'function') {
+                window.AndroidBridge.openExternalBrowser(authUrl);
+            } else {
+                // Fallback: try opening in new window/tab
+                window.open(authUrl, '_blank');
+            }
+
+            // Return a promise that resolves when token is received
+            return new Promise((resolve, reject) => {
+                let bc;
+                try {
+                    bc = new BroadcastChannel('laksh-oauth');
+                } catch { }
+
+                if (bc) {
+                    const onMsg = (evt) => {
+                        if (evt?.data?.type === 'oauth_token' && evt.data.access_token) {
+                            try { bc.close(); } catch { }
+                            this.accessToken = evt.data.access_token;
+                            const expiryMs = Date.now() + (parseInt(evt.data.expires_in || '3600', 10) * 1000);
+                            try {
+                                sessionStorage.setItem('google_access_token', evt.data.access_token);
+                                sessionStorage.setItem('google_token_expiry', String(expiryMs));
+                                localStorage.setItem('google_access_token', evt.data.access_token);
+                                localStorage.setItem('google_token_expiry', String(expiryMs));
+                            } catch { }
+                            this.isInitialized = true;
+                            resolve(true);
+                        }
+                    };
+                    bc.addEventListener('message', onMsg);
+                }
+
+                // Poll for token in storage (set by oauth-callback page)
+                const checkInterval = setInterval(() => {
+                    const token = sessionStorage.getItem('google_access_token') || localStorage.getItem('google_access_token');
+                    const expiry = sessionStorage.getItem('google_token_expiry') || localStorage.getItem('google_token_expiry');
+
+                    if (token && expiry && Date.now() < parseInt(expiry)) {
+                        clearInterval(checkInterval);
+                        try { bc && bc.close(); } catch { }
+                        this.accessToken = token;
+                        this.isInitialized = true;
+                        console.log('[LAKSH] OAuth completed successfully');
+                        resolve(true);
+                    }
+                }, 1000);
+
+                // Timeout after 5 minutes
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    try { bc && bc.close(); } catch { }
+                    reject(new Error('OAuth timeout - please try again'));
+                }, 300000);
+            });
         }
 
         // Web mode: use cloudBackup's popup flow
@@ -667,67 +749,149 @@ class GoogleSheetsService {
             throw e;
         }
 
-        // Check cache first to avoid redundant API calls
+        // Check internal cache first to avoid redundant API calls
         const cacheKey = `${spreadsheetId}:${sheetTitle}`;
         if (this.sheetCache.has(cacheKey)) {
             return true;
         }
 
-        try {
-            // Use throttled request with retry for 429 errors
-            const response = await withRetry(() =>
-                window.gapi.client.sheets.spreadsheets.get({
-                    spreadsheetId,
-                    fields: 'sheets.properties.title' // Only fetch titles, reduces payload
-                })
-            );
+        // If a check for this spreadsheet is already in progress, wait for it
+        if (this.pendingSheetChecks.has(spreadsheetId)) {
+            console.log(`[LAKSH] Waiting for existing sheet check for: ${spreadsheetId.substring(0, 8)}`);
+            await this.pendingSheetChecks.get(spreadsheetId);
+            // After waiting, check cache again as it might be populated now
+            if (this.sheetCache.has(cacheKey)) return true;
+        }
 
-            const sheets = response.result.sheets || [];
-            const exists = sheets.some(s => s.properties.title === sheetTitle);
-
-            if (!exists) {
-                await withRetry(() =>
-                    window.gapi.client.sheets.spreadsheets.batchUpdate({
-                        spreadsheetId,
-                        resource: {
-                            requests: [{
-                                addSheet: { properties: { title: sheetTitle } }
-                            }]
-                        }
-                    })
+        // Start a new check (and lock it for others)
+        const checkPromise = (async () => {
+            try {
+                // Use throttled request with retry for 429 errors
+                const response = await withRetry(() =>
+                    window.gapi.client.sheets.spreadsheets.get({
+                        spreadsheetId: spreadsheetId,
+                        fields: 'sheets.properties.title'
+                    }), 3, `Listing sheets for ${spreadsheetId.substring(0, 8)}`
                 );
 
-                // Add headers based on sheet type
-                const headers = this.getHeadersForSheet(sheetTitle);
-                if (headers.length > 0) {
-                    await this.setHeaders(spreadsheetId, sheetTitle, headers);
+                const sheets = response.result.sheets || [];
+                // Cache ALL discovered sheets for this spreadsheet to avoid future lookups
+                sheets.forEach(s => {
+                    this.sheetCache.set(`${spreadsheetId}:${s.properties.title}`, true);
+                });
+
+                const exists = sheets.some(s => s.properties.title === sheetTitle);
+                if (!exists) {
+                    console.log(`[LAKSH] Sheet "${sheetTitle}" missing, creating...`);
+                    await withRetry(() =>
+                        window.gapi.client.sheets.spreadsheets.batchUpdate({
+                            spreadsheetId,
+                            resource: {
+                                requests: [{
+                                    addSheet: { properties: { title: sheetTitle } }
+                                }]
+                            }
+                        })
+                    );
+
+                    // Add headers based on sheet type
+                    const headers = this.getHeadersForSheet(sheetTitle);
+                    if (headers.length > 0) {
+                        await this.setHeaders(spreadsheetId, sheetTitle, headers);
+                    }
+                    this.sheetCache.set(cacheKey, true);
                 }
+                return true;
+            } catch (error) {
+                if (error.status === 401 || error?.result?.error?.code === 401) {
+                    const refreshed = await this.refreshToken();
+                    if (refreshed) return this.ensureSheetExists(spreadsheetId, sheetTitle);
+                }
+                console.error(`[LAKSH] Error ensuring sheet ${sheetTitle} exists:`, error);
+                throw error;
+            } finally {
+                // Clear the lock
+                this.pendingSheetChecks.delete(spreadsheetId);
+            }
+        })();
+
+        this.pendingSheetChecks.set(spreadsheetId, checkPromise);
+        return checkPromise;
+    }
+
+    async doesSheetExist(spreadsheetId, sheetTitle) {
+        // Ensure cache is populated at least once for this spreadsheet
+        if (![...this.sheetCache.keys()].some(k => k.startsWith(`${spreadsheetId}:`))) {
+            // Use _Config or Config to trigger initial list
+            const hasUnderscoreConfig = await this.probeSheet(spreadsheetId, '_Config');
+            if (!hasUnderscoreConfig) {
+                await this.probeSheet(spreadsheetId, 'Config');
+            }
+        }
+
+        // Check for exact match or opposite underscore version if appropriate
+        if (this.sheetCache.has(`${spreadsheetId}:${sheetTitle}`)) return true;
+
+        const altTitle = sheetTitle.startsWith('_') ? sheetTitle.substring(1) : `_${sheetTitle}`;
+        return this.sheetCache.has(`${spreadsheetId}:${altTitle}`);
+    }
+
+    // New helper to just check if a sheet exists without creating it
+    async probeSheet(spreadsheetId, sheetTitle) {
+        try {
+            const cacheKey = `${spreadsheetId}:${sheetTitle}`;
+            if (this.sheetCache.has(cacheKey)) return true;
+
+            let sheets = [];
+            if (window.gapi?.client?.sheets) {
+                const response = await withRetry(() =>
+                    window.gapi.client.sheets.spreadsheets.get({
+                        spreadsheetId,
+                        fields: 'sheets.properties.title'
+                    })
+                );
+                sheets = response.result.sheets || [];
+            } else if (this.ensureTokenLoaded()) {
+                console.log('[LAKSH] Probing sheets using fetch fallback');
+                const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title`;
+                const data = await this.makeApiRequest(url);
+                sheets = data.sheets || [];
+            } else {
+                return false;
             }
 
-            // Cache the result
-            this.sheetCache.set(cacheKey, true);
-            return true;
-        } catch (error) {
-            // Handle 401 - try to refresh token
-            if (error.status === 401 || error?.result?.error?.code === 401) {
-                console.log('[LAKSH] 401 detected, refreshing token...');
-                const refreshed = await this.refreshToken();
-                if (refreshed) {
-                    return this.ensureSheetExists(spreadsheetId, sheetTitle);
-                }
-            }
-            console.error('[LAKSH] Error ensuring sheet exists:', error);
-            throw error;
+            sheets.forEach(s => {
+                this.sheetCache.set(`${spreadsheetId}:${s.properties.title}`, true);
+            });
+
+            return sheets.some(s => s.properties.title === sheetTitle);
+        } catch (e) {
+            console.warn('[LAKSH] probeSheet failed:', e);
+            return false;
         }
     }
 
+    async resolveSheetName(spreadsheetId, logicalName) {
+        const underscored = logicalName.startsWith('_') ? logicalName : `_${logicalName}`;
+        const clean = logicalName.startsWith('_') ? logicalName.substring(1) : logicalName;
+
+        // Check cache or probe
+        if (await this.doesSheetExist(spreadsheetId, underscored)) return underscored;
+        if (await this.doesSheetExist(spreadsheetId, clean)) return clean;
+
+        // Default to underscored for new creations
+        return underscored;
+    }
+
     getHeadersForSheet(sheetTitle) {
-        if (sheetTitle === '_Config') return ['Key', 'Value'];
-        if (sheetTitle === '_Accounts') return ['ID', 'Name', 'Type', 'Balance', 'BillingCycleStart', 'DueDate', 'CreatedAt'];
-        if (sheetTitle === '_Categories') return ['Name', 'Keywords', 'Color', 'Icon'];
-        if (sheetTitle === '_Bills') return ['ID', 'Name', 'Amount', 'DueDay', 'Category', 'Status', 'AccountID', 'CreatedAt'];
+        const cleanTitle = sheetTitle.startsWith('_') ? sheetTitle : `_${sheetTitle}`;
+        if (cleanTitle === '_Config') return ['Key', 'Value'];
+        if (cleanTitle === '_Accounts') return ['ID', 'Name', 'Type', 'Balance', 'BillingCycleStart', 'DueDate', 'CreatedAt', 'IsSecret'];
+        if (cleanTitle === '_Categories') return ['Name', 'Keywords', 'Color', 'Icon'];
+        if (cleanTitle === '_Bills') return ['ID', 'Name', 'Amount', 'DueDay', 'BillingDay', 'Category', 'Status', 'BillType', 'Cycle', 'CreatedAt'];
+        if (cleanTitle === '_BillPayments') return ['ID', 'BillID', 'Name', 'Cycle', 'Amount', 'DueDate', 'Status', 'PaidDate', 'TransactionID'];
         // Monthly sheets
-        return ['ID', 'Date', 'Description', 'Amount', 'Category', 'AccountID', 'Type', 'CreatedAt'];
+        return ['ID', 'Date', 'Description', 'Amount', 'Category', 'AccountID', 'Type', 'CreatedAt', 'Friend'];
     }
 
     async setHeaders(spreadsheetId, sheetTitle, headers) {
@@ -744,8 +908,8 @@ class GoogleSheetsService {
 
     async getConfig(spreadsheetId) {
         try {
-            await this.ensureSheetExists(spreadsheetId, '_Config');
-            const rows = await this.getSpreadsheetValues(spreadsheetId, "'_Config'!A:B");
+            const sheetName = await this.resolveSheetName(spreadsheetId, '_Config');
+            const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:B`);
             const config = {};
             rows.forEach(row => {
                 if (row[0]) config[row[0]] = row[1] || '';
@@ -758,20 +922,17 @@ class GoogleSheetsService {
     }
 
     async setConfig(spreadsheetId, key, value) {
-        await this.ensureSheetExists(spreadsheetId, '_Config');
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_Config');
+        await this.ensureSheetExists(spreadsheetId, sheetName);
 
-        const response = await window.gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: "'_Config'!A:B"
-        });
-
-        const rows = response.result.values || [];
-        let rowIndex = rows.findIndex(row => row[0] === key);
+        const responseData = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:B`);
+        const rows = responseData || [];
+        const rowIndex = rows.findIndex(row => row[0] === key);
 
         if (rowIndex === -1) {
             await window.gapi.client.sheets.spreadsheets.values.append({
                 spreadsheetId,
-                range: "'_Config'!A:B",
+                range: `'${sheetName}'!A:B`,
                 valueInputOption: 'RAW',
                 insertDataOption: 'INSERT_ROWS',
                 resource: { values: [[key, value]] }
@@ -779,7 +940,7 @@ class GoogleSheetsService {
         } else {
             await window.gapi.client.sheets.spreadsheets.values.update({
                 spreadsheetId,
-                range: `'_Config'!A${rowIndex + 1}:B${rowIndex + 1}`,
+                range: `'${sheetName}'!A${rowIndex + 1}:B${rowIndex + 1}`,
                 valueInputOption: 'RAW',
                 resource: { values: [[key, value]] }
             });
@@ -790,8 +951,8 @@ class GoogleSheetsService {
 
     async getAccounts(spreadsheetId) {
         try {
-            // No need for ensureSheetExists here, getSpreadsheetValues handles fallbacks
-            const rows = await this.getSpreadsheetValues(spreadsheetId, "'_Accounts'!A:H");
+            const sheetName = await this.resolveSheetName(spreadsheetId, '_Accounts');
+            const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:H`);
             return this.parseAccountRows(rows);
         } catch (error) {
             console.error('Error getting accounts:', error);
@@ -813,7 +974,8 @@ class GoogleSheetsService {
     }
 
     async addAccount(spreadsheetId, account) {
-        await this.ensureSheetExists(spreadsheetId, '_Accounts');
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_Accounts');
+        await this.ensureSheetExists(spreadsheetId, sheetName);
 
         const row = [
             account.id,
@@ -828,7 +990,7 @@ class GoogleSheetsService {
 
         await window.gapi.client.sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: "'_Accounts'!A:H",
+            range: `'${sheetName}'!A:H`,
             valueInputOption: 'RAW',
             insertDataOption: 'INSERT_ROWS',
             resource: { values: [row] }
@@ -837,9 +999,10 @@ class GoogleSheetsService {
 
     async updateAccount(spreadsheetId, accountId, updates) {
         await this.ensureClientReady();
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_Accounts');
         const response = await window.gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId,
-            range: "'_Accounts'!A:H"
+            range: `'${sheetName}'!A:H`
         });
 
         const rows = response.result.values || [];
@@ -860,7 +1023,7 @@ class GoogleSheetsService {
 
             await window.gapi.client.sheets.spreadsheets.values.update({
                 spreadsheetId,
-                range: `'_Accounts'!A${rowIndex + 1}:H${rowIndex + 1}`,
+                range: `'${sheetName}'!A${rowIndex + 1}:H${rowIndex + 1}`,
                 valueInputOption: 'RAW',
                 resource: { values: [updatedRow] }
             });
@@ -869,13 +1032,14 @@ class GoogleSheetsService {
 
     async deleteAccount(spreadsheetId, accountId) {
         await this.ensureClientReady();
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_Accounts');
         const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
-        const sheet = sheetInfo.result.sheets.find(s => s.properties.title === '_Accounts');
+        const sheet = sheetInfo.result.sheets.find(s => s.properties.title === sheetName);
         if (!sheet) return;
 
         const response = await window.gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId,
-            range: "'_Accounts'!A:A"
+            range: `'${sheetName}'!A:A`
         });
 
         const rows = response.result.values || [];
@@ -1007,36 +1171,43 @@ class GoogleSheetsService {
         const now = new Date();
         const seenIds = new Set();
 
-        // Strategy 1: Look for generic "Transactions" sheet first
-        try {
-            const genericRows = await this.getSpreadsheetValues(spreadsheetId, "'Transactions'!A:I");
-            if (genericRows.length > 1) {
-                genericRows.slice(1).forEach(row => {
-                    if (row[0]) {
-                        transactions.push(this.parseTransactionRow(row));
-                        seenIds.add(row[0]);
-                    }
-                });
-            }
-        } catch (e) { }
+        // Populate sheet cache first to avoid 400 errors from probing
+        await this.ensureSheetExists(spreadsheetId, '_Config');
 
-        // Strategy 2: Look for individual monthly sheets
+        // Strategy 1: Look for generic "Transactions" sheet if it exists
+        if (await this.doesSheetExist(spreadsheetId, 'Transactions')) {
+            try {
+                const genericRows = await this.getSpreadsheetValues(spreadsheetId, "'Transactions'!A:I");
+                if (genericRows.length > 1) {
+                    genericRows.slice(1).forEach(row => {
+                        if (row[0]) {
+                            transactions.push(this.parseTransactionRow(row));
+                            seenIds.add(row[0]);
+                        }
+                    });
+                }
+            } catch (e) {
+                console.warn('[LAKSH] Error reading generic Transactions sheet:', e);
+            }
+        }
+
+        // Strategy 2: Look for individual monthly sheets only if they exist
         for (let i = 0; i < months; i++) {
             const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const sheetName = this.getMonthSheetName(date);
 
-            try {
-                // Don't call ensureSheetExists here to avoid extra API calls
-                const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:I`);
-
-                rows.slice(1).forEach(row => {
-                    if (row[0] && !seenIds.has(row[0])) {
-                        transactions.push(this.parseTransactionRow(row));
-                        seenIds.add(row[0]);
-                    }
-                });
-            } catch (error) {
-                // Silently skip missing monthly sheets
+            if (await this.doesSheetExist(spreadsheetId, sheetName)) {
+                try {
+                    const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:I`);
+                    rows.slice(1).forEach(row => {
+                        if (row[0] && !seenIds.has(row[0])) {
+                            transactions.push(this.parseTransactionRow(row));
+                            seenIds.add(row[0]);
+                        }
+                    });
+                } catch (error) {
+                    console.warn(`[LAKSH] Error reading monthly sheet ${sheetName}:`, error);
+                }
             }
         }
 
@@ -1062,7 +1233,8 @@ class GoogleSheetsService {
 
     async getCategories(spreadsheetId) {
         try {
-            const rows = await this.getSpreadsheetValues(spreadsheetId, "'_Categories'!A:D");
+            const sheetName = await this.resolveSheetName(spreadsheetId, '_Categories');
+            const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:D`);
 
             if (rows.length <= 1) {
                 const defaults = [
@@ -1093,11 +1265,12 @@ class GoogleSheetsService {
     }
 
     async addCategory(spreadsheetId, category) {
-        await this.ensureSheetExists(spreadsheetId, '_Categories');
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_Categories');
+        await this.ensureSheetExists(spreadsheetId, sheetName);
 
         await window.gapi.client.sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: "'_Categories'!A:D",
+            range: `'${sheetName}'!A:D`,
             valueInputOption: 'RAW',
             insertDataOption: 'INSERT_ROWS',
             resource: { values: [[category.name, category.keywords, category.color, category.icon]] }
@@ -1106,9 +1279,10 @@ class GoogleSheetsService {
 
     async updateCategory(spreadsheetId, oldName, category) {
         await this.ensureClientReady();
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_Categories');
         const response = await window.gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId,
-            range: "'_Categories'!A:D"
+            range: `'${sheetName}'!A:D`
         });
 
         const rows = response.result.values || [];
@@ -1117,7 +1291,7 @@ class GoogleSheetsService {
         if (rowIndex > 0) {
             await window.gapi.client.sheets.spreadsheets.values.update({
                 spreadsheetId,
-                range: `'_Categories'!A${rowIndex + 1}:D${rowIndex + 1}`,
+                range: `'${sheetName}'!A${rowIndex + 1}:D${rowIndex + 1}`,
                 valueInputOption: 'RAW',
                 resource: { values: [[category.name, category.keywords, category.color, category.icon]] }
             });
@@ -1126,13 +1300,14 @@ class GoogleSheetsService {
 
     async deleteCategory(spreadsheetId, categoryName) {
         await this.ensureClientReady();
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_Categories');
         const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
-        const sheet = sheetInfo.result.sheets.find(s => s.properties.title === '_Categories');
+        const sheet = sheetInfo.result.sheets.find(s => s.properties.title === sheetName);
         if (!sheet) return;
 
         const response = await window.gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId,
-            range: "'_Categories'!A:A"
+            range: `'${sheetName}'!A:A`
         });
 
         const rows = response.result.values || [];
@@ -1161,17 +1336,20 @@ class GoogleSheetsService {
 
     async getBills(spreadsheetId) {
         try {
-            const rows = await this.getSpreadsheetValues(spreadsheetId, "'_Bills'!A:H");
+            const sheetName = await this.resolveSheetName(spreadsheetId, '_Bills');
+            const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:J`);
             const seenIds = new Set();
             return rows.slice(1).map(row => ({
                 id: row[0],
                 name: row[1],
                 amount: parseFloat(row[2]) || 0,
                 dueDay: parseInt(row[3]) || 1,
-                category: row[4],
-                status: row[5] || 'active',
-                accountId: row[6],
-                createdAt: row[7]
+                billingDay: parseInt(row[4]) || 1,
+                category: row[5],
+                status: row[6] || 'active',
+                billType: row[7] || 'recurring',
+                cycle: row[8] || 'monthly',
+                createdAt: row[9]
             })).filter(b => {
                 if (!b.id || seenIds.has(b.id)) return false;
                 seenIds.add(b.id);
@@ -1184,22 +1362,25 @@ class GoogleSheetsService {
     }
 
     async addBill(spreadsheetId, bill) {
-        await this.ensureSheetExists(spreadsheetId, '_Bills');
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_Bills');
+        await this.ensureSheetExists(spreadsheetId, sheetName);
 
         const row = [
             bill.id,
             bill.name,
             bill.amount,
             bill.dueDay,
+            bill.billingDay || '1',
             bill.category,
             bill.status || 'active',
-            bill.accountId || '',
+            bill.billType || 'recurring',
+            bill.cycle || 'monthly',
             new Date().toISOString()
         ];
 
         await window.gapi.client.sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: "'_Bills'!A:H",
+            range: `'${sheetName}'!A:J`,
             valueInputOption: 'RAW',
             insertDataOption: 'INSERT_ROWS',
             resource: { values: [row] }
@@ -1208,9 +1389,10 @@ class GoogleSheetsService {
 
     async updateBill(spreadsheetId, billId, updates) {
         await this.ensureClientReady();
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_Bills');
         const response = await window.gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId,
-            range: "'_Bills'!A:H"
+            range: `'${sheetName}'!A:J`
         });
 
         const rows = response.result.values || [];
@@ -1223,30 +1405,123 @@ class GoogleSheetsService {
                 updates.name ?? currentRow[1],
                 updates.amount ?? currentRow[2],
                 updates.dueDay ?? currentRow[3],
-                updates.category ?? currentRow[4],
-                updates.status ?? currentRow[5],
-                updates.accountId ?? currentRow[6],
-                currentRow[7]
+                updates.billingDay ?? currentRow[4],
+                updates.category ?? currentRow[5],
+                updates.status ?? currentRow[6],
+                updates.billType ?? currentRow[7],
+                updates.cycle ?? currentRow[8],
+                currentRow[9]
             ];
 
             await window.gapi.client.sheets.spreadsheets.values.update({
                 spreadsheetId,
-                range: `'_Bills'!A${rowIndex + 1}:H${rowIndex + 1}`,
+                range: `'${sheetName}'!A${rowIndex + 1}:J${rowIndex + 1}`,
                 valueInputOption: 'RAW',
-                resource: { values: [updatedRow] }
+                resource: { values: [[updatedRow]] }
+            });
+        }
+    }
+
+    // ===== BILL PAYMENTS CRUD =====
+
+    async getBillPayments(spreadsheetId) {
+        try {
+            const sheetName = await this.resolveSheetName(spreadsheetId, '_BillPayments');
+            const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:I`);
+            const payments = rows.slice(1).map(row => ({
+                id: row[0],
+                billId: row[1],
+                name: row[2],
+                cycle: row[3],
+                amount: parseFloat(row[4]) || 0,
+                dueDate: row[5],
+                status: row[6],
+                paidDate: row[7],
+                transactionId: row[8]
+            }));
+
+            // Deduplicate: If multiple instances for same bill+cycle exist in sheet, take the most recent (last in sheet)
+            const seen = new Set();
+            return payments.reverse().filter(p => {
+                const key = `${p.billId}:${p.cycle}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            }).reverse();
+        } catch (error) {
+            console.error('Error getting bill payments:', error);
+            return [];
+        }
+    }
+
+    async addBillPayment(spreadsheetId, payment) {
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_BillPayments');
+        await this.ensureSheetExists(spreadsheetId, sheetName);
+        const row = [
+            payment.id,
+            payment.billId,
+            payment.name,
+            payment.cycle,
+            payment.amount,
+            payment.dueDate,
+            payment.status || 'pending',
+            payment.paidDate || '',
+            payment.transactionId || ''
+        ];
+
+        await window.gapi.client.sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: `'${sheetName}'!A:I`,
+            valueInputOption: 'RAW',
+            insertDataOption: 'INSERT_ROWS',
+            resource: { values: [row] }
+        });
+    }
+
+    async updateBillPayment(spreadsheetId, paymentId, updates) {
+        await this.ensureClientReady();
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_BillPayments');
+        const response = await window.gapi.client.sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: `'${sheetName}'!A:I`
+        });
+
+        const rows = response.result.values || [];
+        const rowIndex = rows.findIndex(row => row[0] === paymentId);
+
+        if (rowIndex >= 0) {
+            const curr = rows[rowIndex];
+            const updated = [
+                paymentId,
+                updates.hasOwnProperty('billId') ? updates.billId : (curr[1] || ''),
+                updates.hasOwnProperty('name') ? updates.name : (curr[2] || ''),
+                updates.hasOwnProperty('cycle') ? updates.cycle : (curr[3] || ''),
+                updates.hasOwnProperty('amount') ? updates.amount : (curr[4] || '0'),
+                updates.hasOwnProperty('dueDate') ? updates.dueDate : (curr[5] || ''),
+                updates.hasOwnProperty('status') ? updates.status : (curr[6] || 'pending'),
+                updates.hasOwnProperty('paidDate') ? updates.paidDate : (curr[7] || ''),
+                updates.hasOwnProperty('transactionId') ? updates.transactionId : (curr[8] || '')
+            ];
+
+            await window.gapi.client.sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: `'${sheetName}'!A${rowIndex + 1}:I${rowIndex + 1}`,
+                valueInputOption: 'RAW',
+                resource: { values: [updated] }
             });
         }
     }
 
     async deleteBill(spreadsheetId, billId) {
         await this.ensureClientReady();
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_Bills');
         const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
-        const sheet = sheetInfo.result.sheets.find(s => s.properties.title === '_Bills');
+        const sheet = sheetInfo.result.sheets.find(s => s.properties.title === sheetName);
         if (!sheet) return;
 
         const response = await window.gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId,
-            range: "'_Bills'!A:A"
+            range: `'${sheetName}'!A:A`
         });
 
         const rows = response.result.values || [];
@@ -1270,7 +1545,39 @@ class GoogleSheetsService {
             });
         }
     }
+    async deleteBillPayment(spreadsheetId, paymentId) {
+        await this.ensureClientReady();
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_BillPayments');
+        const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
+        const sheet = sheetInfo.result.sheets.find(s => s.properties.title === sheetName);
+        if (!sheet) return;
 
+        const response = await window.gapi.client.sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: `'${sheetName}'!A:A`
+        });
+
+        const rows = response.result.values || [];
+        const rowIndex = rows.findIndex(row => row[0] === paymentId);
+
+        if (rowIndex >= 0) {
+            await window.gapi.client.sheets.spreadsheets.batchUpdate({
+                spreadsheetId,
+                resource: {
+                    requests: [{
+                        deleteDimension: {
+                            range: {
+                                sheetId: sheet.properties.sheetId,
+                                dimension: 'ROWS',
+                                startIndex: rowIndex,
+                                endIndex: rowIndex + 1
+                            }
+                        }
+                    }]
+                }
+            });
+        }
+    }
     // ===== SMART QUERY =====
 
     async smartQuery(spreadsheetId, query) {

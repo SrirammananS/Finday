@@ -99,8 +99,8 @@ const Friends = () => {
     };
 
     return (
-        <div className="min-h-screen bg-black text-white selection:bg-primary selection:text-black">
-            <div className="fixed inset-0 pointer-events-none opacity-[0.03] bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
+        <div className="min-h-screen text-text-main selection:bg-primary selection:text-black">
+            {/* Background handled by Layout */}
 
             <motion.main
                 initial={{ opacity: 0 }}
@@ -111,7 +111,7 @@ const Friends = () => {
                 <header className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16">
                     <div>
                         <div className="flex items-center gap-3 mb-6">
-                            <div className="p-3 rounded-2xl bg-primary/10 border border-primary/20 text-primary">
+                            <div className="p-3 rounded-2xl bg-canvas-subtle border border-card-border text-primary">
                                 <Users size={24} />
                             </div>
                             <span className="text-[10px] font-black uppercase tracking-[0.5em] text-text-muted">Social Ledger Protocol</span>
@@ -125,7 +125,7 @@ const Friends = () => {
                     <div className="flex flex-col items-end gap-4">
                         <button
                             onClick={() => setShowManage(true)}
-                            className="h-14 px-8 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] bg-white/5 border border-white/10 text-text-muted hover:border-primary hover:text-primary transition-all flex items-center gap-3"
+                            className="h-14 px-8 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] bg-canvas-subtle border border-card-border text-text-muted hover:border-primary hover:text-primary transition-all flex items-center gap-3"
                         >
                             <SlidersHorizontal size={16} />
                             PROTOCOL SETTINGS
@@ -136,7 +136,7 @@ const Friends = () => {
                 {/* Status Summary */}
                 {friendBalances.length > 0 && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
-                        <div className="group relative p-8 rounded-[2.5rem] bg-[#080808] border border-white/5 flex flex-col justify-between min-h-[160px] overflow-hidden transition-all hover:bg-[#0a0a0a]">
+                        <div className="group relative p-8 rounded-[2.5rem] bg-card border border-card-border flex flex-col justify-between min-h-[160px] overflow-hidden transition-all hover:bg-canvas-elevated">
                             <TrendingUp className="absolute top-[-20%] right-[-10%] opacity-[0.02] -rotate-12 group-hover:scale-110 transition-transform" size={160} />
                             <span className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">RECEIVABLES</span>
                             <div>
@@ -144,7 +144,7 @@ const Friends = () => {
                                 <p className="text-[9px] font-black uppercase tracking-widest text-primary/30 mt-2">LINKED INFLOWS</p>
                             </div>
                         </div>
-                        <div className="group relative p-8 rounded-[2.5rem] bg-[#080808] border border-white/5 flex flex-col justify-between min-h-[160px] overflow-hidden transition-all hover:bg-[#0a0a0a]">
+                        <div className="group relative p-8 rounded-[2.5rem] bg-card border border-card-border flex flex-col justify-between min-h-[160px] overflow-hidden transition-all hover:bg-canvas-elevated">
                             <TrendingDown className="absolute top-[-20%] right-[-10%] opacity-[0.02] -rotate-12 group-hover:scale-110 transition-transform" size={160} />
                             <span className="text-[10px] font-black uppercase tracking-[0.3em] text-rose-500">PAYABLES</span>
                             <div>
@@ -152,11 +152,11 @@ const Friends = () => {
                                 <p className="text-[9px] font-black uppercase tracking-widest text-rose-500/30 mt-2">LINKED OUTFLOWS</p>
                             </div>
                         </div>
-                        <div className="group relative p-8 rounded-[2.5rem] bg-[#080808] border border-white/5 flex flex-col justify-between min-h-[160px] overflow-hidden transition-all hover:bg-[#0a0a0a]">
+                        <div className="group relative p-8 rounded-[2.5rem] bg-card border border-card-border flex flex-col justify-between min-h-[160px] overflow-hidden transition-all hover:bg-canvas-elevated">
                             <ShieldCheck className="absolute top-[-20%] right-[-10%] opacity-[0.02] -rotate-12 group-hover:scale-110 transition-transform" size={160} />
                             <span className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted">NET DELTA</span>
                             <div>
-                                <h3 className={`text-2xl md:text-3xl font-black tabular-nums tracking-tighter leading-none ${summary.netBalance >= 0 ? 'text-white' : 'text-rose-400'}`}>
+                                <h3 className={`text-2xl md:text-3xl font-black tabular-nums tracking-tighter leading-none ${summary.netBalance >= 0 ? 'text-text-main' : 'text-rose-400'}`}>
                                     {summary.netBalance >= 0 ? '+' : ''}{formatCurrency(summary.netBalance)}
                                 </h3>
                                 <p className="text-[9px] font-black uppercase tracking-widest text-text-muted/30 mt-2">SYSTEM BALANCE</p>
@@ -177,7 +177,7 @@ const Friends = () => {
                                 key={tab.key}
                                 onClick={() => setFilter(tab.key)}
                                 className={`h-12 px-8 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all border shrink-0
-                                ${filter === tab.key ? 'bg-primary border-primary text-black shadow-[0_0_20px_rgba(var(--primary-rgb),0.3)]' : 'bg-white/5 text-text-muted border-white/10 hover:bg-white/10'}`}
+                                ${filter === tab.key ? 'bg-primary border-primary text-primary-foreground shadow-[0_0_20px_rgba(var(--primary-rgb),0.3)]' : 'bg-canvas-subtle text-text-muted border-card-border hover:bg-canvas-elevated'}`}
                             >
                                 {tab.label}
                             </button>
@@ -188,7 +188,7 @@ const Friends = () => {
                 {/* List Section */}
                 <div className="grid grid-cols-1 gap-8">
                     {friendsList.length === 0 ? (
-                        <div className="py-32 rounded-[3.5rem] bg-white/[0.02] border border-dashed border-white/10 text-center flex flex-col items-center justify-center">
+                        <div className="py-32 rounded-[3.5rem] bg-card border border-dashed border-card-border text-center flex flex-col items-center justify-center">
                             <Users size={40} className="text-text-muted/20 mb-6" />
                             <h3 className="text-xl font-black uppercase tracking-tighter text-text-muted">No Nodes Detected</h3>
                             <p className="text-[9px] font-black uppercase tracking-widest text-text-muted/40 mt-1">Initialize social transactions to map signals.</p>
@@ -200,16 +200,16 @@ const Friends = () => {
                                 initial={{ y: 20, opacity: 0 }}
                                 animate={{ y: 0, opacity: 1 }}
                                 transition={{ delay: 0.1 * idx }}
-                                className="group p-8 md:p-10 rounded-[3.5rem] bg-[#050505] border border-white/5 hover:border-white/10 transition-all shadow-3xl overflow-hidden"
+                                className="group p-8 md:p-10 rounded-[3.5rem] bg-card border border-card-border hover:border-text-muted/20 transition-all shadow-3xl overflow-hidden"
                             >
                                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8 mb-12">
                                     <div className="flex items-center gap-6">
-                                        <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center font-black text-3xl transition-all shadow-xl ${friend.balance > 0 ? 'bg-primary text-black' : friend.balance < 0 ? 'bg-rose-500 text-white shadow-rose-900/20' : 'bg-white/5 text-text-muted'
+                                        <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center font-black text-3xl transition-all shadow-xl ${friend.balance > 0 ? 'bg-primary text-primary-foreground' : friend.balance < 0 ? 'bg-rose-500 text-white shadow-rose-900/20' : 'bg-canvas-subtle text-text-muted'
                                             }`}>
                                             {friend.name.charAt(0).toUpperCase()}
                                         </div>
                                         <div>
-                                            <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-white">{friend.name}</h3>
+                                            <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-text-main">{friend.name}</h3>
                                             <div className="flex items-center gap-2 mt-1">
                                                 <div className={`w-2 h-2 rounded-full animate-pulse ${friend.balance > 0 ? 'bg-primary' : friend.balance < 0 ? 'bg-rose-500' : 'bg-green-500'}`} />
                                                 <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${friend.balance > 0 ? 'text-primary' : friend.balance < 0 ? 'text-rose-400' : 'text-green-500'
@@ -228,7 +228,7 @@ const Friends = () => {
                                         {friend.balance > 0 && (
                                             <button
                                                 onClick={() => openSettle(friend)}
-                                                className="h-10 px-8 rounded-full bg-primary text-black text-[10px] font-black uppercase tracking-widest hover:shadow-[0_0_20px_rgba(var(--primary-rgb),0.5)] transition-all"
+                                                className="h-10 px-8 rounded-full bg-primary text-primary-foreground text-[10px] font-black uppercase tracking-widest hover:shadow-[0_0_20px_rgba(var(--primary-rgb),0.5)] transition-all"
                                             >
                                                 EXECUTE SETTLEMENT
                                             </button>
@@ -237,27 +237,27 @@ const Friends = () => {
                                 </div>
 
                                 {/* History Layer */}
-                                <div className="p-1 rounded-[2.5rem] bg-white/[0.03] border border-white/5">
-                                    <div className="px-8 py-4 border-b border-white/5 flex justify-between items-center">
+                                <div className="p-1 rounded-[2.5rem] bg-canvas-subtle/50 border border-card-border">
+                                    <div className="px-8 py-4 border-b border-card-border flex justify-between items-center">
                                         <span className="text-[10px] font-black uppercase tracking-widest text-text-muted opacity-60">LINKED SIGNALS ({friend.transactionCount})</span>
                                         <History size={14} className="text-text-muted/40" />
                                     </div>
-                                    <div className="divide-y divide-white/5 max-h-[300px] overflow-y-auto no-scrollbar">
+                                    <div className="divide-y divide-card-border max-h-[300px] overflow-y-auto no-scrollbar">
                                         {friend.history
                                             .sort((a, b) => new Date(b.date) - new Date(a.date))
                                             .map(t => (
-                                                <div key={t.id} className="p-6 flex items-center justify-between group/item hover:bg-white/[0.02] transition-colors">
+                                                <div key={t.id} className="p-6 flex items-center justify-between group/item hover:bg-canvas-subtle transition-colors">
                                                     <div className="flex items-center gap-5">
-                                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${parseFloat(t.amount) < 0 ? 'bg-white/5 text-white opacity-40' : 'bg-primary/20 text-primary'
+                                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${parseFloat(t.amount) < 0 ? 'bg-canvas-subtle text-text-main opacity-40' : 'bg-primary/20 text-primary'
                                                             }`}>
                                                             {parseFloat(t.amount) < 0 ? <ArrowUpRight size={18} /> : <ArrowDownLeft size={18} />}
                                                         </div>
                                                         <div>
-                                                            <p className="text-sm font-black uppercase tracking-tight text-white/80 group-hover/item:text-white">{t.description}</p>
+                                                            <p className="text-sm font-black uppercase tracking-tight text-text-muted group-hover/item:text-text-main">{t.description}</p>
                                                             <p className="text-[9px] font-black uppercase tracking-widest text-text-muted mt-1 opacity-50">{formatDate(t.date)} • {t.category}</p>
                                                         </div>
                                                     </div>
-                                                    <div className={`text-lg font-black tabular-nums ${parseFloat(t.amount) < 0 ? 'text-white alpha-60' : 'text-primary'}`}>
+                                                    <div className={`text-lg font-black tabular-nums ${parseFloat(t.amount) < 0 ? 'text-text-main alpha-60' : 'text-primary'}`}>
                                                         {formatCurrency(t.amount)}
                                                     </div>
                                                 </div>
@@ -285,12 +285,12 @@ const Friends = () => {
                             initial={{ y: '100%', opacity: 0 }}
                             animate={{ y: 0, opacity: 1 }}
                             exit={{ y: '100%', opacity: 0 }}
-                            className="relative bg-[#050505] border border-white/10 p-8 md:p-16 rounded-t-[3rem] md:rounded-[4rem] w-full max-w-2xl shadow-3xl"
+                            className="relative bg-card border border-card-border p-8 md:p-16 rounded-t-[3rem] md:rounded-[4rem] w-full max-w-2xl shadow-3xl"
                             onClick={e => e.stopPropagation()}
                         >
                             <div className="flex justify-between items-center mb-12">
-                                <h2 className="text-2xl md:text-3xl font-black tracking-tighter text-white uppercase">Neural Connections</h2>
-                                <button onClick={() => setShowManage(false)} className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-all">
+                                <h2 className="text-2xl md:text-3xl font-black tracking-tighter text-text-main uppercase">Neural Connections</h2>
+                                <button onClick={() => setShowManage(false)} className="w-12 h-12 rounded-full bg-canvas-subtle border border-card-border flex items-center justify-center hover:bg-canvas-elevated transition-all">
                                     <X size={24} />
                                 </button>
                             </div>
@@ -303,11 +303,11 @@ const Friends = () => {
                                         onChange={e => setNewFriendName(e.target.value)}
                                         onKeyDown={e => e.key === 'Enter' && handleAddFriend()}
                                         placeholder="NEW ENTITY NAME..."
-                                        className="flex-1 h-20 bg-white/5 border border-white/10 px-8 rounded-3xl outline-none focus:border-primary transition-all font-black text-lg uppercase tracking-widest text-white"
+                                        className="flex-1 h-20 bg-canvas-subtle border border-card-border px-8 rounded-3xl outline-none focus:border-primary transition-all font-black text-lg uppercase tracking-widest text-text-main"
                                     />
                                     <button
                                         onClick={handleAddFriend}
-                                        className="w-20 h-20 bg-primary text-black rounded-3xl flex items-center justify-center hover:shadow-[0_0_20px_rgba(var(--primary-rgb),0.5)] transition-all"
+                                        className="w-20 h-20 bg-primary text-primary-foreground rounded-3xl flex items-center justify-center hover:shadow-[0_0_20px_rgba(var(--primary-rgb),0.5)] transition-all"
                                     >
                                         <UserPlus size={28} />
                                     </button>
@@ -318,13 +318,13 @@ const Friends = () => {
                                 {friends.map(f => {
                                     const balanceInfo = friendBalances.find(fb => fb.name.toLowerCase() === f.name.toLowerCase());
                                     return (
-                                        <div key={f.id} className="p-6 rounded-3xl bg-white/[0.03] border border-white/5 flex items-center justify-between group/friendItem">
+                                        <div key={f.id} className="p-6 rounded-3xl bg-canvas-subtle border border-card-border flex items-center justify-between group/friendItem">
                                             <div className="flex items-center gap-5">
-                                                <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-xs font-black uppercase tracking-widest text-text-muted">
+                                                <div className="w-12 h-12 rounded-2xl bg-canvas-elevated flex items-center justify-center text-xs font-black uppercase tracking-widest text-text-muted">
                                                     {f.name.charAt(0)}
                                                 </div>
                                                 <div>
-                                                    <p className="font-black text-white uppercase tracking-tight">{f.name}</p>
+                                                    <p className="font-black text-text-main uppercase tracking-tight">{f.name}</p>
                                                     {balanceInfo && (
                                                         <p className={`text-[10px] font-black uppercase tracking-widest ${balanceInfo.balance > 0 ? 'text-primary' : balanceInfo.balance < 0 ? 'text-rose-500' : 'text-text-muted/40'
                                                             }`}>
@@ -363,13 +363,13 @@ const Friends = () => {
                             initial={{ scale: 0.9, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
                             exit={{ scale: 0.9, opacity: 0 }}
-                            className="relative w-full max-w-md bg-[#080808] border border-white/10 p-10 rounded-[3rem] shadow-3xl text-center"
+                            className="relative w-full max-w-md bg-card border border-card-border p-10 rounded-[3rem] shadow-3xl text-center"
                             onClick={e => e.stopPropagation()}
                         >
                             <div className="w-24 h-24 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-8 text-primary">
                                 <CheckCircle2 size={48} />
                             </div>
-                            <h3 className="text-2xl font-black text-white uppercase tracking-tighter mb-2">Execute Settle</h3>
+                            <h3 className="text-2xl font-black text-text-main uppercase tracking-tighter mb-2">Execute Settle</h3>
                             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted/60 mb-10">Record inbound transfer from {settlingFriend.name}</p>
 
                             <div className="mb-10">
@@ -379,7 +379,7 @@ const Friends = () => {
                                         type="number"
                                         value={settleAmount}
                                         onChange={(e) => setSettleAmount(e.target.value)}
-                                        className="w-full bg-white/5 border border-white/10 h-24 rounded-[1.8rem] text-center text-4xl font-black text-primary outline-none focus:border-primary transition-all tabular-nums"
+                                        className="w-full bg-canvas-subtle border border-card-border h-24 rounded-[1.8rem] text-center text-4xl font-black text-primary outline-none focus:border-primary transition-all tabular-nums"
                                     />
                                     <div className="absolute right-8 top-1/2 -translate-y-1/2 text-primary font-black text-xl opacity-40">₹</div>
                                 </div>
@@ -387,13 +387,13 @@ const Friends = () => {
 
                             <button
                                 onClick={handleSettle}
-                                className="w-full h-20 bg-primary text-black rounded-[1.8rem] font-black text-lg uppercase tracking-widest shadow-[0_0_50px_rgba(var(--primary-rgb),0.3)] hover:shadow-[0_0_60px_rgba(var(--primary-rgb),0.5)] transition-all"
+                                className="w-full h-20 bg-primary text-primary-foreground rounded-[1.8rem] font-black text-lg uppercase tracking-widest shadow-[0_0_50px_rgba(var(--primary-rgb),0.3)] hover:shadow-[0_0_60px_rgba(var(--primary-rgb),0.5)] transition-all"
                             >
                                 FINALIZE CLEARANCE
                             </button>
                             <button
                                 onClick={() => setShowSettleModal(false)}
-                                className="mt-4 text-[10px] font-black uppercase tracking-widest text-text-muted hover:text-white transition-colors"
+                                className="mt-4 text-[10px] font-black uppercase tracking-widest text-text-muted hover:text-text-main transition-colors"
                             >
                                 ABORT PROTOCOL
                             </button>

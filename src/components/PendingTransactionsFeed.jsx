@@ -1,15 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, Check, X, Edit2, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import { Bell, Check, X, Edit2, ChevronDown, ChevronUp, Sparkles, Clipboard, MessageSquare } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
 import { pendingTransactionsService } from '../services/pendingTransactions';
+import { parseSMS, formatParsedTransaction } from '../services/smsParser';
+import { useFeedback } from '../context/FeedbackContext';
 
 const PendingTransactionsFeed = () => {
     const { accounts, categories, addTransaction } = useFinance();
+    const { toast } = useFeedback();
     const [pending, setPending] = useState([]);
     const [expanded, setExpanded] = useState(true);
     const [editingId, setEditingId] = useState(null);
     const [editForm, setEditForm] = useState(null);
+    const [showInput, setShowInput] = useState(false);
+    const [manualText, setManualText] = useState('');
     const hasProcessedApproved = useRef(false);
 
     useEffect(() => {
@@ -101,7 +106,106 @@ const PendingTransactionsFeed = () => {
         }
     };
 
-    if (pending.length === 0) return null;
+    // Handle paste from clipboard
+    const handlePasteFromClipboard = async () => {
+        try {
+            const text = await navigator.clipboard.readText();
+            if (text) {
+                processManualInput(text);
+            } else {
+                toast('Clipboard is empty', 'error');
+            }
+        } catch (e) {
+            toast('Could not access clipboard', 'error');
+        }
+    };
+
+    // Process manual SMS text input
+    const processManualInput = (text) => {
+        if (!text || !text.trim()) {
+            toast('Please enter SMS text', 'error');
+            return;
+        }
+
+        const parsed = parseSMS(text);
+        if (parsed && parsed.amount) {
+            const transaction = formatParsedTransaction(parsed, accounts);
+            if (transaction) {
+                // Add date if missing
+                transaction.date = transaction.date || new Date().toISOString().split('T')[0];
+                transaction.rawText = text.slice(0, 200);
+                transaction.source = 'manual';
+
+                const added = pendingTransactionsService.add(transaction);
+                if (added) {
+                    toast(`Detected: ₹${Math.abs(transaction.amount)} ${transaction.type}`);
+                    setManualText('');
+                    setShowInput(false);
+                } else {
+                    toast('Duplicate transaction detected', 'error');
+                }
+            } else {
+                toast('Could not parse transaction', 'error');
+            }
+        } else {
+            toast('No transaction found in text', 'error');
+        }
+    };
+
+    // Show input section even when no pending transactions
+    if (pending.length === 0) {
+        return (
+            <motion.div
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-6"
+            >
+                <button
+                    onClick={() => setShowInput(!showInput)}
+                    className="w-full modern-card p-4 flex items-center justify-center gap-2 text-text-muted hover:text-primary hover:border-primary transition-all"
+                >
+                    <Sparkles size={18} />
+                    <span className="text-xs font-bold uppercase tracking-wider">Paste SMS/Text to Detect Transaction</span>
+                </button>
+
+                <AnimatePresence>
+                    {showInput && (
+                        <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="overflow-hidden"
+                        >
+                            <div className="mt-3 p-4 modern-card space-y-3">
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={handlePasteFromClipboard}
+                                        className="flex-1 py-2 px-3 rounded-lg bg-canvas-subtle border border-card-border text-xs font-bold flex items-center justify-center gap-2 hover:border-primary transition-all"
+                                    >
+                                        <Clipboard size={14} />
+                                        Paste from Clipboard
+                                    </button>
+                                </div>
+                                <textarea
+                                    value={manualText}
+                                    onChange={(e) => setManualText(e.target.value)}
+                                    placeholder="Or paste/type bank SMS here..."
+                                    className="w-full p-3 rounded-lg bg-canvas-subtle border border-card-border text-sm resize-none h-24 focus:border-primary outline-none text-text-main"
+                                />
+                                <button
+                                    onClick={() => processManualInput(manualText)}
+                                    disabled={!manualText.trim()}
+                                    className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold disabled:opacity-50"
+                                >
+                                    Detect Transaction
+                                </button>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </motion.div>
+        );
+    }
 
     return (
         <motion.div

@@ -25,7 +25,7 @@ import { storage, STORAGE_KEYS } from '../services/storage';
 
 const Welcome = () => {
     const navigate = useNavigate();
-    const { isConnected, isLoading: contextLoading, updateConfig, createFinanceSheet, setGuestMode } = useFinance();
+    const { isConnected, isLoading: contextLoading, updateConfig, createFinanceSheet, setGuestMode, forceRefresh, refreshData, config } = useFinance();
     const [step, setStep] = useState('welcome');
     const [spreadsheets, setSpreadsheets] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -50,7 +50,22 @@ const Welcome = () => {
     };
 
     useEffect(() => {
+        // Check if OAuth callback requires refresh
+        const checkOAuthRefresh = async () => {
+            const refreshRequired = localStorage.getItem('oauth_refresh_required');
+            if (refreshRequired === 'true' && config?.spreadsheetId) {
+                console.log('[Welcome] OAuth refresh detected, triggering data load...');
+                localStorage.removeItem('oauth_refresh_required');
+                try {
+                    await refreshData(config.spreadsheetId, true);
+                } catch (err) {
+                    console.error('[Welcome] OAuth refresh failed:', err);
+                }
+            }
+        };
+
         const preInit = async () => {
+            await checkOAuthRefresh();
             const savedId = storage.get(STORAGE_KEYS.SPREADSHEET_ID);
             const savedToken = localStorage.getItem('google_access_token');
             const everConnected = localStorage.getItem('laksh_ever_connected');
@@ -111,12 +126,26 @@ const Welcome = () => {
         setIsLoading(true);
         setError('');
         try {
+            // Save credentials first
             storage.set(STORAGE_KEYS.SPREADSHEET_ID, sheet.id);
             storage.set(STORAGE_KEYS.SPREADSHEET_NAME, sheet.name);
+            localStorage.setItem('laksh_spreadsheet_id', sheet.id);
             localStorage.setItem('laksh_ever_connected', 'true');
+
+            // Update context
             updateConfig({ spreadsheetId: sheet.id });
             if (setGuestMode) setGuestMode(false);
             storage.remove(STORAGE_KEYS.GUEST_MODE);
+            localStorage.removeItem('laksh_guest_mode');
+
+            // Trigger data refresh before navigating
+            console.log('[Welcome] Sheet selected, triggering refresh...');
+            if (forceRefresh) {
+                // Don't await - let it load in background
+                forceRefresh().catch(e => console.log('[Welcome] Background refresh error:', e));
+            }
+
+            // Navigate immediately - ProtectedRoute will show content
             navigate('/', { replace: true });
         } catch (err) {
             if (isMountedRef.current) setError('Failed to connect.');
@@ -193,18 +222,15 @@ const Welcome = () => {
 
     if (contextLoading || (hasCredentials && !redirectAttempted)) {
         return (
-            <div className="min-h-screen bg-black flex items-center justify-center">
+            <div className="min-h-screen bg-canvas flex items-center justify-center">
                 <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }} className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full" />
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-black text-white selection:bg-primary selection:text-black overflow-hidden relative">
-            {/* Background Noise/Effect */}
-            <div className="absolute inset-0 pointer-events-none opacity-[0.05] bg-[url('https://grainy-gradients.vercel.app/noise.svg')]" />
-            <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-primary/10 rounded-full blur-[150px] pointer-events-none" />
-            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none" />
+        <div className="min-h-screen text-text-main selection:bg-primary selection:text-black overflow-hidden relative">
+            {/* Background handled by Layout */}
 
             <div className="relative z-10 min-h-screen flex flex-col items-center justify-center p-6 md:p-12">
                 <AnimatePresence mode="wait">
@@ -223,11 +249,11 @@ const Welcome = () => {
                                 transition={{ delay: 0.2 }}
                                 className="mb-12"
                             >
-                                <div className="w-32 h-32 mx-auto rounded-[3rem] bg-[#080808] border border-white/10 flex items-center justify-center shadow-3xl relative group">
+                                <div className="w-32 h-32 mx-auto rounded-[3rem] bg-card border border-card-border flex items-center justify-center shadow-3xl relative group overflow-hidden">
                                     <div className="absolute inset-0 rounded-[3rem] bg-primary/20 blur group-hover:blur-xl transition-all opacity-0 group-hover:opacity-100" />
-                                    <Cpu size={56} className="text-primary relative z-10" />
+                                    <img src="/mascot.png" alt="Laksh Mascot" className="w-full h-full object-cover relative z-10 p-1" />
                                 </div>
-                                <h1 className="text-4xl md:text-5xl font-extrabold tracking-[-0.04em] mt-10 leading-none text-white">
+                                <h1 className="text-4xl md:text-5xl font-extrabold tracking-[-0.04em] mt-10 leading-none text-text-main">
                                     LAKSH
                                 </h1>
                                 <p className="text-[10px] font-semibold uppercase tracking-[0.6em] text-text-muted mt-4 opacity-50">FINANCE MANAGER</p>
@@ -239,7 +265,7 @@ const Welcome = () => {
                                     { icon: <Globe size={18} />, label: 'CLOUD SYNC' },
                                     { icon: <Shield size={18} />, label: 'ZERO TRUST' }
                                 ].map((feature, i) => (
-                                    <div key={i} className="p-6 rounded-3xl bg-white/[0.03] border border-white/5 flex flex-col items-center gap-3">
+                                    <div key={i} className="p-6 rounded-3xl bg-canvas-subtle border border-card-border flex flex-col items-center gap-3">
                                         <div className="text-primary">{feature.icon}</div>
                                         <span className="text-[9px] font-black uppercase tracking-widest text-text-muted">{feature.label}</span>
                                     </div>
@@ -255,23 +281,47 @@ const Welcome = () => {
                                             {isLoading ? <Loader2 className="animate-spin" /> : <Cloud />}
                                             {isLoading ? 'INITIATING...' : 'SYNC GOOGLE ACCOUNT'}
                                         </button>
-                                        <div className="p-8 rounded-[2.5rem] bg-white/[0.03] border border-white/10 text-left">
+                                        <div className="p-8 rounded-[2.5rem] bg-canvas-subtle border border-card-border text-left">
                                             <h4 className="text-xs font-black uppercase tracking-[0.2em] text-primary mb-4">Manual Connection</h4>
                                             <p className="text-[10px] text-text-muted leading-relaxed uppercase font-black opacity-40 mb-6">If automatic handshake fails, copy the auth signal from Chrome mirror:</p>
                                             <div className="space-y-4">
                                                 <div className="grid grid-cols-2 gap-3">
-                                                    <button onClick={async () => { if (await sheetsService.handleCopyLink()) { setCopyStatus('COPIED'); setTimeout(() => setCopyStatus(''), 2000); } else setShowUrl(true); }} className="h-14 rounded-2xl border border-white/10 bg-white/5 text-[9px] font-black uppercase tracking-widest hover:border-primary transition-all">
+                                                    <button onClick={async () => { if (await sheetsService.handleCopyLink()) { setCopyStatus('COPIED'); setTimeout(() => setCopyStatus(''), 2000); } else setShowUrl(true); }} className="h-14 rounded-2xl border border-card-border bg-canvas-subtle text-[9px] font-black uppercase tracking-widest hover:border-primary transition-all">
                                                         {copyStatus || 'COPY LINK'}
                                                     </button>
-                                                    <a href={sheetsService.getAuthUrl().replace('https://', 'intent://') + '#Intent;scheme=https;action=android.intent.action.VIEW;package=com.android.chrome;end'} className="h-14 rounded-2xl border border-white/10 bg-white/5 text-[9px] font-black uppercase tracking-widest hover:border-primary transition-all flex items-center justify-center gap-2">
+                                                    <a href={sheetsService.getAuthUrl().replace('https://', 'intent://') + '#Intent;scheme=https;action=android.intent.action.VIEW;package=com.android.chrome;end'} className="h-14 rounded-2xl border border-card-border bg-canvas-subtle text-[9px] font-black uppercase tracking-widest hover:border-primary transition-all flex items-center justify-center gap-2 text-text-main">
                                                         CHROME <ExternalLink size={12} />
                                                     </a>
                                                 </div>
                                                 <div className="relative">
-                                                    <input type="text" value={successUrl} onChange={e => setSuccessUrl(e.target.value)} placeholder="PASTE URL HERE..." className="w-full h-16 bg-black border border-white/10 rounded-2xl px-6 text-[10px] font-black uppercase tracking-widest focus:border-primary outline-none" />
+                                                    <input type="text" value={successUrl} onChange={e => setSuccessUrl(e.target.value)} placeholder="PASTE URL HERE..." className="w-full h-16 bg-black border border-white/10 rounded-2xl px-6 text-[10px] font-black uppercase tracking-widest focus:border-primary outline-none text-white" />
                                                     <button onClick={() => handleProcessSuccessUrl(successUrl)} disabled={!successUrl || isLoading} className="mt-3 w-full h-14 bg-white/10 hover:bg-white/20 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all">CONNECT ACCOUNT</button>
                                                 </div>
                                             </div>
+                                        </div>
+
+                                        {/* Guest Mode for Android - More Prominent */}
+                                        <div className="mt-6 pt-6 border-t border-white/10">
+                                            <p className="text-center text-[10px] text-text-muted/60 uppercase tracking-widest mb-4">
+                                                Or continue without account
+                                            </p>
+                                            <button
+                                                onClick={() => {
+                                                    storage.set(STORAGE_KEYS.GUEST_MODE, 'true');
+                                                    storage.set(STORAGE_KEYS.EVER_CONNECTED, 'true');
+                                                    localStorage.setItem('laksh_ever_connected', 'true');
+                                                    localStorage.setItem('laksh_guest_mode', 'true');
+                                                    if (setGuestMode) setGuestMode(true);
+                                                    navigate('/', { replace: true });
+                                                }}
+                                                className="w-full h-16 bg-gradient-to-r from-violet-600/20 to-purple-600/20 border border-violet-500/30 rounded-[1.8rem] text-sm font-black uppercase tracking-widest text-violet-300 hover:border-violet-500/50 hover:from-violet-600/30 hover:to-purple-600/30 transition-all flex items-center justify-center gap-3"
+                                            >
+                                                <span className="text-lg">👤</span>
+                                                GUEST MODE
+                                            </button>
+                                            <p className="text-center text-[9px] text-text-muted/40 mt-2">
+                                                Track expenses locally • No sign-in required
+                                            </p>
                                         </div>
                                     </div>
                                 ) : (
@@ -280,9 +330,27 @@ const Welcome = () => {
                                             <Cloud strokeWidth={3} />
                                             SYNC GOOGLE CLOUD
                                         </button>
-                                        <button onClick={() => { storage.set(STORAGE_KEYS.GUEST_MODE, 'true'); storage.set(STORAGE_KEYS.EVER_CONNECTED, 'true'); window.location.reload(); }} className="w-full h-16 bg-white/5 border border-white/10 rounded-[1.8rem] text-[10px] font-black uppercase tracking-[0.3em] text-text-muted hover:border-white/30 transition-all">
-                                            CONTINUE OFFLINE (GUEST)
-                                        </button>
+
+                                        {/* Guest Mode */}
+                                        <div className="pt-4 border-t border-card-border">
+                                            <button
+                                                onClick={() => {
+                                                    storage.set(STORAGE_KEYS.GUEST_MODE, 'true');
+                                                    storage.set(STORAGE_KEYS.EVER_CONNECTED, 'true');
+                                                    localStorage.setItem('laksh_guest_mode', 'true');
+                                                    localStorage.setItem('laksh_ever_connected', 'true');
+                                                    if (setGuestMode) setGuestMode(true);
+                                                    navigate('/', { replace: true });
+                                                }}
+                                                className="w-full h-16 bg-gradient-to-r from-violet-600/20 to-purple-600/20 border border-violet-500/30 rounded-[1.8rem] text-sm font-black uppercase tracking-widest text-violet-300 hover:border-violet-500/50 transition-all flex items-center justify-center gap-3"
+                                            >
+                                                <span className="text-lg">👤</span>
+                                                GUEST MODE
+                                            </button>
+                                            <p className="text-center text-[9px] text-text-muted/40 mt-2">
+                                                Track expenses locally • No sign-in required
+                                            </p>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -300,10 +368,10 @@ const Welcome = () => {
                         >
                             <div className="flex justify-between items-end mb-12 px-4">
                                 <div>
-                                    <h3 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-white leading-none">Records.</h3>
+                                    <h3 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-text-main leading-none">Records.</h3>
                                     <p className="text-[10px] font-black uppercase tracking-[0.5em] text-text-muted mt-2">LINKED_STORAGE_NODES</p>
                                 </div>
-                                <button onClick={handleRefreshList} disabled={isLoading} className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-primary">
+                                <button onClick={handleRefreshList} disabled={isLoading} className="w-14 h-14 rounded-2xl bg-canvas-subtle border border-card-border flex items-center justify-center text-primary">
                                     <RefreshCw size={24} className={isLoading ? 'animate-spin' : ''} />
                                 </button>
                             </div>
@@ -316,14 +384,14 @@ const Welcome = () => {
                                         animate={{ opacity: 1, y: 0 }}
                                         transition={{ delay: idx * 0.05 }}
                                         onClick={() => handleSelectSheet(sheet)}
-                                        className="p-8 rounded-[2.5rem] bg-[#050505] border border-white/5 hover:border-primary/50 text-left transition-all flex items-center justify-between group"
+                                        className="p-8 rounded-[2.5rem] bg-card border border-card-border hover:border-primary/50 text-left transition-all flex items-center justify-between group"
                                     >
                                         <div className="flex items-center gap-6">
-                                            <div className="w-16 h-16 rounded-[1.5rem] bg-white/5 border border-white/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-black transition-all">
+                                            <div className="w-16 h-16 rounded-[1.5rem] bg-canvas-subtle border border-card-border flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-black transition-all">
                                                 <FileSpreadsheet size={28} />
                                             </div>
                                             <div>
-                                                <h4 className="text-xl font-black uppercase tracking-tighter text-white group-hover:text-primary transition-colors">{sheet.name}</h4>
+                                                <h4 className="text-xl font-black uppercase tracking-tighter text-text-main group-hover:text-primary transition-colors">{sheet.name}</h4>
                                                 <p className="text-[8px] font-black text-text-muted uppercase tracking-[0.3em] mt-1 opacity-40">NODE_ID: {sheet.id.substring(0, 20)}...</p>
                                             </div>
                                         </div>
@@ -332,18 +400,18 @@ const Welcome = () => {
                                 ))}
 
                                 {spreadsheets.length === 0 && (
-                                    <div className="py-20 text-center border-2 border-dashed border-white/5 rounded-[2.5rem]">
+                                    <div className="py-20 text-center border-2 border-dashed border-card-border rounded-[2.5rem]">
                                         <p className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted">NO SPREADSHEETS FOUND</p>
                                     </div>
                                 )}
                             </div>
 
                             <div className="pt-10 flex flex-col gap-4">
-                                <button onClick={handleCreateNew} disabled={isLoading} className="h-20 bg-white/5 border-2 border-dashed border-white/10 rounded-[2.5rem] flex items-center justify-center gap-4 text-white hover:border-primary/50 hover:bg-primary/5 transition-all">
+                                <button onClick={handleCreateNew} disabled={isLoading} className="h-20 bg-canvas-subtle border-2 border-dashed border-card-border rounded-[2.5rem] flex items-center justify-center gap-4 text-text-main hover:border-primary/50 hover:bg-primary/5 transition-all">
                                     {isLoading ? <Loader2 className="animate-spin text-primary" /> : <Plus className="text-primary" />}
                                     <span className="text-lg font-black uppercase tracking-tighter">Create New Spreadsheet</span>
                                 </button>
-                                <button onClick={() => setStep('welcome')} className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted hover:text-white transition-colors">BACK</button>
+                                <button onClick={() => setStep('welcome')} className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted hover:text-text-main transition-colors">BACK</button>
                             </div>
                         </motion.div>
                     )}

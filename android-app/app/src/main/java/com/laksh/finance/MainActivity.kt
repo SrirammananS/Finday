@@ -126,6 +126,44 @@ class MainActivity : AppCompatActivity() {
                 // Handle deep links back to our app
                 if (url.startsWith("laksh://")) {
                     Log.d("LAKSH", "Deep link detected: $url")
+                    
+                    try {
+                        val uri = Uri.parse(url)
+                        // The fragment (part after #) contains the params due to how Google OAuth redirects
+                        val fragment = uri.fragment
+                        val params = fragment?.split("&")?.associate { 
+                            val parts = it.split("=")
+                            if (parts.size == 2) parts[0] to parts[1] else "" to ""
+                        }
+                        
+                        val accessToken = params?.get("access_token")
+                        val expiresIn = params?.get("expires_in")
+                        
+                        if (accessToken != null) {
+                            Log.d("LAKSH", "Extracted access token from deep link. Injecting...")
+                            val expiryMs = System.currentTimeMillis() + ((expiresIn?.toLongOrNull() ?: 3600L) * 1000)
+                            
+                            val script = """
+                                try {
+                                    localStorage.setItem('google_access_token', '$accessToken');
+                                    localStorage.setItem('google_token_expiry', '$expiryMs');
+                                    sessionStorage.setItem('google_access_token', '$accessToken');
+                                    sessionStorage.setItem('google_token_expiry', '$expiryMs');
+                                    console.log('[LAKSH-NATIVE] Token injected successfully');
+                                    // Navigate to home and reload to force context refresh
+                                    window.location.href = '/'; 
+                                    window.location.reload();
+                                } catch(e) {
+                                    console.error('[LAKSH-NATIVE] Injection failed', e);
+                                }
+                            """.trimIndent()
+                            
+                            view?.evaluateJavascript(script, null)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("LAKSH", "Error processing deep link: ${e.message}")
+                    }
+                    
                     return true
                 }
                 
@@ -214,6 +252,9 @@ class MainActivity : AppCompatActivity() {
         }, 10000)
         
         webView.loadUrl(WEB_URL)
+        
+        // Handle deep link if app was started via one (using unified handler)
+        handleIntent()
     }
     
     private fun checkPermissions() {
@@ -272,6 +313,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleIntent() {
         val uri = intent?.data
+        Log.d("LAKSH", "Checking intent: uri=$uri")
+        
         if (uri != null && uri.scheme == "laksh" && uri.host == "oauth-callback") {
             Log.d("LAKSH", "OAuth Deep Link detected: $uri")
             val fragment = uri.fragment
@@ -279,7 +322,7 @@ class MainActivity : AppCompatActivity() {
                 // Parse access_token and expires_in from fragment
                 val params = fragment.split("&").associate { 
                     val parts = it.split("=")
-                    parts[0] to (if (parts.size > 1) parts[1] else "")
+                    if (parts.size == 2) parts[0] to parts[1] else "" to ""
                 }
                 
                 val token = params["access_token"]
@@ -287,28 +330,37 @@ class MainActivity : AppCompatActivity() {
                 
                 if (token != null) {
                     val expiryMs = System.currentTimeMillis() + (expires.toLong() * 1000)
-                    Log.d("LAKSH", "Injecting OAuth token from deep link")
+                    Log.d("LAKSH", "Injecting OAuth token from deep link: $token")
                     
-                    // Wait for WebView to be ready before injecting
+                    val script = """
+                        try {
+                            console.log('[LAKSH-NATIVE] Injecting token from Deep Link...');
+                            localStorage.setItem('google_access_token', '$token');
+                            localStorage.setItem('google_token_expiry', '$expiryMs');
+                            sessionStorage.setItem('google_access_token', '$token');
+                            sessionStorage.setItem('google_token_expiry', '$expiryMs');
+                            
+                            // FORCE CLEAR GUEST MODE
+                            localStorage.removeItem('laksh_guest_mode');
+                            localStorage.removeItem('guest_mode');
+                            
+                            // Set ever connected flag
+                            localStorage.setItem('laksh_ever_connected', 'true');
+
+                            console.log('[LAKSH-NATIVE] Token injected successfully');
+                            
+                            // Force a reload to pick up new state (go to root)
+                            window.location.href = '/'; 
+                            
+                        } catch(e) {
+                            console.error('[LAKSH-NATIVE] Injection failed', e);
+                            window.location.reload();
+                        }
+                    """.trimIndent()
+                    
+                    // Execute explicitly on the main thread's WebView
                     webView.post {
-                        webView.evaluateJavascript(
-                            """
-                            (function() {
-                                try {
-                                    localStorage.setItem('google_access_token', '$token');
-                                    localStorage.setItem('google_token_expiry', '$expiryMs');
-                                    // Set a flag to trigger auto-connect
-                                    localStorage.setItem('oauth_success_trigger', Date.now().toString());
-                                    console.log('Token injected successfully');
-                                    // Use React Router navigation if available or reload
-                                    window.location.href = '$WEB_URL/welcome';
-                                } catch(e) {
-                                    console.error('Token injection failed', e);
-                                    window.location.reload();
-                                }
-                            })();
-                            """.trimIndent(), null
-                        )
+                        webView.evaluateJavascript(script, null)
                     }
                 }
             }
@@ -384,6 +436,7 @@ class MainActivity : AppCompatActivity() {
         // Check for new pending transactions
         injectPendingTransactions()
     }
+    
     
     private fun showErrorPage(errorMsg: String = "Connection test in progress...") {
         Log.d("LAKSH", "Showing error page: $errorMsg")

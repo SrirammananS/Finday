@@ -3,21 +3,31 @@ import { Outlet } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import DynamicIsland from './DynamicIsland';
 import SyncIndicator from './SyncIndicator';
+import GlobalSyncOverlay from './GlobalSyncOverlay';
+import ConnectionStatus from './ConnectionStatus';
 import { useTheme } from '../context/ThemeContext';
+import { useFinance } from '../context/FinanceContext';
+
+import TypeGPUBackground from './ui/TypeGPUBackground';
+import AnimatedBackground, { GrainOverlay } from './ui/AnimatedBackground';
 
 const Layout = () => {
+    const { forceRefresh } = useFinance();
+    
     return (
-        <div className="bg-canvas min-h-screen text-text-main overflow-hidden selection:bg-primary selection:text-primary-foreground transition-colors duration-500">
+        <div className="bg-canvas min-h-screen text-text-main overflow-hidden selection:bg-primary selection:text-primary-foreground transition-colors duration-500 relative">
             {/* Sync Status - Top Right */}
             <div className="fixed top-4 right-4 z-50">
                 <SyncIndicator />
             </div>
 
-            {/* Immersive Background Elements */}
-            <div className="fixed top-0 left-0 w-full h-full pointer-events-none z-0">
-                <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 rounded-full blur-[120px] transition-colors duration-500" />
-                <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/5 rounded-full blur-[120px] transition-colors duration-500" />
-            </div>
+            {/* Connection Status Diagnostic - Bottom Right */}
+            <ConnectionStatus onRefresh={forceRefresh} />
+
+            {/* Global Sync Overlay */}
+            <GlobalSyncOverlay />
+
+            {/* Background moved to App.jsx for global consistency */}
 
             <main className="relative z-10 w-full min-h-screen">
                 <AnimatePresence mode="wait">

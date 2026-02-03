@@ -65,22 +65,22 @@ const AccountDetail = () => {
     };
 
     if (isLoading) return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-black">
+        <div className="flex flex-col items-center justify-center min-h-screen bg-canvas">
             <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }} className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full" />
         </div>
     );
 
     if (!account) return (
-        <div className="min-h-screen bg-black flex flex-col items-center justify-center p-8 text-center">
+        <div className="min-h-screen bg-canvas flex flex-col items-center justify-center p-8 text-center">
             <Info size={40} className="text-text-muted mb-6" />
-            <h1 className="text-2xl font-black uppercase tracking-tighter text-white">Node Not Found</h1>
+            <h1 className="text-2xl font-black uppercase tracking-tighter text-text-main">Node Not Found</h1>
             <Link to="/accounts" className="mt-8 text-primary font-black uppercase text-xs tracking-widest border border-primary/20 px-8 py-4 rounded-2xl hover:bg-primary hover:text-black transition-all">← Back to Records</Link>
         </div>
     );
 
     return (
-        <div className="min-h-screen bg-black text-white selection:bg-primary selection:text-black">
-            <div className="fixed inset-0 pointer-events-none opacity-[0.03] bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
+        <div className="min-h-screen text-text-main selection:bg-primary selection:text-black">
+            {/* Background handled by Layout */}
 
             <motion.main
                 initial={{ opacity: 0 }}
@@ -98,11 +98,11 @@ const AccountDetail = () => {
 
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-8">
                         <div className="flex items-center gap-6">
-                            <div className="w-20 h-20 rounded-[2rem] bg-white/5 border border-white/10 flex items-center justify-center text-4xl shadow-2xl">
+                            <div className="w-20 h-20 rounded-[2rem] bg-canvas-subtle border border-card-border flex items-center justify-center text-4xl shadow-2xl">
                                 {account.type === 'bank' ? '🏦' : account.type === 'credit' ? '💳' : '💵'}
                             </div>
                             <div>
-                                <h1 className="text-2xl md:text-3xl font-black tracking-tighter leading-none text-white uppercase">{account.name}</h1>
+                                <h1 className="text-2xl md:text-3xl font-black tracking-tighter leading-none text-text-main uppercase">{account.name}</h1>
                                 <div className="flex items-center gap-3 mt-3">
                                     <div className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_10px_rgba(var(--primary-rgb),0.5)]" />
                                     <p className="text-[10px] font-black uppercase tracking-[0.4em] text-text-muted opacity-60">
@@ -113,11 +113,11 @@ const AccountDetail = () => {
                         </div>
 
                         <div className="grid grid-cols-2 gap-4 w-full md:w-auto">
-                            <div className="p-6 rounded-[2rem] bg-white/[0.03] border border-white/5 flex flex-col justify-between">
+                            <div className="p-6 rounded-[2rem] bg-canvas-subtle border border-card-border flex flex-col justify-between">
                                 <span className="text-[8px] font-black text-text-muted uppercase tracking-widest mb-2">VECTOR COUNT</span>
                                 <span className="text-2xl font-black tabular-nums">{stats.count}</span>
                             </div>
-                            <div className="p-6 rounded-[2rem] bg-white/[0.03] border border-white/5 flex flex-col justify-between">
+                            <div className="p-6 rounded-[2rem] bg-canvas-subtle border border-card-border flex flex-col justify-between">
                                 <span className="text-[8px] font-black text-text-muted uppercase tracking-widest mb-2">SYSTEM LINK</span>
                                 <Globe size={16} className="text-primary opacity-60" />
                             </div>
@@ -128,7 +128,7 @@ const AccountDetail = () => {
                 {/* Primary Valuation Bento */}
                 <div className="group relative mb-8">
                     <div className="absolute -inset-[1px] bg-gradient-to-br from-primary/30 to-transparent rounded-[3.5rem] opacity-0 group-hover:opacity-100 transition-all duration-700" />
-                    <div className="relative p-10 md:p-14 rounded-[3.5rem] bg-[#050505] border border-white/10 overflow-hidden">
+                    <div className="relative p-10 md:p-14 rounded-[3.5rem] bg-card border border-card-border overflow-hidden">
                         <div className="absolute top-0 right-0 p-16 opacity-[0.02] -rotate-12 pointer-events-none group-hover:scale-110 transition-transform">
                             <Activity size={300} />
                         </div>
@@ -138,7 +138,7 @@ const AccountDetail = () => {
                                 <p className="text-[10px] font-black uppercase tracking-[0.4em] text-text-muted mb-4 opacity-70">
                                     {isCreditCard ? 'OUTSTANDING LOAD' : 'LIQUID MOMENTUM'}
                                 </p>
-                                <h2 className={`text-4xl md:text-5xl font-black tabular-nums tracking-tighter leading-none ${account.balance >= 0 ? 'text-white' : 'text-rose-500'}`}>
+                                <h2 className={`text-4xl md:text-5xl font-black tabular-nums tracking-tighter leading-none ${account.balance >= 0 ? 'text-text-main' : 'text-rose-500'}`}>
                                     {formatCurrency(account.balance)}
                                 </h2>
                             </div>
@@ -159,7 +159,7 @@ const AccountDetail = () => {
 
                         {/* Progress visual for Credit (simulated limit or use) */}
                         {isCreditCard && (
-                            <div className="mt-12 h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                            <div className="mt-12 h-1 w-full bg-canvas-subtle rounded-full overflow-hidden">
                                 <motion.div
                                     initial={{ width: 0 }}
                                     animate={{ width: '45%' }}
@@ -191,17 +191,17 @@ const AccountDetail = () => {
 
                 {/* Chrono Selector for Statement Period */}
                 {isCreditCard && (
-                    <div className="mb-12 p-3 rounded-[2.2rem] bg-white/[0.03] border border-white/5 flex items-center justify-between">
+                    <div className="mb-12 p-3 rounded-[2.2rem] bg-card border border-card-border flex items-center justify-between">
                         <button
                             onClick={() => setSelectedStatement(prev => subMonths(prev, 1))}
-                            className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center hover:bg-white/10 transition-all text-text-muted"
+                            className="w-14 h-14 rounded-2xl bg-canvas-subtle flex items-center justify-center hover:bg-canvas-elevated transition-all text-text-muted"
                         >
                             <ChevronLeft size={20} />
                         </button>
                         <div className="text-center">
                             <div className="flex items-center gap-3 justify-center mb-1">
                                 <Calendar size={14} className="text-primary opacity-60" />
-                                <h3 className="text-[10px] font-black text-white uppercase tracking-[0.2em]">
+                                <h3 className="text-[10px] font-black text-text-main uppercase tracking-[0.2em]">
                                     {format(selectedStatement, 'MMMM yyyy')} CYCLE
                                 </h3>
                             </div>
@@ -213,7 +213,7 @@ const AccountDetail = () => {
                         </div>
                         <button
                             onClick={() => setSelectedStatement(prev => addMonths(prev, 1))}
-                            className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center hover:bg-white/10 transition-all text-text-muted"
+                            className="w-14 h-14 rounded-2xl bg-canvas-subtle flex items-center justify-center hover:bg-canvas-elevated transition-all text-text-muted"
                         >
                             <ChevronRight size={20} />
                         </button>
@@ -230,7 +230,7 @@ const AccountDetail = () => {
                     </div>
 
                     {accountTransactions.length === 0 ? (
-                        <div className="py-32 rounded-[3.5rem] bg-white/[0.02] border border-dashed border-white/10 text-center flex flex-col items-center justify-center">
+                        <div className="py-32 rounded-[3.5rem] bg-card border border-dashed border-card-border text-center flex flex-col items-center justify-center">
                             <Filter size={40} className="text-text-muted/10 mb-6" />
                             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted/40">
                                 {isCreditCard ? 'NO SIGNALS DETECTED IN THIS CYCLE' : 'NO ACCOUNT HISTORY TRACED'}
@@ -249,19 +249,19 @@ const AccountDetail = () => {
                                         transition={{ delay: idx * 0.02 }}
                                         viewport={{ once: true }}
                                         onClick={() => handleEditTransaction(t)}
-                                        className="group relative p-6 rounded-[2rem] bg-white/[0.02] border border-white/[0.05] hover:bg-white/[0.05] hover:border-white/10 transition-all cursor-pointer flex items-center justify-between"
+                                        className="group relative p-6 rounded-[2rem] bg-card border border-card-border hover:bg-canvas-elevated hover:border-text-muted/20 transition-all cursor-pointer flex items-center justify-between"
                                     >
                                         <div className="flex items-center gap-6">
-                                            <div className="w-14 h-14 rounded-2xl bg-[#080808] border border-white/10 flex items-center justify-center text-2xl group-hover:border-primary/30 transition-all">
+                                            <div className="w-14 h-14 rounded-2xl bg-canvas-subtle border border-card-border flex items-center justify-center text-2xl group-hover:border-primary/30 transition-all">
                                                 {cat?.icon || '📦'}
                                             </div>
                                             <div>
-                                                <p className="text-lg font-black uppercase tracking-tighter text-white/80 group-hover:text-white transition-colors">{t.description || t.category}</p>
+                                                <p className="text-lg font-black uppercase tracking-tighter text-text-main group-hover:text-text-main transition-colors">{t.description || t.category}</p>
                                                 <div className="flex items-center gap-3 mt-1">
                                                     <span className="text-[9px] font-black uppercase tracking-widest text-text-muted opacity-50">
                                                         {format(new Date(t.date), 'dd MMM yyyy')}
                                                     </span>
-                                                    <div className="w-1 h-1 rounded-full bg-white/10" />
+                                                    <div className="w-1 h-1 rounded-full bg-text-muted/20" />
                                                     <span className="text-[9px] font-black uppercase tracking-widest text-primary/40">
                                                         {t.category}
                                                     </span>
@@ -269,10 +269,10 @@ const AccountDetail = () => {
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-6">
-                                            <p className={`text-2xl font-black tabular-nums tracking-tighter ${isExpense ? 'text-white alpha-80' : 'text-primary'}`}>
+                                            <p className={`text-2xl font-black tabular-nums tracking-tighter ${isExpense ? 'text-text-main alpha-80' : 'text-primary'}`}>
                                                 {formatCurrency(t.amount).replace('₹', '')}<span className="text-xl ml-1 text-primary opacity-60">₹</span>
                                             </p>
-                                            <div className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 opacity-0 group-hover:opacity-100 transition-all">
+                                            <div className="w-10 h-10 rounded-full flex items-center justify-center bg-canvas-subtle opacity-0 group-hover:opacity-100 transition-all">
                                                 <Edit3 size={16} className="text-text-muted group-hover:text-primary" />
                                             </div>
                                         </div>

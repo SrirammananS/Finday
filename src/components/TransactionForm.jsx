@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import gsap from 'gsap';
+import { animations, genZEffects } from '../utils/gsapAnimations';
 import { X, Calendar, Wallet, Mic, Users, Plus, Sparkles, TrendingUp } from 'lucide-react';
 import { friendsService } from '../services/friendsService';
 import { smartAI } from '../services/smartAI';
 
 const TransactionForm = ({ onClose, editTransaction }) => {
-    const { addTransaction, updateTransaction, accounts, categories, bills, transactions } = useFinance();
+    const { addTransaction, updateTransaction, accounts, categories, bills, transactions, friends, addFriend } = useFinance();
     const [form, setForm] = useState({
         date: new Date().toISOString().split('T')[0],
         description: '',
@@ -25,15 +25,19 @@ const TransactionForm = ({ onClose, editTransaction }) => {
     const [spendingInsight, setSpendingInsight] = useState(null);
     const [isListening, setIsListening] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [friends, setFriends] = useState([]);
     const [showAddFriend, setShowAddFriend] = useState(false);
     const [newFriendName, setNewFriendName] = useState('');
     const amountRef = useRef(null);
+    const submitBtnRef = useRef(null);
 
-    // Load friends list
+    // Apply GSAP button press effect
     useEffect(() => {
-        setFriends(friendsService.getAll());
+        if (submitBtnRef.current) {
+            return genZEffects.buttonPress(submitBtnRef.current);
+        }
     }, []);
+
+    // Friends loaded from Context now
 
     const handleVoiceInput = () => {
         if (!('webkitSpeechRecognition' in window)) {
@@ -117,7 +121,9 @@ const TransactionForm = ({ onClose, editTransaction }) => {
         const finalAmount = form.type === 'expense' ? -Math.abs(amountNum) : Math.abs(amountNum);
 
         setIsSubmitting(true);
-        gsap.to('.form-sheet', { scale: 0.95, opacity: 0, duration: 0.4, onComplete: onClose });
+        setIsSubmitting(true);
+        // Framer Motion handles exit animation via AnimatePresence in parent
+        onClose();
 
         try {
             if (editTransaction) {
@@ -362,7 +368,10 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                                 <button
                                     key={c.name}
                                     type="button"
-                                    onClick={() => setForm(f => ({ ...f, category: c.name }))}
+                                    onClick={(e) => {
+                                        setForm(f => ({ ...f, category: c.name }));
+                                        animations.jelly(e.currentTarget);
+                                    }}
                                     className={`flex-shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-all ${form.category === c.name
                                         ? 'bg-primary text-primary-foreground border-primary shadow-lg scale-105'
                                         : 'bg-canvas-subtle border-card-border text-text-muted hover:border-text-muted/50'}`}
@@ -458,9 +467,8 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                                             type="button"
                                             onClick={() => {
                                                 if (newFriendName.trim()) {
-                                                    const added = friendsService.add(newFriendName);
+                                                    const added = addFriend(newFriendName);
                                                     if (added) {
-                                                        setFriends(friendsService.getAll());
                                                         setForm(f => ({ ...f, friend: added.name }));
                                                     }
                                                 }
@@ -492,7 +500,7 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                 <div className="p-6 pt-4 border-t border-card-border bg-card">
                     <button
                         onClick={handleSubmit}
-                        type="button"
+                        ref={submitBtnRef}
                         disabled={isSubmitting || !form.amount}
                         className="modern-btn modern-btn-primary w-full py-4 text-base font-bold uppercase tracking-wider shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
                     >

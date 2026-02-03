@@ -83,8 +83,8 @@ const BankAccountMapper = ({ isOpen, onClose, detectedBank, accounts, onMappingC
                                     <label
                                         key={account.id}
                                         className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${selectedAccountId === account.id
-                                                ? 'border-primary bg-primary/10'
-                                                : 'border-card-border hover:border-card-border/60'
+                                            ? 'border-primary bg-primary/10'
+                                            : 'border-card-border hover:border-card-border/60'
                                             }`}
                                     >
                                         <input
@@ -96,8 +96,8 @@ const BankAccountMapper = ({ isOpen, onClose, detectedBank, accounts, onMappingC
                                             className="sr-only"
                                         />
                                         <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedAccountId === account.id
-                                                ? 'border-primary bg-primary'
-                                                : 'border-card-border'
+                                            ? 'border-primary bg-primary'
+                                            : 'border-card-border'
                                             }`}>
                                             {selectedAccountId === account.id && (
                                                 <div className="w-2 h-2 rounded-full bg-white" />
@@ -137,7 +137,7 @@ const BankAccountMapper = ({ isOpen, onClose, detectedBank, accounts, onMappingC
                         <div className="flex gap-3">
                             <button
                                 onClick={handleSkip}
-                                className="flex-1 px-4 py-3 bg-card-bg border border-card-border text-text-main rounded-xl font-semibold hover:bg-canvas-subtle transition-colors"
+                                className="flex-1 px-4 py-3 bg-card border border-card-border text-text-main rounded-xl font-semibold hover:bg-canvas-subtle transition-colors"
                             >
                                 Skip
                             </button>

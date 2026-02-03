@@ -31,6 +31,8 @@ import Lenis from 'lenis';
 import { motion } from 'framer-motion';
 
 import ScrollToTop from './components/ScrollToTop';
+import TypeGPUBackground from './components/ui/TypeGPUBackground';
+import AnimatedBackground from './components/ui/AnimatedBackground';
 
 // Loading fallback for lazy-loaded pages
 const PageLoader = () => (
@@ -88,12 +90,87 @@ function App() {
     handleSharedContent();
   }, []);
 
+  // Listen for Android SMS notifications
+  useEffect(() => {
+    // Handle incoming SMS from Android bridge
+    const handleAndroidSMS = (smsText) => {
+      console.log('[LAKSH] Received SMS from Android:', smsText?.substring(0, 50));
+      if (!smsText) return;
+
+      const parsed = parseSMS(smsText);
+      if (parsed) {
+        const transaction = formatParsedTransaction(parsed, []);
+        if (transaction && !pendingTransactionsService.isDuplicate(transaction.amount, transaction.date)) {
+          transaction.source = 'sms_android';
+          transaction.rawText = smsText;
+          pendingTransactionsService.add(transaction);
+          console.log('[LAKSH] Added pending transaction from Android SMS');
+        }
+      }
+    };
+
+    // Expose to global for Android bridge
+    window.onNewSMS = handleAndroidSMS;
+    window.handleSMS = handleAndroidSMS; // Alias
+
+    // Also check for pending transactions from bridge on focus
+    const handleFocus = () => {
+      if (window.AndroidBridge && typeof window.AndroidBridge.getPendingTransactions === 'function') {
+        try {
+          const pendingJson = window.AndroidBridge.getPendingTransactions();
+          if (pendingJson && pendingJson !== '[]') {
+            const pending = JSON.parse(pendingJson);
+            if (Array.isArray(pending) && pending.length > 0) {
+              console.log('[LAKSH] Found pending transactions on focus:', pending.length);
+              pending.forEach(txn => {
+                if (txn.amount && !pendingTransactionsService.isDuplicate(Math.abs(txn.amount), txn.date || new Date().toISOString().split('T')[0])) {
+                  pendingTransactionsService.add({
+                    ...txn,
+                    id: txn.id || `sms_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    source: 'sms_android',
+                  });
+                }
+              });
+              // Clear after processing
+              if (typeof window.AndroidBridge.clearPendingTransactions === 'function') {
+                window.AndroidBridge.clearPendingTransactions();
+              }
+            }
+          }
+        } catch (e) {
+          console.log('[LAKSH] Bridge check error:', e.message);
+        }
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    // Also check on visibility change
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        handleFocus();
+      }
+    });
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      delete window.onNewSMS;
+      delete window.handleSMS;
+    };
+  }, []);
+
   const handleUnlock = () => {
     setIsLocked(false);
   };
 
   return (
     <ErrorBoundary>
+      {/* Immersive Global Background (TypeGPU + Glass) */}
+      <TypeGPUBackground intensity="medium" />
+      <div className="fixed inset-0 pointer-events-none z-0 mix-blend-overlay opacity-20">
+        <AnimatedBackground variant="finance" intensity="low" />
+      </div>
+
+
       {isLocked ? (
         <LockScreen onUnlock={handleUnlock} />
       ) : (

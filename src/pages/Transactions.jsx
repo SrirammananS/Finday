@@ -83,9 +83,8 @@ const Transactions = () => {
     );
 
     return (
-        <div className="min-h-screen bg-black text-white selection:bg-primary selection:text-black">
-            {/* Background Grain/Noise Effect */}
-            <div className="fixed inset-0 pointer-events-none opacity-[0.03] bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
+        <div className="min-h-screen text-text-main selection:bg-primary selection:text-black">
+            {/* Background handled by Layout */}
 
             <motion.main
                 initial={{ opacity: 0 }}
@@ -99,7 +98,7 @@ const Transactions = () => {
                             <div className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_10px_rgba(var(--primary-rgb),1)]" />
                             <span className="text-[10px] font-black uppercase tracking-[0.4em] text-text-muted">Ledger Protocol</span>
                         </div>
-                        <h1 className="text-xl font-black tracking-[-0.04em] leading-none mb-1 transition-all text-white uppercase">
+                        <h1 className="text-xl font-black tracking-[-0.04em] leading-none mb-1 transition-all text-text-main uppercase">
                             Ledger
                         </h1>
                         <p className="text-[8px] font-semibold text-text-muted uppercase tracking-[0.4em] opacity-60">Complete history across all nodes.</p>
@@ -110,7 +109,7 @@ const Transactions = () => {
                             <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() => setShowExportMenu(!showExportMenu)}
-                                className="h-14 px-6 rounded-2xl bg-white/5 border border-white/10 hover:border-primary/40 transition-all flex items-center gap-3 group"
+                                className="h-14 px-6 rounded-2xl bg-canvas-subtle border border-card-border hover:border-primary/40 transition-all flex items-center gap-3 group"
                             >
                                 <Download size={20} className="text-text-muted group-hover:text-primary transition-colors" />
                                 <span className="text-xs font-black uppercase tracking-widest">Export</span>
@@ -122,7 +121,7 @@ const Transactions = () => {
                                         initial={{ opacity: 0, scale: 0.95, y: 10 }}
                                         animate={{ opacity: 1, scale: 1, y: 0 }}
                                         exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                                        className="absolute top-16 right-0 w-56 bg-black/90 border border-white/10 rounded-2xl backdrop-blur-2xl shadow-3xl p-2 z-50 overflow-hidden"
+                                        className="absolute top-16 right-0 w-56 bg-card border border-card-border rounded-2xl backdrop-blur-2xl shadow-3xl p-2 z-50 overflow-hidden"
                                     >
                                         {[
                                             { label: 'Export CSV', icon: <FileText size={16} />, action: handleExportCSV },
@@ -132,7 +131,7 @@ const Transactions = () => {
                                             <button
                                                 key={i}
                                                 onClick={item.action}
-                                                className="w-full px-4 py-3 text-left hover:bg-white/5 rounded-xl transition-colors flex items-center gap-3 text-xs font-bold"
+                                                className="w-full px-4 py-3 text-left hover:bg-canvas-elevated rounded-xl transition-colors flex items-center gap-3 text-xs font-bold"
                                             >
                                                 <span className="text-text-muted">{item.icon}</span>
                                                 {item.label}
@@ -163,7 +162,7 @@ const Transactions = () => {
                             placeholder="Trace signals..."
                             value={search}
                             onChange={e => setSearch(e.target.value)}
-                            className="w-full h-16 bg-white/5 border border-white/10 pl-14 pr-8 rounded-[1.5rem] font-black text-base outline-none focus:border-primary/50 focus:bg-white/[0.08] transition-all placeholder:text-white/10"
+                            className="w-full h-16 bg-canvas-subtle border border-card-border pl-14 pr-8 rounded-[1.5rem] font-black text-base outline-none focus:border-primary/50 focus:bg-canvas-elevated transition-all placeholder:text-text-muted/50 text-text-main"
                         />
                         <div className="absolute right-8 top-1/2 -translate-y-1/2 px-3 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-black uppercase tracking-tighter border border-primary/20">
                             {filteredAndSorted.length} DATA NODES
@@ -177,7 +176,7 @@ const Transactions = () => {
                             <select
                                 value={selectedCategory}
                                 onChange={(e) => setSelectedCategory(e.target.value)}
-                                className="w-full h-12 pl-10 pr-10 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest outline-none appearance-none hover:bg-white/10 transition-all cursor-pointer"
+                                className="w-full h-12 pl-10 pr-10 rounded-2xl bg-canvas-subtle border border-card-border text-[10px] font-black uppercase tracking-widest outline-none appearance-none hover:bg-canvas-elevated transition-all cursor-pointer text-text-main"
                             >
                                 <option value="">All Streams</option>
                                 {categories.map(cat => (
@@ -192,7 +191,7 @@ const Transactions = () => {
                             <select
                                 value={dateRange}
                                 onChange={(e) => setDateRange(e.target.value)}
-                                className="w-full h-12 pl-10 pr-10 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest outline-none appearance-none hover:bg-white/10 transition-all cursor-pointer"
+                                className="w-full h-12 pl-10 pr-10 rounded-2xl bg-canvas-subtle border border-card-border text-[10px] font-black uppercase tracking-widest outline-none appearance-none hover:bg-canvas-elevated transition-all cursor-pointer text-text-main"
                             >
                                 <option value="all">Infinite Loop</option>
                                 <option value="week">Past Week</option>
@@ -218,13 +217,13 @@ const Transactions = () => {
                     {sortedGroupedEntries.map(([date, items], gIdx) => (
                         <div key={date} className="relative">
                             <div className="sticky top-2 z-30 mb-8">
-                                <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full bg-black/80 backdrop-blur-xl border border-white/10">
+                                <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full bg-card backdrop-blur-xl border border-card-border shadow-lg">
                                     <div className="w-1.5 h-1.5 rounded-full bg-primary" />
                                     <span className="text-[10px] font-black uppercase tracking-widest text-text-main">{date}</span>
                                 </div>
                             </div>
 
-                            <div className="space-y-4 ml-2 pl-6 border-l border-white/[0.05]">
+                            <div className="space-y-4 ml-2 pl-6 border-l border-card-border">
                                 {items.map((t, iIdx) => {
                                     const cat = categories.find(c => c.name === t.category);
                                     const isIncome = t.amount > 0;
@@ -239,13 +238,13 @@ const Transactions = () => {
                                             viewport={{ once: true }}
                                             transition={{ delay: 0.05 * iIdx }}
                                             onClick={() => { setEditing(t); setShowForm(true); }}
-                                            className="group relative p-4 md:p-5 rounded-2xl bg-white/[0.03] border border-white/[0.05] grid grid-cols-[auto_1fr_auto] items-center gap-4 group-hover:bg-white/[0.07] group-hover:border-white/20 transition-all cursor-pointer overflow-hidden"
+                                            className="group relative p-4 md:p-5 modern-card grid grid-cols-[auto_1fr_auto] items-center gap-4 cursor-pointer"
                                         >
-                                            <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-black border border-white/10 flex items-center justify-center text-2xl md:text-3xl shrink-0 group-hover:scale-110 transition-transform">
+                                            <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-canvas-subtle border border-card-border flex items-center justify-center text-2xl md:text-3xl shrink-0 group-hover:scale-110 transition-transform">
                                                 {cat?.icon || '📦'}
                                             </div>
                                             <div className="min-w-0">
-                                                <p className="text-sm md:text-base font-bold text-white uppercase tracking-tight truncate leading-tight">
+                                                <p className="text-sm md:text-base font-bold text-text-main uppercase tracking-tight truncate leading-tight">
                                                     {t.description}
                                                 </p>
                                                 <div className="flex items-center gap-2 mt-1">
@@ -255,7 +254,7 @@ const Transactions = () => {
                                                 </div>
                                             </div>
                                             <div className="flex flex-col items-end">
-                                                <p className={`text-base md:text-lg font-black tabular-nums tracking-tighter flex items-center gap-1 md:gap-2 ${isIncome ? 'text-emerald-400' : 'text-white'}`}>
+                                                <p className={`text-base md:text-lg font-black tabular-nums tracking-tighter flex items-center gap-1 md:gap-2 ${isIncome ? 'text-emerald-400' : 'text-text-main'}`}>
                                                     {isIncome ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
                                                     {formatCurrency(t.amount)}
                                                 </p>
@@ -278,7 +277,7 @@ const Transactions = () => {
                             <motion.div
                                 initial={{ scale: 0.9, opacity: 0 }}
                                 animate={{ scale: 1, opacity: 1 }}
-                                className="mb-6 inline-flex w-24 h-24 rounded-full bg-white/5 items-center justify-center opacity-20"
+                                className="mb-6 inline-flex w-24 h-24 rounded-full bg-canvas-elevated items-center justify-center opacity-20"
                             >
                                 <Search size={40} />
                             </motion.div>

@@ -71,60 +71,60 @@ const LockScreen = ({ onUnlock }) => {
         <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="fixed inset-0 z-[99999] bg-canvas flex flex-col items-center justify-center p-6"
+            className="fixed inset-0 z-[99999] flex flex-col items-center justify-center p-6"
         >
-            <div className="text-center max-w-xs">
+            <div className="w-full max-w-[320px] p-8 rounded-[3rem] bg-card backdrop-blur-xl border border-card-border shadow-3xl text-center relative overflow-hidden">
                 {/* Logo */}
-                <h1 className="text-4xl font-black tracking-tighter text-text-main mb-2">
-                    FinDay<span className="text-primary">.</span>
+                <h1 className="text-4xl font-black tracking-[-0.05em] text-text-main mb-2">
+                    LAKSH
                 </h1>
-                <p className="text-xs text-text-muted uppercase tracking-widest mb-12">App Locked</p>
+                <p className="text-[10px] font-black text-text-muted uppercase tracking-[0.4em] mb-12 opacity-60">Identity Verification</p>
 
                 {/* Lock Icon */}
-                <div className="w-24 h-24 rounded-full bg-canvas-subtle border border-card-border flex items-center justify-center mx-auto mb-8">
-                    <Lock size={40} className="text-text-muted" />
+                <div className="w-24 h-24 rounded-[2rem] bg-canvas-subtle border border-card-border flex items-center justify-center mx-auto mb-10 shadow-inner">
+                    <Lock size={32} className="text-text-muted" />
                 </div>
 
                 {showPinInput ? (
-                    <form onSubmit={handlePinSubmit} className="space-y-4">
+                    <form onSubmit={handlePinSubmit} className="space-y-6">
                         <div className="relative">
-                            <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={20} />
+                            <KeyRound className="absolute left-6 top-1/2 -translate-y-1/2 text-text-muted opacity-50" size={20} />
                             <input
                                 type="password"
                                 value={pin}
                                 onChange={(e) => { setPin(e.target.value); setError(''); }}
-                                placeholder="Enter PIN"
+                                placeholder="******"
                                 maxLength={6}
                                 autoFocus
-                                className="w-full bg-canvas-subtle border border-card-border py-4 pl-12 pr-4 rounded-2xl text-center text-2xl font-bold tracking-[0.5em] outline-none focus:border-primary text-text-main"
+                                className="w-full bg-canvas-subtle border border-card-border py-5 pl-14 pr-6 rounded-2xl text-center text-3xl font-black tracking-[0.5em] outline-none focus:border-primary text-text-main placeholder:text-text-muted/10 transition-all"
                             />
                         </div>
-                        {error && <p className="text-xs text-destructive">{error}</p>}
+                        {error && <p className="text-[10px] font-black uppercase tracking-widest text-rose-500">{error}</p>}
                         <button
                             type="submit"
-                            className="w-full modern-btn modern-btn-primary py-4"
+                            className="w-full h-16 bg-primary text-black rounded-2xl font-black uppercase tracking-widest text-xs hover:shadow-[0_0_30px_rgba(var(--primary-rgb),0.5)] transition-all"
                         >
-                            Unlock
+                            Authorise
                         </button>
                     </form>
                 ) : (
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                         <button
                             onClick={handleBiometricAuth}
                             disabled={isAuthenticating}
-                            className="w-full bg-canvas-subtle border border-card-border py-6 rounded-2xl flex flex-col items-center gap-3 hover:border-primary transition-all"
+                            className="w-full bg-canvas-subtle border border-card-border py-8 rounded-[2.5rem] flex flex-col items-center gap-4 hover:bg-canvas-elevated hover:border-primary/50 transition-all group"
                         >
-                            <Fingerprint size={32} className={isAuthenticating ? 'text-primary animate-pulse' : 'text-text-muted'} />
-                            <span className="text-xs font-bold uppercase tracking-wider text-text-muted">
-                                {isAuthenticating ? 'Authenticating...' : 'Tap to Unlock'}
+                            <Fingerprint size={48} className={`transition-all ${isAuthenticating ? 'text-primary animate-pulse scale-110' : 'text-text-muted group-hover:text-text-main group-hover:scale-110'}`} />
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted group-hover:text-text-main">
+                                {isAuthenticating ? 'SCANNING...' : 'TAP TO SCAN'}
                             </span>
                         </button>
                         {biometricAuth.hasPIN() && (
                             <button
                                 onClick={() => setShowPinInput(true)}
-                                className="text-xs text-text-muted hover:text-primary transition-colors"
+                                className="text-[9px] font-black text-text-muted uppercase tracking-widest hover:text-text-main transition-colors"
                             >
-                                Use PIN instead
+                                Switch to PIN Entry
                             </button>
                         )}
                     </div>
