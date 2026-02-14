@@ -11,6 +11,8 @@ import { biometricAuth } from './services/biometricAuth';
 import { transactionDetector } from './services/transactionDetector';
 import { parseSMS, formatParsedTransaction } from './services/smsParser';
 import { pendingTransactionsService } from './services/pendingTransactions';
+import { useFinance } from './context/FinanceContext';
+import { AnimatePresence } from 'framer-motion';
 
 import { lazyWithRetry } from './utils/lazyRetry';
 
@@ -47,6 +49,63 @@ const PageLoader = () => (
     </motion.div>
   </div>
 );
+
+const GlobalLoading = () => {
+  const { loadingStage, isLoading, error } = useFinance();
+  const [forceHide, setForceHide] = useState(false);
+
+  // Maximum display time - after 8 seconds, hide regardless of state
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      console.log('[LAKSH] GlobalLoading max time reached, hiding overlay');
+      setForceHide(true);
+    }, 8000);
+    return () => clearTimeout(timeout);
+  }, []);
+
+  // Hide conditions: 
+  // 1. loadingStage is 'ready'
+  // 2. isLoading from FinanceContext is false (data loaded or error handled)
+  // 3. forceHide timeout triggered
+  if (loadingStage === 'ready' || !isLoading || forceHide) return null;
+
+  const messages = {
+    'init': 'Initializing Secure Core...',
+    'auth': 'Verifying Credentials...',
+    'fetch': 'Decrypting Financial Data...',
+    'error': 'Connection Failed'
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-canvas/80 backdrop-blur-xl"
+    >
+      <div className="flex flex-col items-center gap-6 p-8 rounded-2xl bg-surface/50 border border-white/5 shadow-2xl">
+        {loadingStage === 'error' ? (
+          <div className="text-red-500 text-6xl mb-2">⚠️</div>
+        ) : (
+          <div className="relative w-16 h-16">
+            <div className="absolute inset-0 border-4 border-primary/20 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        )}
+
+        <div className="text-center space-y-2">
+          <h2 className="text-xl font-bold bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">
+            {messages[loadingStage] || 'Loading...'}
+          </h2>
+          {error && (
+            <p className="text-sm text-red-400 max-w-xs px-4 py-2 bg-red-500/10 rounded-lg border border-red-500/20">
+              {error}
+            </p>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+};
 
 
 function App() {
@@ -165,6 +224,10 @@ function App() {
   return (
     <ErrorBoundary>
       {/* Immersive Global Background (TypeGPU + Glass) */}
+      <AnimatePresence mode="wait">
+        {!isLocked && <GlobalLoading key="global-loader" />}
+      </AnimatePresence>
+
       <TypeGPUBackground intensity="medium" />
       <div className="fixed inset-0 pointer-events-none z-0 mix-blend-overlay opacity-20">
         <AnimatedBackground variant="finance" intensity="low" />

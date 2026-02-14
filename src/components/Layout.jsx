@@ -13,16 +13,16 @@ import AnimatedBackground, { GrainOverlay } from './ui/AnimatedBackground';
 
 const Layout = () => {
     const { forceRefresh } = useFinance();
-    
+
     return (
         <div className="bg-canvas min-h-screen text-text-main overflow-hidden selection:bg-primary selection:text-primary-foreground transition-colors duration-500 relative">
-            {/* Sync Status - Top Right */}
-            <div className="fixed top-4 right-4 z-50">
+            {/* Sync Status - Removed (Handled by ConnectionButton) */}
+            {/* <div className="fixed top-4 right-4 z-50">
                 <SyncIndicator />
-            </div>
+            </div> */}
 
-            {/* Connection Status Diagnostic - Bottom Right */}
-            <ConnectionStatus onRefresh={forceRefresh} />
+            {/* Connection Status moved to Dashboard Header */}
+            {/* <ConnectionStatus onRefresh={forceRefresh} /> */}
 
             {/* Global Sync Overlay */}
             <GlobalSyncOverlay />

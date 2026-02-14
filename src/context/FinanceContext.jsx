@@ -41,6 +41,7 @@ export const FinanceProvider = ({ children }) => {
     });
     const [isConnected, setIsConnected] = useState(!!(storage.get(STORAGE_KEYS.SPREADSHEET_ID) || localStorage.getItem('finday_spreadsheet_id')) || storage.getBool(STORAGE_KEYS.GUEST_MODE));
     const [isLoading, setIsLoading] = useState(true);
+    const [loadingStage, setLoadingStage] = useState('init'); // init | auth | fetch | ready | error
     const [loadingStatus, setLoadingStatus] = useState({ step: 0, message: 'Initializing...', error: null });
     const [isSyncing, setIsSyncing] = useState(false);
     const [lastSyncTime, setLastSyncTime] = useState(null);
@@ -104,8 +105,19 @@ export const FinanceProvider = ({ children }) => {
     // ===== INITIALIZATION =====
     useEffect(() => {
         isMountedRef.current = true;
+
+        // Poll sheets service for loading stage updates
+        const interval = setInterval(() => {
+            const stage = sheetsService.getLoadingStage();
+            setLoadingStage(prev => {
+                if (prev !== stage) return stage;
+                return prev;
+            });
+        }, 100);
+
         return () => {
             isMountedRef.current = false;
+            clearInterval(interval);
         };
     }, []);
 
@@ -228,7 +240,8 @@ export const FinanceProvider = ({ children }) => {
                     cycle: cycleKey,
                     amount: amount,
                     dueDate: dueDate,
-                    status: 'pending'
+                    status: 'pending',
+                    accountId: bill.accountId || '' // Maintain link to primary account
                 };
 
                 try {
@@ -289,16 +302,15 @@ export const FinanceProvider = ({ children }) => {
             if (!sheetsService.isInitialized) {
                 await sheetsService.init();
             }
-            
+
             // Double-check token is loaded
             sheetsService.ensureTokenLoaded();
-            
+
             if (!sheetsService.accessToken && !isGuest) {
                 throw new Error('Authentication required. Please sign in again.');
             }
-
             // Fetch all data in parallel with retry
-            console.log('[LAKSH] Fetching transactions, accounts, categories, bills, billPayments, config...');
+            console.log(`[LAKSH] Fetching data for sheet: ${spreadsheetId}`);
             const [fetchedTransactions, fetchedAccounts, fetchedCategories, fetchedBills, fetchedBillPayments, fetchedConfig] = await Promise.all([
                 sheetsService.getTransactions(spreadsheetId, 12), // Get more months for bill detection
                 sheetsService.getAccounts(spreadsheetId),
@@ -338,6 +350,10 @@ export const FinanceProvider = ({ children }) => {
 
             setLastSyncTime(new Date());
             setLoadingStatus({ step: 4, message: 'Ready!', error: null });
+
+            // Background: Flush any pending offline writes
+            sheetsService.flushQueue().catch(e => console.log('[LAKSH] Post-refresh flush background:', e));
+
             console.log('[LAKSH] Sync complete!');
         } catch (err) {
             console.error('[LAKSH] Refresh failed:', err);
@@ -426,8 +442,12 @@ export const FinanceProvider = ({ children }) => {
                             ]
                         },
                         {
-                            range: "_Bills!A1:J1",
-                            values: [["ID", "Name", "Amount", "DueDay", "BillingDay", "Category", "Status", "BillType", "Cycle", "CreatedAt"]]
+                            range: "_Bills!A1:K1",
+                            values: [["ID", "Name", "Amount", "DueDay", "BillingDay", "Category", "Status", "BillType", "Cycle", "CreatedAt", "AccountID"]]
+                        },
+                        {
+                            range: "_BillPayments!A1:J1",
+                            values: [["ID", "BillID", "Name", "Cycle", "Amount", "DueDate", "Status", "PaidDate", "TransactionID", "AccountID"]]
                         }
                     ]
                 }
@@ -458,9 +478,29 @@ export const FinanceProvider = ({ children }) => {
             const isTokenValid = savedToken && tokenExpiry && Date.now() < parseInt(tokenExpiry);
 
             if (savedId && isTokenValid && isConnected) {
-                console.log('[LAKSH] Already connected, skipping autoConnect');
+                console.log('[LAKSH] Already connected, loading cache + triggering background sync...');
+                setLoadingStatus({ step: 3, message: 'Loading cached data...', error: null });
+
+                // 1. Load cached data immediately for fast UI
+                try {
+                    const cachedData = await localDB.getAllData();
+                    if (cachedData.hasData) {
+                        setTransactions(cachedData.transactions || []);
+                        setAccounts(cachedData.accounts || []);
+                        setCategories(cachedData.categories || []);
+                        setBills(cachedData.bills || []);
+                        setBillPayments(cachedData.billPayments || []);
+                    }
+                } catch (cacheErr) {
+                    console.warn('[LAKSH] Failed to load cache on reconnect:', cacheErr);
+                }
+
                 setLoadingStatus({ step: 4, message: 'Ready!', error: null });
                 setIsLoading(false);
+
+                // 2. Trigger background sync to get latest data
+                console.log('[LAKSH] Triggering background sync for fresh data...');
+                refreshData(savedId, false).catch(e => console.warn('[LAKSH] Background sync failed:', e.message));
                 return;
             }
 
@@ -499,6 +539,24 @@ export const FinanceProvider = ({ children }) => {
             // Special handling for Android WebView - but respect first-time setup
             if (isAndroidWebView()) {
                 console.log('[LAKSH] Detected Android WebView');
+
+                // Try to restore session silently first using Refresh Token
+                const refreshToken = localStorage.getItem('google_refresh_token');
+                if (refreshToken) {
+                    console.log('[LAKSH] Attempting silent refresh for Android...');
+                    try {
+                        await cloudBackup.init(); // This now handles refresh internally
+                        if (cloudBackup.isSignedIn()) {
+                            console.log('[LAKSH] Silent refresh successful!');
+                            setIsConnected(true);
+                            refreshData(null, true); // Fetch fresh data
+                            return;
+                        }
+                    } catch (e) {
+                        console.warn('[LAKSH] Silent refresh failed:', e);
+                    }
+                }
+
                 setLoadingStatus({ step: 1, message: 'Checking local storage...', error: null });
 
                 // Check if user has ever connected to Google Sheets
@@ -583,6 +641,21 @@ export const FinanceProvider = ({ children }) => {
 
                     // Proceed to cloud sync (Real Sync Up) instead of returning
                     // logic continues below...
+
+                    // For Android, if we have cached data and a token, refresh immediately
+                    const token = savedToken || localStorage.getItem('laksh_access_token');
+                    if (hasCachedData && token) {
+                        console.log('[LAKSH] Android: Triggering background sync refresh');
+                        toast('Android: Starting background sync...', 'info');
+                        refreshData(savedId, true)
+                            .then(() => toast('Android: Sync complete!', 'success'))
+                            .catch(e => toast(`Android Sync Error: ${e.message}`, 'error'));
+                        setIsLoading(false);
+                        return;
+                    } else if (!token && !refreshToken) {
+                        // Only warn if NO refresh token available
+                        toast('Android: No token found. Please login again.', 'warning');
+                    }
 
                 } catch (e) {
                     console.error('[LAKSH] Failed to initialize WebView data:', e);
@@ -740,11 +813,11 @@ export const FinanceProvider = ({ children }) => {
             // SLM: Smart Ledger Management (deduplication, reconciliation)
             if (isMountedRef.current) {
                 setTransactions(prev => {
-                    // Deduplicate by id/date/amount
+                    // Deduplication by id/date/amount/desc
                     const seen = new Set();
                     const deduped = [];
                     for (const t of prev) {
-                        const key = (t.id || '') + (t.date || '') + (t.amount || '');
+                        const key = (t.id || '') + (t.date || '') + (t.amount || '') + (t.description?.toLowerCase().replace(/\s+/g, '') || '');
                         if (!seen.has(key)) {
                             seen.add(key);
                             deduped.push(t);
@@ -1803,6 +1876,8 @@ export const FinanceProvider = ({ children }) => {
         isGuest,
         isConnected,
         isLoading,
+        loadingStage, // Expose for UI
+        loadingStatus,
         loadingStatus,
         isSyncing,
         lastSyncTime,

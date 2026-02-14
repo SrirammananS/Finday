@@ -77,7 +77,8 @@ const Accounts = () => {
                             <p className="text-[8px] font-semibold text-text-muted uppercase tracking-[0.4em] opacity-60">Financial Nodes</p>
                         </div>
 
-                        <div className="flex flex-col items-end gap-4">
+                        <div className="mb-1">
+
                             {secretCount > 0 && (
                                 <button
                                     onClick={toggleSecretUnlock}
@@ -98,13 +99,16 @@ const Accounts = () => {
                         <div className="relative group p-6 rounded-[2rem] bg-card border border-card-border hover:bg-canvas-elevated transition-all flex flex-col justify-between h-32 md:h-40 overflow-hidden">
                             <Search className="absolute top-4 right-4 text-text-muted/20 group-hover:text-primary/40 transition-colors" size={24} />
                             <span className="text-[9px] font-black uppercase tracking-[0.3em] text-text-muted">Search Node</span>
-                            <input
-                                type="text"
-                                placeholder="..."
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                className="w-full bg-transparent border-b border-card-border py-2 text-lg font-black uppercase text-text-main placeholder:text-text-muted/30 outline-none focus:border-primary transition-all"
-                            />
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    placeholder="..."
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    className="w-full bg-transparent border-b-2 border-card-border/50 py-2 text-lg font-black uppercase text-text-main placeholder:text-text-muted/20 outline-none focus:border-primary transition-all relative z-10"
+                                />
+                                <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary scale-x-0 group-focus-within:scale-x-100 transition-transform origin-left" />
+                            </div>
                         </div>
 
                         <div className="p-6 rounded-[2rem] bg-card border border-card-border hover:bg-canvas-elevated transition-all flex flex-col justify-between h-32 md:h-40">

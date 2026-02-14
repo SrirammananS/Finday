@@ -10,10 +10,13 @@ const DISCOVERY_DOCS = [
 // - drive.readonly: List spreadsheets for selection (read-only)
 const SCOPES = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly";
 
-// Request throttling - reduced for faster sync
-const REQUEST_DELAY_MS = 100;
+// Request throttling - adaptive for bulk operations
+const MIN_REQUEST_DELAY_MS = 100;
+const MAX_REQUEST_DELAY_MS = 1000;
+let currentRequestDelay = MIN_REQUEST_DELAY_MS;
 let lastRequestTime = 0;
 let throttleLock = Promise.resolve();
+
 const throttle = async () => {
     const previousLock = throttleLock;
     let resolveLock;
@@ -22,9 +25,11 @@ const throttle = async () => {
     await previousLock;
     const now = Date.now();
     const timeSinceLastRequest = now - lastRequestTime;
-    if (timeSinceLastRequest < REQUEST_DELAY_MS) {
-        await new Promise(resolve => setTimeout(resolve, REQUEST_DELAY_MS - timeSinceLastRequest));
+
+    if (timeSinceLastRequest < currentRequestDelay) {
+        await new Promise(resolve => setTimeout(resolve, currentRequestDelay - timeSinceLastRequest));
     }
+
     lastRequestTime = Date.now();
     resolveLock();
 };
@@ -59,9 +64,14 @@ const withRetry = async (fn, maxRetries = 3, context = '') => {
     throw new Error(`Max retries exceeded${context ? ` for ${context}` : ''}`);
 };
 
-// Write queue for offline-first with retry
-const pendingWrites = [];
-let isFlushingWrites = false;
+// Write queue for offline-first persistence
+const QUEUE_KEY = 'laksh_write_queue';
+const getQueue = () => {
+    try {
+        return JSON.parse(localStorage.getItem(QUEUE_KEY)) || [];
+    } catch { return []; }
+};
+const saveQueue = (queue) => localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
 
 class GoogleSheetsService {
     constructor() {
@@ -71,12 +81,137 @@ class GoogleSheetsService {
         this.sheetCache = new Map();
         this.pendingSheetChecks = new Map(); // Track in-flight sheet listing requests
         this.lastFetchTime = new Map(); // Track when each data type was last fetched
+        this.isFlushing = false;
+
+        // Track granular loading stage for UI feedback
+        // 'init': Initializing GAPI client
+        // 'auth': Authenticating/Refreshing Token
+        // 'fetch': Fetching Data
+        // 'ready': Connection Established
+        this.loadingStage = 'init';
     }
 
-    // Detect if running in Android WebView
+    getLoadingStage() {
+        return this.loadingStage;
+    }
+
+    setLoadingStage(stage) {
+        this.loadingStage = stage;
+        // Dispatch custom event if strictly needed, but polling via context is usually sufficient
+    }
+
+    // Unified Write Enqueuer
+    async enqueueWrite(spreadsheetId, sheetName, operation, payload) {
+        const queue = getQueue();
+        const writeRequest = {
+            id: Date.now().toString(36) + Math.random().toString(36).substring(2),
+            spreadsheetId,
+            sheetName,
+            operation, // 'append' | 'update' | 'delete' | 'batch'
+            payload,
+            timestamp: new Date().toISOString(),
+            attempts: 0
+        };
+
+        queue.push(writeRequest);
+        saveQueue(queue);
+
+        console.log(`[LAKSH] Enqueued write: ${operation} to ${sheetName}`);
+
+        // Try to flush immediately (optimistic background sync)
+        this.flushQueue().catch(err => {
+            console.log('[LAKSH] Initial flush failed, request is queued:', err.message);
+        });
+
+        return { ...payload, queued: true, id: writeRequest.id };
+    }
+
+    async flushQueue() {
+        if (this.isFlushing) return;
+
+        const queue = getQueue();
+        if (queue.length === 0) return;
+
+        console.log(`[LAKSH] Flushing write queue (${queue.length} items)...`);
+        this.isFlushing = true;
+
+        const remaining = [];
+        let successCount = 0;
+
+        for (const request of queue) {
+            try {
+                // Ensure sheet exists before writing (for monthly sheets)
+                if (!request.sheetName.startsWith('_')) {
+                    await this.ensureSheetExists(request.spreadsheetId, request.sheetName);
+                }
+
+                await withRetry(async () => {
+                    const { spreadsheetId, sheetName, operation, payload } = request;
+
+                    // Android Fallback OR GAPI Missing: Use REST API directly
+                    if (this.isAndroidWebView() || !window.gapi?.client?.sheets) {
+                        const baseUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values`;
+
+                        if (operation === 'append') {
+                            const url = `${baseUrl}/${encodeURIComponent(payload.range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+                            await this.makeApiRequest(url, {
+                                method: 'POST',
+                                body: JSON.stringify({ values: payload.values })
+                            });
+                        } else if (operation === 'update') {
+                            const url = `${baseUrl}/${encodeURIComponent(payload.range)}?valueInputOption=USER_ENTERED`;
+                            await this.makeApiRequest(url, {
+                                method: 'PUT',
+                                body: JSON.stringify({ values: payload.values })
+                            });
+                        }
+                        return;
+                    }
+
+                    // Web: Use GAPI
+                    if (operation === 'append') {
+                        await window.gapi.client.sheets.spreadsheets.values.append({
+                            spreadsheetId,
+                            range: payload.range,
+                            valueInputOption: 'USER_ENTERED',
+                            insertDataOption: 'INSERT_ROWS',
+                            resource: { values: payload.values }
+                        });
+                    } else if (operation === 'update') {
+                        await window.gapi.client.sheets.spreadsheets.values.update({
+                            spreadsheetId,
+                            range: payload.range,
+                            valueInputOption: 'USER_ENTERED',
+                            resource: { values: payload.values }
+                        });
+                    }
+                }, 2, `Flushing ${request.id}`);
+
+                successCount++;
+                this.invalidateSheet(request.sheetName);
+            } catch (err) {
+                console.warn(`[LAKSH] Failed to flush item ${request.id}:`, err.message);
+                request.attempts++;
+                if (request.attempts < 10) { // Keep trying for a while
+                    remaining.push(request);
+                }
+
+                // If we get an auth error, stop flushing until next refresh
+                if (err.status === 401 || err.status === 403) break;
+            }
+        }
+
+        saveQueue(remaining);
+        this.isFlushing = false;
+
+        if (successCount > 0) {
+            console.log(`[LAKSH] Flushed ${successCount} items successfully`);
+        }
+    }
+
     isAndroidWebView() {
         const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-        return /Android/i.test(userAgent) && /wv/i.test(userAgent);
+        return (/Android/i.test(userAgent) && /wv/i.test(userAgent)) || !!window.AndroidBridge;
     }
 
     // Mobile OAuth flow using external browser
@@ -177,17 +312,27 @@ class GoogleSheetsService {
         });
     }
 
-    // Helper for direct API calls in mobile
-    // Ensure access token is loaded from storage
     ensureTokenLoaded() {
         if (!this.accessToken) {
-            const storedToken = localStorage.getItem('google_access_token');
-            const storedExpiry = localStorage.getItem('google_token_expiry');
+            const keys = [
+                'google_access_token',
+                'laksh_access_token',
+                'laksh_gapi_token',
+                STORAGE_KEYS.GAPI_TOKEN
+            ];
 
-            if (storedToken && storedExpiry && Date.now() < parseInt(storedExpiry)) {
-                this.accessToken = storedToken;
-                this.isInitialized = true;
-                console.log('[LAKSH] Lazy-loaded OAuth token from storage');
+            for (const key of keys) {
+                const storedToken = localStorage.getItem(key);
+                const storedExpiry = localStorage.getItem('google_token_expiry') ||
+                    localStorage.getItem('laksh_token_expiry') ||
+                    localStorage.getItem(STORAGE_KEYS.TOKEN_EXPIRY);
+
+                if (storedToken && storedExpiry && Date.now() < parseInt(storedExpiry)) {
+                    this.accessToken = storedToken;
+                    this.isInitialized = true;
+                    console.log(`[LAKSH] Lazy-loaded OAuth token from storage (key: ${key})`);
+                    return true;
+                }
             }
         }
         return !!this.accessToken;
@@ -217,6 +362,10 @@ class GoogleSheetsService {
                 const refreshed = await this.refreshToken();
                 if (refreshed) return this.makeApiRequest(url, options);
             }
+
+            // Log details for debugging 400/403 errors in native
+            const errorText = await response.text().catch(() => 'No error body');
+            console.error(`[LAKSH] API request failed: ${response.status} ${response.statusText}`, errorText);
             throw new Error(`API request failed: ${response.status}`);
         }
 
@@ -249,7 +398,17 @@ class GoogleSheetsService {
             }
 
             if (this.accessToken) {
-                const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`;
+                // If the range contains a simple sheet name (no spaces/special characters), 
+                // we can try removing single quotes in the fetch URL for better compatibility
+                let finalRange = range;
+                if (range.startsWith("'") && range.includes("'!")) {
+                    const sheetPart = range.match(/'(.*?)'/)?.[1];
+                    if (sheetPart && !sheetPart.includes(' ')) {
+                        finalRange = range.replace(/'/g, '');
+                    }
+                }
+
+                const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(finalRange)}`;
                 const data = await this.makeApiRequest(url);
                 return data.values || [];
             }
@@ -265,15 +424,25 @@ class GoogleSheetsService {
     }
 
     // Wait for Google scripts to load
-    waitForGapi() {
+    async waitForGapi() {
         return new Promise((resolve, reject) => {
-            // Check if running in Android WebView
-            if (this.isAndroidWebView()) {
+            let attempts = 0;
+            const isAndroid = this.isAndroidWebView();
+            // Critical: Reduce timeout for Android to avoid hang
+            const maxAttempts = isAndroid ? 5 : 100;
+            const checkInterval = isAndroid ? 200 : 200;
+
+            if (isAndroid) {
                 console.log('[LAKSH] Android WebView detected');
 
-                // If we already have a token, just load the scripts
+                // If we already have a token, just load the scripts but don't blocking
                 if (this.accessToken || localStorage.getItem('google_access_token')) {
-                    this.loadGoogleAPIsIfNeeded().then(resolve).catch(reject);
+                    this.loadGoogleAPIsIfNeeded()
+                        .then(() => resolve(true))
+                        .catch(e => {
+                            console.warn('[LAKSH] Scripts failed on Android (expected), proceeding with fetch fallback', e);
+                            resolve(true); // Resolve anyway to allow fetch fallback
+                        });
                     return;
                 }
 
@@ -282,31 +451,25 @@ class GoogleSheetsService {
                 return;
             }
 
-            let attempts = 0;
-            const maxAttempts = 100; // 20 seconds total for slower mobile connections
+            if (!isAndroid) {
+                const check = () => {
+                    attempts++;
+                    console.log(`[LAKSH] Checking for Google APIs (attempt ${attempts}/${maxAttempts})`);
 
-            const check = () => {
-                attempts++;
-                console.log(`[LAKSH] Checking for Google APIs (attempt ${attempts}/${maxAttempts})`);
-                console.log('[LAKSH] window.gapi:', !!window.gapi);
-                console.log('[LAKSH] window.google:', !!window.google);
-                console.log('[LAKSH] window.google.accounts:', !!window.google?.accounts);
-                console.log('[LAKSH] window.google.accounts.oauth2:', !!window.google?.accounts?.oauth2);
-
-                if (window.gapi && window.google?.accounts?.oauth2) {
-                    console.log('[LAKSH] Google APIs are ready!');
-                    resolve(true);
-                } else if (attempts >= maxAttempts) {
-                    console.error('[LAKSH] Timeout waiting for Google APIs');
-                    // Try to dynamically load if not available
-                    this.loadGoogleAPIsIfNeeded()
-                        .then(() => resolve(true))
-                        .catch(() => reject(new Error('Google API scripts not loaded. Please refresh the page.')));
-                } else {
-                    setTimeout(check, 200); // Check every 200ms
-                }
-            };
-            check();
+                    if (window.gapi && window.google?.accounts?.oauth2) {
+                        console.log('[LAKSH] Google APIs are ready!');
+                        resolve(true);
+                    } else if (attempts >= maxAttempts) {
+                        console.error('[LAKSH] Timeout waiting for Google APIs');
+                        this.loadGoogleAPIsIfNeeded()
+                            .then(() => resolve(true))
+                            .catch(() => reject(new Error('Google API scripts not loaded. Please refresh the page.')));
+                    } else {
+                        setTimeout(check, 200);
+                    }
+                };
+                check();
+            }
         });
     }
 
@@ -332,9 +495,14 @@ class GoogleSheetsService {
                         if (window.gapi && window.google?.accounts?.oauth2) {
                             resolve();
                         } else {
-                            reject(new Error('Scripts loaded but APIs not available'));
+                            if (this.isAndroidWebView()) {
+                                console.warn('[LAKSH] Scripts loaded but APIs not fully ready (Android expected)');
+                                resolve(); // Resolve anyway on Android
+                            } else {
+                                reject(new Error('Scripts loaded but APIs not available'));
+                            }
                         }
-                    }, 1000);
+                    }, 500);
                 }
             };
 
@@ -344,7 +512,14 @@ class GoogleSheetsService {
                 const gapiScript = document.createElement('script');
                 gapiScript.src = 'https://apis.google.com/js/api.js';
                 gapiScript.onload = checkComplete;
-                gapiScript.onerror = () => reject(new Error('Failed to load Google API script'));
+                gapiScript.onerror = () => {
+                    if (this.isAndroidWebView()) {
+                        console.warn('[LAKSH] Failed to load GAPI script (Android expected)');
+                        checkComplete();
+                    } else {
+                        reject(new Error('Failed to load Google API script'));
+                    }
+                };
                 document.head.appendChild(gapiScript);
             }
 
@@ -354,14 +529,27 @@ class GoogleSheetsService {
                 const gisScript = document.createElement('script');
                 gisScript.src = 'https://accounts.google.com/gsi/client';
                 gisScript.onload = checkComplete;
-                gisScript.onerror = () => reject(new Error('Failed to load Google Identity Services script'));
+                gisScript.onerror = () => {
+                    if (this.isAndroidWebView()) {
+                        console.warn('[LAKSH] Failed to load GIS script (Android expected)');
+                        checkComplete();
+                    } else {
+                        reject(new Error('Failed to load Google Identity Services script'));
+                    }
+                };
                 document.head.appendChild(gisScript);
             }
 
-            // If both already loaded
+            // If both already loaded (should be caught at top, but just in case)
             if (scriptsToLoad === 0) {
                 resolve();
             }
+
+            // Safety timeout: If GAPI/GIS takes too long (e.g. blocked), resolve anyway to allow fallback
+            setTimeout(() => {
+                console.warn('[LAKSH] GAPI/GIS load timed out, proceeding with fallback check...');
+                resolve();
+            }, 5000);
         });
     }
 
@@ -464,28 +652,39 @@ class GoogleSheetsService {
             await this.waitForGapi();
 
             // 4. Load GAPI client and discovery docs
-            await new Promise((resolve, reject) => {
-                window.gapi.load('client', { callback: resolve, onerror: reject });
+            const gapiLoaded = await new Promise((resolve) => {
+                if (!window.gapi) return resolve(false);
+                window.gapi.load('client', {
+                    callback: () => resolve(true),
+                    onerror: () => resolve(false)
+                });
             });
 
-            await window.gapi.client.init({
-                discoveryDocs: DISCOVERY_DOCS,
-            });
+            if (gapiLoaded) {
+                await window.gapi.client.init({
+                    discoveryDocs: DISCOVERY_DOCS,
+                }).catch(e => console.warn('[LAKSH] GAPI init partial fail:', e));
+            } else {
+                console.warn('[LAKSH] GAPI client load failed, will use fetch fallback');
+            }
 
             // 5. If we have a token, set it in the client
             if (this.accessToken) {
+                this.setLoadingStage('auth');
                 window.gapi.client.setToken({ access_token: this.accessToken });
             } else {
                 // Otherwise try loading from cloudBackup (for web)
                 const { cloudBackup } = await importWithRetry(() => import('./cloudBackup'));
                 await cloudBackup.init();
                 if (cloudBackup.isSignedIn()) {
+                    this.setLoadingStage('auth');
                     window.gapi.client.setToken({ access_token: cloudBackup.accessToken });
                     this.accessToken = cloudBackup.accessToken;
                 }
             }
 
             this.isInitialized = true;
+            this.setLoadingStage('ready');
             return true;
         } catch (err) {
             console.warn('[LAKSH] GAPI/GIS Init failed:', err);
@@ -495,9 +694,12 @@ class GoogleSheetsService {
             if (this.accessToken) {
                 console.log('[LAKSH] Proceeding with token-only initialization (fetch mode)');
                 this.isInitialized = true;
+                this.setLoadingStage('ready');
                 return true;
             }
 
+            // Report error stage
+            this.setLoadingStage('error');
             throw err;
         }
     }
@@ -766,15 +968,27 @@ class GoogleSheetsService {
         // Start a new check (and lock it for others)
         const checkPromise = (async () => {
             try {
-                // Use throttled request with retry for 429 errors
-                const response = await withRetry(() =>
-                    window.gapi.client.sheets.spreadsheets.get({
-                        spreadsheetId: spreadsheetId,
-                        fields: 'sheets.properties.title'
-                    }), 3, `Listing sheets for ${spreadsheetId.substring(0, 8)}`
-                );
+                let sheets = [];
+                // Method A: GAPI
+                if (window.gapi?.client?.sheets) {
+                    const response = await withRetry(() =>
+                        window.gapi.client.sheets.spreadsheets.get({
+                            spreadsheetId: spreadsheetId,
+                            fields: 'sheets.properties.title'
+                        }), 3, `Listing sheets for ${spreadsheetId.substring(0, 8)}`
+                    );
+                    sheets = response.result.sheets || [];
+                }
+                // Method B: Fetch Fallback
+                else if (this.accessToken) {
+                    console.log('[LAKSH] GAPI not ready, using fetch for ensureSheetExists');
+                    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=${encodeURIComponent('sheets.properties.title')}`;
+                    const data = await this.makeApiRequest(url);
+                    sheets = data.sheets || [];
+                } else {
+                    throw new Error('No sheets client or token available');
+                }
 
-                const sheets = response.result.sheets || [];
                 // Cache ALL discovered sheets for this spreadsheet to avoid future lookups
                 sheets.forEach(s => {
                     this.sheetCache.set(`${spreadsheetId}:${s.properties.title}`, true);
@@ -783,16 +997,32 @@ class GoogleSheetsService {
                 const exists = sheets.some(s => s.properties.title === sheetTitle);
                 if (!exists) {
                     console.log(`[LAKSH] Sheet "${sheetTitle}" missing, creating...`);
-                    await withRetry(() =>
-                        window.gapi.client.sheets.spreadsheets.batchUpdate({
-                            spreadsheetId,
-                            resource: {
-                                requests: [{
-                                    addSheet: { properties: { title: sheetTitle } }
-                                }]
+
+                    if (window.gapi?.client?.sheets) {
+                        await withRetry(() =>
+                            window.gapi.client.sheets.spreadsheets.batchUpdate({
+                                spreadsheetId,
+                                resource: {
+                                    requests: [{
+                                        addSheet: { properties: { title: sheetTitle } }
+                                    }]
+                                }
+                            })
+                        );
+                    } else {
+                        // Fetch Fallback for creation
+                        await this.makeApiRequest(
+                            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+                            {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    requests: [{
+                                        addSheet: { properties: { title: sheetTitle } }
+                                    }]
+                                })
                             }
-                        })
-                    );
+                        );
+                    }
 
                     // Add headers based on sheet type
                     const headers = this.getHeadersForSheet(sheetTitle);
@@ -829,11 +1059,8 @@ class GoogleSheetsService {
             }
         }
 
-        // Check for exact match or opposite underscore version if appropriate
-        if (this.sheetCache.has(`${spreadsheetId}:${sheetTitle}`)) return true;
-
-        const altTitle = sheetTitle.startsWith('_') ? sheetTitle.substring(1) : `_${sheetTitle}`;
-        return this.sheetCache.has(`${spreadsheetId}:${altTitle}`);
+        // Strict check: only return true if the exact title exists in cache
+        return this.sheetCache.has(`${spreadsheetId}:${sheetTitle}`);
     }
 
     // New helper to just check if a sheet exists without creating it
@@ -888,20 +1115,32 @@ class GoogleSheetsService {
         if (cleanTitle === '_Config') return ['Key', 'Value'];
         if (cleanTitle === '_Accounts') return ['ID', 'Name', 'Type', 'Balance', 'BillingCycleStart', 'DueDate', 'CreatedAt', 'IsSecret'];
         if (cleanTitle === '_Categories') return ['Name', 'Keywords', 'Color', 'Icon'];
-        if (cleanTitle === '_Bills') return ['ID', 'Name', 'Amount', 'DueDay', 'BillingDay', 'Category', 'Status', 'BillType', 'Cycle', 'CreatedAt'];
-        if (cleanTitle === '_BillPayments') return ['ID', 'BillID', 'Name', 'Cycle', 'Amount', 'DueDate', 'Status', 'PaidDate', 'TransactionID'];
+        if (cleanTitle === '_Bills') return ['ID', 'Name', 'Amount', 'DueDay', 'BillingDay', 'Category', 'Status', 'BillType', 'Cycle', 'CreatedAt', 'AccountID'];
+        if (cleanTitle === '_BillPayments') return ['ID', 'BillID', 'Name', 'Cycle', 'Amount', 'DueDate', 'Status', 'PaidDate', 'TransactionID', 'AccountID'];
         // Monthly sheets
         return ['ID', 'Date', 'Description', 'Amount', 'Category', 'AccountID', 'Type', 'CreatedAt', 'Friend'];
     }
 
     async setHeaders(spreadsheetId, sheetTitle, headers) {
         const endCol = String.fromCharCode(64 + headers.length);
-        await window.gapi.client.sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `'${sheetTitle}'!A1:${endCol}1`,
-            valueInputOption: 'RAW',
-            resource: { values: [headers] }
-        });
+        const range = `'${sheetTitle}'!A1:${endCol}1`;
+
+        if (window.gapi?.client?.sheets) {
+            await window.gapi.client.sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: range,
+                valueInputOption: 'RAW',
+                resource: { values: [headers] }
+            });
+        } else {
+            await this.makeApiRequest(
+                `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
+                {
+                    method: 'PUT',
+                    body: JSON.stringify({ values: [headers] })
+                }
+            );
+        }
     }
 
     // ===== CONFIG =====
@@ -925,25 +1164,55 @@ class GoogleSheetsService {
         const sheetName = await this.resolveSheetName(spreadsheetId, '_Config');
         await this.ensureSheetExists(spreadsheetId, sheetName);
 
-        const responseData = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:B`);
-        const rows = responseData || [];
+        const range = `'${sheetName}'!A:B`;
+        let rows = [];
+
+        if (window.gapi?.client?.sheets) {
+            const response = await window.gapi.client.sheets.spreadsheets.values.get({ spreadsheetId, range });
+            rows = response.result.values || [];
+        } else {
+            const data = await this.makeApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+            rows = data.values || [];
+        }
+
         const rowIndex = rows.findIndex(row => row[0] === key);
 
         if (rowIndex === -1) {
-            await window.gapi.client.sheets.spreadsheets.values.append({
-                spreadsheetId,
-                range: `'${sheetName}'!A:B`,
-                valueInputOption: 'RAW',
-                insertDataOption: 'INSERT_ROWS',
-                resource: { values: [[key, value]] }
-            });
+            if (window.gapi?.client?.sheets) {
+                await window.gapi.client.sheets.spreadsheets.values.append({
+                    spreadsheetId,
+                    range: range,
+                    valueInputOption: 'RAW',
+                    insertDataOption: 'INSERT_ROWS',
+                    resource: { values: [[key, value]] }
+                });
+            } else {
+                await this.makeApiRequest(
+                    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ values: [[key, value]] })
+                    }
+                );
+            }
         } else {
-            await window.gapi.client.sheets.spreadsheets.values.update({
-                spreadsheetId,
-                range: `'${sheetName}'!A${rowIndex + 1}:B${rowIndex + 1}`,
-                valueInputOption: 'RAW',
-                resource: { values: [[key, value]] }
-            });
+            const updateRange = `'${sheetName}'!A${rowIndex + 1}:B${rowIndex + 1}`;
+            if (window.gapi?.client?.sheets) {
+                await window.gapi.client.sheets.spreadsheets.values.update({
+                    spreadsheetId,
+                    range: updateRange,
+                    valueInputOption: 'RAW',
+                    resource: { values: [[key, value]] }
+                });
+            } else {
+                await this.makeApiRequest(
+                    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(updateRange)}?valueInputOption=RAW`,
+                    {
+                        method: 'PUT',
+                        body: JSON.stringify({ values: [[key, value]] })
+                    }
+                );
+            }
         }
     }
 
@@ -988,24 +1257,40 @@ class GoogleSheetsService {
             account.isSecret ? 'true' : 'false'
         ];
 
-        await window.gapi.client.sheets.spreadsheets.values.append({
-            spreadsheetId,
-            range: `'${sheetName}'!A:H`,
-            valueInputOption: 'RAW',
-            insertDataOption: 'INSERT_ROWS',
-            resource: { values: [row] }
-        });
+        if (window.gapi?.client?.sheets) {
+            await window.gapi.client.sheets.spreadsheets.values.append({
+                spreadsheetId,
+                range: `'${sheetName}'!A:H`,
+                valueInputOption: 'RAW',
+                insertDataOption: 'INSERT_ROWS',
+                resource: { values: [row] }
+            });
+        } else {
+            await this.makeApiRequest(
+                `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`'${sheetName}'!A:H`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({ values: [row] })
+                }
+            );
+        }
     }
 
     async updateAccount(spreadsheetId, accountId, updates) {
         await this.ensureClientReady();
         const sheetName = await this.resolveSheetName(spreadsheetId, '_Accounts');
-        const response = await window.gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `'${sheetName}'!A:H`
-        });
 
-        const rows = response.result.values || [];
+        let rows = [];
+        const range = `'${sheetName}'!A:H`;
+
+        if (window.gapi?.client?.sheets) {
+            const response = await window.gapi.client.sheets.spreadsheets.values.get({ spreadsheetId, range });
+            rows = response.result.values || [];
+        } else {
+            const data = await this.makeApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+            rows = data.values || [];
+        }
+
         const rowIndex = rows.findIndex(row => row[0] === accountId);
 
         if (rowIndex > 0) {
@@ -1021,46 +1306,89 @@ class GoogleSheetsService {
                 updates.isSecret !== undefined ? (updates.isSecret ? 'true' : 'false') : (currentRow[7] || 'false')
             ];
 
-            await window.gapi.client.sheets.spreadsheets.values.update({
-                spreadsheetId,
-                range: `'${sheetName}'!A${rowIndex + 1}:H${rowIndex + 1}`,
-                valueInputOption: 'RAW',
-                resource: { values: [updatedRow] }
-            });
+            const updateRange = `'${sheetName}'!A${rowIndex + 1}:H${rowIndex + 1}`;
+
+            if (window.gapi?.client?.sheets) {
+                await window.gapi.client.sheets.spreadsheets.values.update({
+                    spreadsheetId,
+                    range: updateRange,
+                    valueInputOption: 'RAW',
+                    resource: { values: [updatedRow] }
+                });
+            } else {
+                await this.makeApiRequest(
+                    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(updateRange)}?valueInputOption=RAW`,
+                    {
+                        method: 'PUT',
+                        body: JSON.stringify({ values: [updatedRow] })
+                    }
+                );
+            }
         }
     }
 
     async deleteAccount(spreadsheetId, accountId) {
         await this.ensureClientReady();
         const sheetName = await this.resolveSheetName(spreadsheetId, '_Accounts');
-        const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
-        const sheet = sheetInfo.result.sheets.find(s => s.properties.title === sheetName);
-        if (!sheet) return;
 
-        const response = await window.gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `'${sheetName}'!A:A`
-        });
+        let sheetId;
+        let rows = [];
 
-        const rows = response.result.values || [];
+        if (window.gapi?.client?.sheets) {
+            const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
+            const sheet = sheetInfo.result.sheets.find(s => s.properties.title === sheetName);
+            if (!sheet) return;
+            sheetId = sheet.properties.sheetId;
+
+            const response = await window.gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId,
+                range: `'${sheetName}'!A:A`
+            });
+            rows = response.result.values || [];
+        } else {
+            // 1. Get Sheet ID via REST by Fetching Metadata
+            const metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?includeGridData=false`;
+            const metaData = await this.makeApiRequest(metaUrl);
+            const sheet = metaData.sheets.find(s => s.properties.title === sheetName);
+            if (!sheet) return;
+            sheetId = sheet.properties.sheetId;
+
+            // 2. Get Rows
+            const range = `'${sheetName}'!A:A`;
+            const data = await this.makeApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+            rows = data.values || [];
+        }
+
         const rowIndex = rows.findIndex(row => row[0] === accountId);
 
         if (rowIndex > 0) {
-            await window.gapi.client.sheets.spreadsheets.batchUpdate({
-                spreadsheetId,
-                resource: {
-                    requests: [{
-                        deleteDimension: {
-                            range: {
-                                sheetId: sheet.properties.sheetId,
-                                dimension: 'ROWS',
-                                startIndex: rowIndex,
-                                endIndex: rowIndex + 1
-                            }
+            const body = {
+                requests: [{
+                    deleteDimension: {
+                        range: {
+                            sheetId: sheetId,
+                            dimension: 'ROWS',
+                            startIndex: rowIndex,
+                            endIndex: rowIndex + 1
                         }
-                    }]
-                }
-            });
+                    }
+                }]
+            };
+
+            if (window.gapi?.client?.sheets) {
+                await window.gapi.client.sheets.spreadsheets.batchUpdate({
+                    spreadsheetId,
+                    resource: body
+                });
+            } else {
+                await this.makeApiRequest(
+                    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify(body)
+                    }
+                );
+            }
         }
     }
 
@@ -1072,7 +1400,6 @@ class GoogleSheetsService {
 
     async addTransaction(spreadsheetId, transaction) {
         const sheetName = this.getMonthSheetName(new Date(transaction.date));
-        await this.ensureSheetExists(spreadsheetId, sheetName);
 
         const row = [
             transaction.id,
@@ -1086,27 +1413,26 @@ class GoogleSheetsService {
             transaction.friend || ''
         ];
 
-        await window.gapi.client.sheets.spreadsheets.values.append({
-            spreadsheetId,
+        return this.enqueueWrite(spreadsheetId, sheetName, 'append', {
             range: `'${sheetName}'!A:I`,
-            valueInputOption: 'RAW',
-            insertDataOption: 'INSERT_ROWS',
-            resource: { values: [row] }
+            values: [row]
         });
-
-        return { ...transaction, synced: true };
     }
 
     async updateTransaction(spreadsheetId, transaction) {
         await this.ensureClientReady();
         const sheetName = this.getMonthSheetName(new Date(transaction.date));
 
-        const response = await window.gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `'${sheetName}'!A:I`
-        });
+        const range = `'${sheetName}'!A:I`;
+        let rows = [];
 
-        const rows = response.result.values || [];
+        if (window.gapi?.client?.sheets) {
+            const response = await window.gapi.client.sheets.spreadsheets.values.get({ spreadsheetId, range });
+            rows = response.result.values || [];
+        } else {
+            const data = await this.makeApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+            rows = data.values || [];
+        }
         const rowIndex = rows.findIndex(row => row[0] === transaction.id);
 
         if (rowIndex > 0) {
@@ -1122,11 +1448,9 @@ class GoogleSheetsService {
                 transaction.friend || ''
             ];
 
-            await window.gapi.client.sheets.spreadsheets.values.update({
-                spreadsheetId,
+            return this.enqueueWrite(spreadsheetId, sheetName, 'update', {
                 range: `'${sheetName}'!A${rowIndex + 1}:I${rowIndex + 1}`,
-                valueInputOption: 'RAW',
-                resource: { values: [updatedRow] }
+                values: [updatedRow]
             });
         }
     }
@@ -1135,34 +1459,64 @@ class GoogleSheetsService {
         await this.ensureClientReady();
         const sheetName = this.getMonthSheetName(new Date(transactionDate));
 
-        const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
-        const sheet = sheetInfo.result.sheets.find(s => s.properties.title === sheetName);
-        if (!sheet) return;
+        let sheetId;
+        let rows = [];
 
-        const response = await window.gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `'${sheetName}'!A:A`
-        });
+        if (window.gapi?.client?.sheets) {
+            const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
+            const sheet = sheetInfo.result.sheets.find(s => s.properties.title === sheetName);
+            if (!sheet) return;
+            sheetId = sheet.properties.sheetId;
 
-        const rows = response.result.values || [];
+            const response = await window.gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId,
+                range: `'${sheetName}'!A:A`
+            });
+            rows = response.result.values || [];
+        } else {
+            // 1. Get Sheet ID via REST
+            const metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?includeGridData=false`;
+            const metaData = await this.makeApiRequest(metaUrl);
+            const sheet = metaData.sheets.find(s => s.properties.title === sheetName);
+            if (!sheet) return;
+            sheetId = sheet.properties.sheetId;
+
+            // 2. Get Rows
+            const range = `'${sheetName}'!A:A`;
+            const data = await this.makeApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+            rows = data.values || [];
+        }
+
         const rowIndex = rows.findIndex(row => row[0] === transactionId);
 
         if (rowIndex > 0) {
-            await window.gapi.client.sheets.spreadsheets.batchUpdate({
-                spreadsheetId,
-                resource: {
-                    requests: [{
-                        deleteDimension: {
-                            range: {
-                                sheetId: sheet.properties.sheetId,
-                                dimension: 'ROWS',
-                                startIndex: rowIndex,
-                                endIndex: rowIndex + 1
-                            }
+            const body = {
+                requests: [{
+                    deleteDimension: {
+                        range: {
+                            sheetId: sheetId,
+                            dimension: 'ROWS',
+                            startIndex: rowIndex,
+                            endIndex: rowIndex + 1
                         }
-                    }]
-                }
-            });
+                    }
+                }]
+            };
+
+            if (window.gapi?.client?.sheets) {
+                await window.gapi.client.sheets.spreadsheets.batchUpdate({
+                    spreadsheetId,
+                    resource: body
+                });
+            } else {
+                await this.makeApiRequest(
+                    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify(body)
+                    }
+                );
+            }
         }
     }
 
@@ -1175,9 +1529,10 @@ class GoogleSheetsService {
         await this.ensureSheetExists(spreadsheetId, '_Config');
 
         // Strategy 1: Look for generic "Transactions" sheet if it exists
-        if (await this.doesSheetExist(spreadsheetId, 'Transactions')) {
+        const genericName = await this.resolveSheetName(spreadsheetId, 'Transactions');
+        if (await this.doesSheetExist(spreadsheetId, genericName)) {
             try {
-                const genericRows = await this.getSpreadsheetValues(spreadsheetId, "'Transactions'!A:I");
+                const genericRows = await this.getSpreadsheetValues(spreadsheetId, `'${genericName}'!A:I`);
                 if (genericRows.length > 1) {
                     genericRows.slice(1).forEach(row => {
                         if (row[0]) {
@@ -1187,18 +1542,19 @@ class GoogleSheetsService {
                     });
                 }
             } catch (e) {
-                console.warn('[LAKSH] Error reading generic Transactions sheet:', e);
+                console.warn(`[LAKSH] Error reading generic ${genericName} sheet:`, e);
             }
         }
 
         // Strategy 2: Look for individual monthly sheets only if they exist
         for (let i = 0; i < months; i++) {
             const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const sheetName = this.getMonthSheetName(date);
+            const logicalName = this.getMonthSheetName(date);
+            const actualName = await this.resolveSheetName(spreadsheetId, logicalName);
 
-            if (await this.doesSheetExist(spreadsheetId, sheetName)) {
+            if (await this.doesSheetExist(spreadsheetId, actualName)) {
                 try {
-                    const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:I`);
+                    const rows = await this.getSpreadsheetValues(spreadsheetId, `'${actualName}'!A:I`);
                     rows.slice(1).forEach(row => {
                         if (row[0] && !seenIds.has(row[0])) {
                             transactions.push(this.parseTransactionRow(row));
@@ -1206,7 +1562,7 @@ class GoogleSheetsService {
                         }
                     });
                 } catch (error) {
-                    console.warn(`[LAKSH] Error reading monthly sheet ${sheetName}:`, error);
+                    console.warn(`[LAKSH] Error reading monthly sheet ${actualName}:`, error);
                 }
             }
         }
@@ -1268,6 +1624,15 @@ class GoogleSheetsService {
         const sheetName = await this.resolveSheetName(spreadsheetId, '_Categories');
         await this.ensureSheetExists(spreadsheetId, sheetName);
 
+        if (this.isAndroidWebView() || !window.gapi?.client?.sheets) {
+            // Android: Use REST API (or just enqueue it)
+            // Enqueue is safer as it handles retries and we patched flushQueue
+            return this.enqueueWrite(spreadsheetId, sheetName, 'append', {
+                range: `'${sheetName}'!A:D`,
+                values: [[category.name, category.keywords, category.color, category.icon]]
+            });
+        }
+
         await window.gapi.client.sheets.spreadsheets.values.append({
             spreadsheetId,
             range: `'${sheetName}'!A:D`,
@@ -1280,15 +1645,31 @@ class GoogleSheetsService {
     async updateCategory(spreadsheetId, oldName, category) {
         await this.ensureClientReady();
         const sheetName = await this.resolveSheetName(spreadsheetId, '_Categories');
-        const response = await window.gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `'${sheetName}'!A:D`
-        });
 
-        const rows = response.result.values || [];
+        // Fetch rows first to find index
+        const range = `'${sheetName}'!A:D`;
+        let rows = [];
+
+        if (this.isAndroidWebView() || !window.gapi?.client?.sheets) {
+            // Android Fetch
+            const data = await this.makeApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+            rows = data.values || [];
+        } else {
+            // Web Fetch
+            const response = await window.gapi.client.sheets.spreadsheets.values.get({ spreadsheetId, range });
+            rows = response.result.values || [];
+        }
+
         const rowIndex = rows.findIndex(row => row[0] === oldName);
 
         if (rowIndex > 0) {
+            if (this.isAndroidWebView() || !window.gapi?.client?.sheets) {
+                return this.enqueueWrite(spreadsheetId, sheetName, 'update', {
+                    range: `'${sheetName}'!A${rowIndex + 1}:D${rowIndex + 1}`,
+                    values: [[category.name, category.keywords, category.color, category.icon]]
+                });
+            }
+
             await window.gapi.client.sheets.spreadsheets.values.update({
                 spreadsheetId,
                 range: `'${sheetName}'!A${rowIndex + 1}:D${rowIndex + 1}`,
@@ -1301,34 +1682,63 @@ class GoogleSheetsService {
     async deleteCategory(spreadsheetId, categoryName) {
         await this.ensureClientReady();
         const sheetName = await this.resolveSheetName(spreadsheetId, '_Categories');
-        const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
-        const sheet = sheetInfo.result.sheets.find(s => s.properties.title === sheetName);
-        if (!sheet) return;
 
-        const response = await window.gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `'${sheetName}'!A:A`
-        });
+        let sheetId;
+        let rows = [];
 
-        const rows = response.result.values || [];
+        if (this.isAndroidWebView() || !window.gapi?.client?.sheets) {
+            // 1. Get Sheet ID via REST
+            const metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?includeGridData=false`;
+            const metaData = await this.makeApiRequest(metaUrl);
+            const sheet = metaData.sheets.find(s => s.properties.title === sheetName);
+            if (!sheet) return;
+            sheetId = sheet.properties.sheetId;
+
+            // 2. Get Rows via REST
+            const range = `'${sheetName}'!A:A`;
+            const data = await this.makeApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+            rows = data.values || [];
+        } else {
+            // Web: Use GAPI
+            const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
+            const sheet = sheetInfo.result.sheets.find(s => s.properties.title === sheetName);
+            if (!sheet) return;
+            sheetId = sheet.properties.sheetId;
+
+            const response = await window.gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId,
+                range: `'${sheetName}'!A:A`
+            });
+            rows = response.result.values || [];
+        }
+
         const rowIndex = rows.findIndex(row => row[0] === categoryName);
 
         if (rowIndex > 0) {
-            await window.gapi.client.sheets.spreadsheets.batchUpdate({
-                spreadsheetId,
-                resource: {
-                    requests: [{
-                        deleteDimension: {
-                            range: {
-                                sheetId: sheet.properties.sheetId,
-                                dimension: 'ROWS',
-                                startIndex: rowIndex,
-                                endIndex: rowIndex + 1
-                            }
+            const body = {
+                requests: [{
+                    deleteDimension: {
+                        range: {
+                            sheetId: sheetId,
+                            dimension: 'ROWS',
+                            startIndex: rowIndex,
+                            endIndex: rowIndex + 1
                         }
-                    }]
-                }
-            });
+                    }
+                }]
+            };
+
+            if (this.isAndroidWebView() || !window.gapi?.client?.sheets) {
+                await this.makeApiRequest(
+                    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+                    { method: 'POST', body: JSON.stringify(body) }
+                );
+            } else {
+                await window.gapi.client.sheets.spreadsheets.batchUpdate({
+                    spreadsheetId,
+                    resource: body
+                });
+            }
         }
     }
 
@@ -1362,9 +1772,6 @@ class GoogleSheetsService {
     }
 
     async addBill(spreadsheetId, bill) {
-        const sheetName = await this.resolveSheetName(spreadsheetId, '_Bills');
-        await this.ensureSheetExists(spreadsheetId, sheetName);
-
         const row = [
             bill.id,
             bill.name,
@@ -1375,27 +1782,34 @@ class GoogleSheetsService {
             bill.status || 'active',
             bill.billType || 'recurring',
             bill.cycle || 'monthly',
-            new Date().toISOString()
+            new Date().toISOString(),
+            bill.accountId || '' // New field
         ];
 
-        await window.gapi.client.sheets.spreadsheets.values.append({
-            spreadsheetId,
-            range: `'${sheetName}'!A:J`,
-            valueInputOption: 'RAW',
-            insertDataOption: 'INSERT_ROWS',
-            resource: { values: [row] }
+        return this.enqueueWrite(spreadsheetId, '_Bills', 'append', {
+            range: '_Bills!A:K',
+            values: [row]
         });
     }
 
     async updateBill(spreadsheetId, billId, updates) {
         await this.ensureClientReady();
         const sheetName = await this.resolveSheetName(spreadsheetId, '_Bills');
-        const response = await window.gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `'${sheetName}'!A:J`
-        });
 
-        const rows = response.result.values || [];
+        const range = `'${sheetName}'!A:K`;
+        let rows = [];
+
+        if (window.gapi?.client?.sheets) {
+            const response = await window.gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId,
+                range
+            });
+            rows = response.result.values || [];
+        } else {
+            const data = await this.makeApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+            rows = data.values || [];
+        }
+
         const rowIndex = rows.findIndex(row => row[0] === billId);
 
         if (rowIndex > 0) {
@@ -1410,14 +1824,13 @@ class GoogleSheetsService {
                 updates.status ?? currentRow[6],
                 updates.billType ?? currentRow[7],
                 updates.cycle ?? currentRow[8],
-                currentRow[9]
+                currentRow[9],
+                updates.accountId ?? currentRow[10] // New field
             ];
 
-            await window.gapi.client.sheets.spreadsheets.values.update({
-                spreadsheetId,
-                range: `'${sheetName}'!A${rowIndex + 1}:J${rowIndex + 1}`,
-                valueInputOption: 'RAW',
-                resource: { values: [[updatedRow]] }
+            return this.enqueueWrite(spreadsheetId, '_Bills', 'update', {
+                range: `_Bills!A${rowIndex + 1}:K${rowIndex + 1}`,
+                values: [updatedRow]
             });
         }
     }
@@ -1455,8 +1868,6 @@ class GoogleSheetsService {
     }
 
     async addBillPayment(spreadsheetId, payment) {
-        const sheetName = await this.resolveSheetName(spreadsheetId, '_BillPayments');
-        await this.ensureSheetExists(spreadsheetId, sheetName);
         const row = [
             payment.id,
             payment.billId,
@@ -1466,27 +1877,29 @@ class GoogleSheetsService {
             payment.dueDate,
             payment.status || 'pending',
             payment.paidDate || '',
-            payment.transactionId || ''
+            payment.transactionId || '',
+            payment.accountId || '' // New field
         ];
 
-        await window.gapi.client.sheets.spreadsheets.values.append({
-            spreadsheetId,
-            range: `'${sheetName}'!A:I`,
-            valueInputOption: 'RAW',
-            insertDataOption: 'INSERT_ROWS',
-            resource: { values: [row] }
+        return this.enqueueWrite(spreadsheetId, '_BillPayments', 'append', {
+            range: '_BillPayments!A:J',
+            values: [row]
         });
     }
 
     async updateBillPayment(spreadsheetId, paymentId, updates) {
         await this.ensureClientReady();
         const sheetName = await this.resolveSheetName(spreadsheetId, '_BillPayments');
-        const response = await window.gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `'${sheetName}'!A:I`
-        });
+        const range = `'${sheetName}'!A:J`;
+        let rows = [];
 
-        const rows = response.result.values || [];
+        if (window.gapi?.client?.sheets) {
+            const response = await window.gapi.client.sheets.spreadsheets.values.get({ spreadsheetId, range });
+            rows = response.result.values || [];
+        } else {
+            const data = await this.makeApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+            rows = data.values || [];
+        }
         const rowIndex = rows.findIndex(row => row[0] === paymentId);
 
         if (rowIndex >= 0) {
@@ -1500,14 +1913,13 @@ class GoogleSheetsService {
                 updates.hasOwnProperty('dueDate') ? updates.dueDate : (curr[5] || ''),
                 updates.hasOwnProperty('status') ? updates.status : (curr[6] || 'pending'),
                 updates.hasOwnProperty('paidDate') ? updates.paidDate : (curr[7] || ''),
-                updates.hasOwnProperty('transactionId') ? updates.transactionId : (curr[8] || '')
+                updates.hasOwnProperty('transactionId') ? updates.transactionId : (curr[8] || ''),
+                updates.hasOwnProperty('accountId') ? updates.accountId : (curr[9] || '')
             ];
 
-            await window.gapi.client.sheets.spreadsheets.values.update({
-                spreadsheetId,
-                range: `'${sheetName}'!A${rowIndex + 1}:I${rowIndex + 1}`,
-                valueInputOption: 'RAW',
-                resource: { values: [updated] }
+            return this.enqueueWrite(spreadsheetId, '_BillPayments', 'update', {
+                range: `_BillPayments!A${rowIndex + 1}:J${rowIndex + 1}`,
+                values: [updated]
             });
         }
     }
@@ -1515,67 +1927,127 @@ class GoogleSheetsService {
     async deleteBill(spreadsheetId, billId) {
         await this.ensureClientReady();
         const sheetName = await this.resolveSheetName(spreadsheetId, '_Bills');
-        const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
-        const sheet = sheetInfo.result.sheets.find(s => s.properties.title === sheetName);
-        if (!sheet) return;
 
-        const response = await window.gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `'${sheetName}'!A:A`
-        });
+        let sheetId;
+        let rows = [];
 
-        const rows = response.result.values || [];
+        if (window.gapi?.client?.sheets) {
+            const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
+            const sheet = sheetInfo.result.sheets.find(s => s.properties.title === sheetName);
+            if (!sheet) return;
+            sheetId = sheet.properties.sheetId;
+
+            const response = await window.gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId,
+                range: `'${sheetName}'!A:A`
+            });
+            rows = response.result.values || [];
+        } else {
+            // REST Fallback
+            const metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?includeGridData=false`;
+            const metaData = await this.makeApiRequest(metaUrl);
+            const sheet = metaData.sheets.find(s => s.properties.title === sheetName);
+            if (!sheet) return;
+            sheetId = sheet.properties.sheetId;
+
+            const range = `'${sheetName}'!A:A`;
+            const data = await this.makeApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+            rows = data.values || [];
+        }
+
         const rowIndex = rows.findIndex(row => row[0] === billId);
 
         if (rowIndex > 0) {
-            await window.gapi.client.sheets.spreadsheets.batchUpdate({
-                spreadsheetId,
-                resource: {
-                    requests: [{
-                        deleteDimension: {
-                            range: {
-                                sheetId: sheet.properties.sheetId,
-                                dimension: 'ROWS',
-                                startIndex: rowIndex,
-                                endIndex: rowIndex + 1
-                            }
+            const body = {
+                requests: [{
+                    deleteDimension: {
+                        range: {
+                            sheetId: sheetId,
+                            dimension: 'ROWS',
+                            startIndex: rowIndex,
+                            endIndex: rowIndex + 1
                         }
-                    }]
-                }
-            });
+                    }
+                }]
+            };
+
+            if (window.gapi?.client?.sheets) {
+                await window.gapi.client.sheets.spreadsheets.batchUpdate({
+                    spreadsheetId,
+                    resource: body
+                });
+            } else {
+                await this.makeApiRequest(
+                    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify(body)
+                    }
+                );
+            }
         }
     }
     async deleteBillPayment(spreadsheetId, paymentId) {
         await this.ensureClientReady();
         const sheetName = await this.resolveSheetName(spreadsheetId, '_BillPayments');
-        const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
-        const sheet = sheetInfo.result.sheets.find(s => s.properties.title === sheetName);
-        if (!sheet) return;
 
-        const response = await window.gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `'${sheetName}'!A:A`
-        });
+        let sheetId;
+        let rows = [];
 
-        const rows = response.result.values || [];
+        if (window.gapi?.client?.sheets) {
+            const sheetInfo = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
+            const sheet = sheetInfo.result.sheets.find(s => s.properties.title === sheetName);
+            if (!sheet) return;
+            sheetId = sheet.properties.sheetId;
+
+            const response = await window.gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId,
+                range: `'${sheetName}'!A:A`
+            });
+            rows = response.result.values || [];
+        } else {
+            // REST Fallback
+            const metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?includeGridData=false`;
+            const metaData = await this.makeApiRequest(metaUrl);
+            const sheet = metaData.sheets.find(s => s.properties.title === sheetName);
+            if (!sheet) return;
+            sheetId = sheet.properties.sheetId;
+
+            const range = `'${sheetName}'!A:A`;
+            const data = await this.makeApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+            rows = data.values || [];
+        }
+
         const rowIndex = rows.findIndex(row => row[0] === paymentId);
 
         if (rowIndex >= 0) {
-            await window.gapi.client.sheets.spreadsheets.batchUpdate({
-                spreadsheetId,
-                resource: {
-                    requests: [{
-                        deleteDimension: {
-                            range: {
-                                sheetId: sheet.properties.sheetId,
-                                dimension: 'ROWS',
-                                startIndex: rowIndex,
-                                endIndex: rowIndex + 1
-                            }
+            const body = {
+                requests: [{
+                    deleteDimension: {
+                        range: {
+                            sheetId: sheetId,
+                            dimension: 'ROWS',
+                            startIndex: rowIndex,
+                            endIndex: rowIndex + 1
                         }
-                    }]
-                }
-            });
+                    }
+                }]
+            };
+
+            if (window.gapi?.client?.sheets) {
+                await window.gapi.client.sheets.spreadsheets.batchUpdate({
+                    spreadsheetId,
+                    resource: body
+                });
+            } else {
+                await this.makeApiRequest(
+                    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify(body)
+                    }
+                );
+            }
         }
     }
     // ===== SMART QUERY =====
@@ -1639,14 +2111,19 @@ class GoogleSheetsService {
 
     async getTransactionsFromSheet(spreadsheetId, sheetName) {
         try {
-            const response = await withRetry(() =>
-                window.gapi.client.sheets.spreadsheets.values.get({
-                    spreadsheetId,
-                    range: `'${sheetName}'!A:H`
-                }), 3, 'getTransactionsFromSheet'
-            );
-
-            const rows = response.result.values || [];
+            let rows = [];
+            if (window.gapi?.client?.sheets) {
+                const response = await withRetry(() =>
+                    window.gapi.client.sheets.spreadsheets.values.get({
+                        spreadsheetId,
+                        range: `'${sheetName}'!A:H`
+                    }), 3, 'getTransactionsFromSheet'
+                );
+                rows = response.result.values || [];
+            } else {
+                const data = await this.makeApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`'${sheetName}'!A:H`)}`);
+                rows = data.values || [];
+            }
             return rows.slice(1).map(row => ({
                 id: row[0],
                 date: row[1],

@@ -22,6 +22,7 @@ class CloudBackupService {
         this.isInitialized = false;
         this.isInitializing = false;
         this.tokenClient = null;
+        this.codeClient = null; // New: For offline access (refresh tokens)
         this.accessToken = null;
         this.user = null;
         this.backupFolderId = null;
@@ -45,7 +46,8 @@ class CloudBackupService {
     async waitForGIS() {
         return new Promise((resolve, reject) => {
             let attempts = 0;
-            const maxAttempts = 100; // Increased for slower mobile connections
+            const isAndroid = (/Android/i.test(navigator.userAgent) && /wv/i.test(navigator.userAgent)) || !!window.AndroidBridge;
+            const maxAttempts = isAndroid ? 5 : 100; // Reduced for Android
 
             const check = () => {
                 attempts++;
@@ -122,7 +124,8 @@ class CloudBackupService {
             while (this.isInitializing) {
                 await new Promise(r => setTimeout(r, 100));
             }
-            return this.isInitialized;
+            // Check if successful, otherwise retry
+            if (this.isInitialized) return true;
         }
 
         this.isInitializing = true;
@@ -140,23 +143,52 @@ class CloudBackupService {
                     'https://sheets.googleapis.com/$discovery/rest?version=v4'
                 ]
             });
+
             // Use pre-configured OAuth client ID from environment
             const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+            // 1. Implicit Grant Client (Web)
             this.tokenClient = window.google.accounts.oauth2.initTokenClient({
                 client_id: clientId,
                 scope: DRIVE_SCOPES,
                 callback: () => { }
             });
+
+            // 2. Authorization Code Client (Offline Access / Refresh Token)
+            this.codeClient = window.google.accounts.oauth2.initCodeClient({
+                client_id: clientId,
+                scope: DRIVE_SCOPES,
+                ux_mode: 'popup',
+                callback: (response) => this.handleCodeResponse(response)
+            });
+
             // Try to restore existing session
             const backupSession = storage.getBackupSession();
+            // Check if we have a valid refresh token first (Preferred for Android)
+            const refreshToken = localStorage.getItem('google_refresh_token');
+
+            if (refreshToken) {
+                console.log('[CloudBackup] Found refresh token, attempting silent restore...');
+                try {
+                    await this.refreshAccessToken();
+                    this.isInitialized = true;
+                    this.isInitializing = false;
+                    return true;
+                } catch (e) {
+                    console.warn('[CloudBackup] Refresh token likely expired or invalid:', e);
+                    // Fallthrough to standard session check
+                }
+            }
+
             if (backupSession.isValid() && backupSession.user) {
                 window.gapi.client.setToken({ access_token: backupSession.token });
                 this.accessToken = backupSession.token;
                 this.user = backupSession.user;
                 this.isInitialized = true;
+                this.isInitializing = false; // Add missing completion
                 // Setup encryption key
                 await this.setupEncryptionKey();
-                console.log('[CloudBackup] Session restored');
+                console.log('[CloudBackup] Session restored (implicit)');
                 return true;
             }
 
@@ -170,9 +202,164 @@ class CloudBackupService {
         }
     }
 
-    // One-touch Google Sign-In
+    // Handle Authorization Code Response
+    async handleCodeResponse(response) {
+        if (response.code) {
+            console.log('[CloudBackup] Auth code received, exchanging for tokens...');
+            try {
+                await this.exchangeCodeForToken(response.code);
+            } catch (e) {
+                console.error('[CloudBackup] Token exchange failed:', e);
+                this.notify({ type: 'auth_error', error: e.message });
+            }
+        }
+    }
+
+    // Exchange Auth Code for Access & Refresh Tokens
+    async exchangeCodeForToken(code) {
+        const client_id = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+        const client_secret = import.meta.env.VITE_GOOGLE_CLIENT_SECRET;
+        const redirect_uri = window.location.origin;
+
+        if (!client_secret) {
+            throw new Error('Missing VITE_GOOGLE_CLIENT_SECRET in environment');
+        }
+
+        const params = new URLSearchParams();
+        params.append('code', code);
+        params.append('client_id', client_id);
+        params.append('client_secret', client_secret);
+        params.append('redirect_uri', redirect_uri);
+        params.append('grant_type', 'authorization_code');
+
+        const res = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params
+        });
+
+        const data = await res.json();
+        if (data.error) throw new Error(data.error_description || data.error);
+
+        this.processTokenResponse(data);
+    }
+
+    // Refresh Access Token using stored Refresh Token
+    async refreshAccessToken() {
+        const client_id = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+        const client_secret = import.meta.env.VITE_GOOGLE_CLIENT_SECRET;
+        const refresh_token = localStorage.getItem('google_refresh_token');
+
+        if (!refresh_token || !client_secret) {
+            throw new Error('Cannot refresh token: missing token or secret');
+        }
+
+        console.log('[CloudBackup] Refreshing access token...');
+        const params = new URLSearchParams();
+        params.append('client_id', client_id);
+        params.append('client_secret', client_secret);
+        params.append('refresh_token', refresh_token);
+        params.append('grant_type', 'refresh_token');
+
+        const res = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params
+        });
+
+        const data = await res.json();
+        if (data.error) {
+            // If refresh fails, clear valid session data
+            if (data.error === 'invalid_grant') {
+                console.warn('[CloudBackup] Refresh token revoked');
+                localStorage.removeItem('google_refresh_token');
+            }
+            throw new Error(data.error_description || data.error);
+        }
+
+        this.processTokenResponse(data);
+    }
+
+    // Common token processing
+    async processTokenResponse(data) {
+        this.accessToken = data.access_token;
+
+        // Save Refresh Token securely (HTTP-only cookie is better, but localStorage is acceptable for PWA/Cordova)
+        if (data.refresh_token) {
+            console.log('[CloudBackup] New refresh token saved');
+            localStorage.setItem('google_refresh_token', data.refresh_token);
+        }
+
+        // Setup GAPI
+        window.gapi.client.setToken({ access_token: this.accessToken });
+
+        // Calculate expiry
+        const expiresIn = data.expires_in || 3600;
+        const expiryMs = Date.now() + (expiresIn * 1000);
+
+        // Update storage
+        storage.setBackupSession(this.accessToken, this.user); // Note: user might be null initially
+        localStorage.setItem('google_access_token', this.accessToken);
+        localStorage.setItem('google_token_expiry', String(expiryMs));
+
+        // Refetch User Info if missing
+        if (!this.user) {
+            const userInfo = await this.getUserInfo();
+            this.user = userInfo;
+            storage.setBackupSession(this.accessToken, userInfo); // Update with user info
+        }
+
+        // Setup encryption
+        await this.setupEncryptionKey();
+        await this.ensureBackupFolder();
+
+        this.notify({ type: 'signed_in', user: this.user });
+        console.log('[CloudBackup] Token refresh/exchange successful');
+    }
+
+
+    // Updated One-touch Google Sign-In with Offline Access preference
     async signIn() {
         return new Promise((resolve, reject) => {
+            // First try Authorization Code flow for offline access (Android)
+            if (this.codeClient && import.meta.env.VITE_GOOGLE_CLIENT_SECRET) {
+                console.log('[CloudBackup] Using Code Flow (Offline Access)...');
+
+                // Override the callback just for this request if needed, 
+                // but codeClient uses the simplified callback model.
+                // We'll wrap the standard handleCodeResponse with our promise logic
+
+                // NOTE: google.accounts.oauth2.initCodeClient doesn't support a per-request callback 
+                // like tokenClient does. We have to hook into the global callback or re-init.
+                // For simplicity, we'll re-init with a specific resolver here or rely on the global one.
+                // Actually, correct pattern is to rely on the side-effects of handleCodeResponse
+                // but that makes 'await signIn()' hard.
+                // Let's us a temporary listener pattern.
+
+                const tempHandler = async (response) => {
+                    try {
+                        if (response.error) throw new Error(response.error);
+                        await this.exchangeCodeForToken(response.code);
+                        resolve(this.user);
+                    } catch (e) {
+                        reject(e);
+                    }
+                };
+
+                // Re-init client to attach this specific promise resolver
+                // This is cheap in the GIS library
+                const oneOffClient = window.google.accounts.oauth2.initCodeClient({
+                    client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
+                    scope: DRIVE_SCOPES,
+                    ux_mode: 'popup',
+                    callback: tempHandler
+                });
+
+                oneOffClient.requestCode();
+                return;
+            }
+
+            // Fallback to Implicit Flow (Web default)
             if (!this.tokenClient) {
                 reject(new Error('Service not initialized'));
                 return;
@@ -209,13 +396,24 @@ class CloudBackupService {
             };
 
             // Request access token with consent prompt for new users
-            console.log('[CloudBackup] Requesting access token...');
+            console.log('[CloudBackup] Requesting access token (Implicit)...');
             this.tokenClient.requestAccessToken({ prompt: 'consent' });
         });
     }
 
     // Silent sign-in for returning users
     async silentSignIn() {
+        // Try Refresh Token first (Best for Android/Offline)
+        if (localStorage.getItem('google_refresh_token') && import.meta.env.VITE_GOOGLE_CLIENT_SECRET) {
+            try {
+                await this.refreshAccessToken();
+                return this.user;
+            } catch (e) {
+                console.warn('[CloudBackup] Silent refresh failed, trying implicit silent sign-in', e);
+            }
+        }
+
+        // Fallback to iframe-based silent sign in
         return new Promise((resolve, reject) => {
             if (!this.tokenClient) {
                 reject(new Error('Service not initialized'));
@@ -298,6 +496,7 @@ class CloudBackupService {
         }
 
         storage.clearBackupSession();
+        localStorage.removeItem('google_refresh_token'); // Clear refresh token
 
         this.accessToken = null;
         this.user = null;

@@ -145,11 +145,18 @@ class MainActivity : AppCompatActivity() {
                             
                             val script = """
                                 try {
-                                    localStorage.setItem('google_access_token', '$accessToken');
-                                    localStorage.setItem('google_token_expiry', '$expiryMs');
-                                    sessionStorage.setItem('google_access_token', '$accessToken');
-                                    sessionStorage.setItem('google_token_expiry', '$expiryMs');
-                                    console.log('[LAKSH-NATIVE] Token injected successfully');
+                            localStorage.setItem('google_access_token', '$accessToken');
+                            localStorage.setItem('google_token_expiry', '$expiryMs');
+                            
+                            // Unify for Laksh services
+                            localStorage.setItem('laksh_access_token', '$accessToken');
+                            localStorage.setItem('laksh_gapi_token', '$accessToken');
+                            localStorage.setItem('laksh_token_expiry', '$expiryMs');
+                            localStorage.setItem('laksh_backup_token_expiry', '$expiryMs');
+
+                            sessionStorage.setItem('google_access_token', '$accessToken');
+                            sessionStorage.setItem('google_token_expiry', '$expiryMs');
+                            console.log('[LAKSH-NATIVE] Token injected successfully across all keys');
                                     // Navigate to home and reload to force context refresh
                                     window.location.href = '/'; 
                                     window.location.reload();
@@ -337,6 +344,13 @@ class MainActivity : AppCompatActivity() {
                             console.log('[LAKSH-NATIVE] Injecting token from Deep Link...');
                             localStorage.setItem('google_access_token', '$token');
                             localStorage.setItem('google_token_expiry', '$expiryMs');
+                            
+                            // Unify for Laksh services
+                            localStorage.setItem('laksh_access_token', '$token');
+                            localStorage.setItem('laksh_gapi_token', '$token');
+                            localStorage.setItem('laksh_token_expiry', '$expiryMs');
+                            localStorage.setItem('laksh_backup_token_expiry', '$expiryMs');
+
                             sessionStorage.setItem('google_access_token', '$token');
                             sessionStorage.setItem('google_token_expiry', '$expiryMs');
                             

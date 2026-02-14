@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-    Wifi, WifiOff, Cloud, CloudOff, AlertCircle, CheckCircle2, 
+import {
+    Wifi, WifiOff, Cloud, CloudOff, AlertCircle, CheckCircle2,
     RefreshCw, Loader2, X, ChevronDown, ChevronUp, Database,
     Globe, Shield, Clock, FileSpreadsheet
 } from 'lucide-react';
@@ -13,16 +13,16 @@ import { storage, STORAGE_KEYS } from '../services/storage';
  * Shows detailed connection information for troubleshooting
  */
 export default function ConnectionStatus({ onRefresh }) {
-    const { 
-        isConnected, 
-        isSyncing, 
-        isLoading, 
-        lastSyncTime, 
+    const {
+        isConnected,
+        isSyncing,
+        isLoading,
+        lastSyncTime,
         error,
         config,
         isGuest
     } = useFinance();
-    
+
     const [isExpanded, setIsExpanded] = useState(false);
     const [diagnostics, setDiagnostics] = useState({});
     const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -47,7 +47,8 @@ export default function ConnectionStatus({ onRefresh }) {
                     connectionType: navigator.connection?.effectiveType || 'unknown'
                 },
                 auth: {
-                    hasToken: !!localStorage.getItem('google_access_token'),
+                    hasToken: !!(localStorage.getItem('laksh_access_token') || localStorage.getItem('google_access_token')),
+                    tokenType: localStorage.getItem('laksh_access_token') ? 'LAKSH' : (localStorage.getItem('google_access_token') ? 'GOOGLE' : 'NONE'),
                     tokenExpiry: localStorage.getItem('google_token_expiry'),
                     tokenValid: false,
                     hasSpreadsheetId: !!(config?.spreadsheetId || storage.get(STORAGE_KEYS.SPREADSHEET_ID)),
@@ -60,7 +61,8 @@ export default function ConnectionStatus({ onRefresh }) {
                 api: {
                     gapiLoaded: typeof window.gapi !== 'undefined',
                     googleLoaded: typeof window.google !== 'undefined',
-                    sheetsInitialized: false
+                    sheetsInitialized: false,
+                    pendingQueue: 0
                 }
             };
 
@@ -83,6 +85,10 @@ export default function ConnectionStatus({ onRefresh }) {
             try {
                 const { sheetsService } = await import('../services/sheets');
                 diag.api.sheetsInitialized = sheetsService.isInitialized;
+                const queueData = localStorage.getItem('laksh_write_queue');
+                if (queueData) {
+                    diag.api.pendingQueue = JSON.parse(queueData).length;
+                }
             } catch (e) {
                 console.warn('[ConnectionStatus] Could not check sheets service:', e);
             }
@@ -120,22 +126,22 @@ export default function ConnectionStatus({ onRefresh }) {
     const StatusIcon = getStatusIcon();
 
     return (
-        <div className="fixed bottom-4 right-4 z-50 max-w-sm">
+        <div className="fixed top-20 left-4 z-50 max-w-sm">
             <motion.div
                 initial={{ y: 100, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 className="bg-card border border-card-border rounded-2xl shadow-2xl overflow-hidden"
             >
                 {/* Status Header */}
-                <div 
+                <div
                     className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-canvas-subtle transition-colors"
                     onClick={() => setIsExpanded(!isExpanded)}
                 >
                     <div className="flex items-center gap-3">
                         <div className={`w-3 h-3 rounded-full ${getStatusColor()} ${isSyncing ? 'animate-pulse' : ''}`} />
-                        <StatusIcon 
-                            size={16} 
-                            className={`text-text-muted ${isSyncing ? 'animate-spin' : ''}`} 
+                        <StatusIcon
+                            size={16}
+                            className={`text-text-muted ${isSyncing ? 'animate-spin' : ''}`}
                         />
                         <span className="text-xs font-black uppercase tracking-widest text-text-main">
                             {getStatusText()}
@@ -224,8 +230,8 @@ export default function ConnectionStatus({ onRefresh }) {
                                                 <div className="flex justify-between">
                                                     <span className="text-text-muted">Sheet ID:</span>
                                                     <span className={diagnostics.auth.hasSpreadsheetId ? 'text-green-400' : 'text-red-400'}>
-                                                        {diagnostics.auth.hasSpreadsheetId 
-                                                            ? `${diagnostics.auth.spreadsheetId.substring(0, 8)}...` 
+                                                        {diagnostics.auth.hasSpreadsheetId
+                                                            ? `${diagnostics.auth.spreadsheetId.substring(0, 8)}...`
                                                             : 'Not set'}
                                                     </span>
                                                 </div>
@@ -291,6 +297,12 @@ export default function ConnectionStatus({ onRefresh }) {
                                                     <span className="text-text-muted">Sheets:</span>
                                                     <span className={diagnostics.api.sheetsInitialized ? 'text-green-400' : 'text-yellow-400'}>
                                                         {diagnostics.api.sheetsInitialized ? 'Ready' : 'Not ready'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span className="text-text-muted">Sync Queue:</span>
+                                                    <span className={diagnostics.api.pendingQueue > 0 ? 'text-yellow-400 font-bold' : 'text-green-400'}>
+                                                        {diagnostics.api.pendingQueue > 0 ? `${diagnostics.api.pendingQueue} Pending` : 'Clear'}
                                                     </span>
                                                 </div>
                                             </>
