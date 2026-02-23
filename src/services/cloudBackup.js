@@ -293,9 +293,15 @@ class CloudBackupService {
         // Setup GAPI
         window.gapi.client.setToken({ access_token: this.accessToken });
 
-        // Calculate expiry
+        // Calculate expiry - FIXED: Extend to 1 year for Android APK
         const expiresIn = data.expires_in || 3600;
-        const expiryMs = Date.now() + (expiresIn * 1000);
+        // For Android APK, use 1 year expiry to prevent frequent logins
+        const isAndroid = typeof window !== 'undefined' && (
+            /Android/i.test(navigator.userAgent) && /wv/i.test(navigator.userAgent)
+        ) || !!window.AndroidBridge;
+        const expiryMs = isAndroid 
+            ? Date.now() + (365 * 24 * 60 * 60 * 1000) // 1 year for Android
+            : Date.now() + (expiresIn * 1000); // Normal expiry for web
 
         // Update storage
         storage.setBackupSession(this.accessToken, this.user); // Note: user might be null initially

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { animations, genZEffects } from '../utils/gsapAnimations';
-import { X, Calendar, Wallet, Mic, Users, Plus, Sparkles, TrendingUp } from 'lucide-react';
+import { X, Calendar, Wallet, Mic, Users, Plus, Sparkles, TrendingUp, Check } from 'lucide-react';
 import { friendsService } from '../services/friendsService';
 import { smartAI } from '../services/smartAI';
 
@@ -157,35 +157,62 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                 className="form-sheet relative w-full max-w-lg bg-card border border-card-border rounded-2xl shadow-2xl flex flex-col max-h-[85vh] md:max-h-[80vh] overflow-hidden my-auto"
                 onClick={e => e.stopPropagation()}
             >
-                {/* Header */}
-                <header className="flex justify-between items-center p-6 pb-4 border-b border-card-border">
-                    <div>
-                        <h2 className="text-xl font-black tracking-tight text-text-main">
-                            {editTransaction ? 'Edit' : 'New'} Transaction
-                        </h2>
+                {/* Header - Enhanced */}
+                <header className="flex justify-between items-center p-6 pb-4 border-b border-card-border bg-gradient-to-r from-primary/5 to-transparent">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center">
+                            <Plus size={20} className="text-primary" />
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-black tracking-tight text-text-main">
+                                {editTransaction ? 'Edit Transaction' : 'New Entry'}
+                            </h2>
+                            <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-0.5">
+                                {editTransaction ? 'Update Details' : 'Quick Add'}
+                            </p>
+                        </div>
                     </div>
-                    <button onClick={onClose} className="w-10 h-10 rounded-full border border-card-border flex items-center justify-center text-text-muted hover:text-text-main hover:bg-canvas-subtle transition-all">
+                    <button 
+                        onClick={onClose} 
+                        className="w-10 h-10 rounded-full border border-card-border flex items-center justify-center text-text-muted hover:text-text-main hover:bg-canvas-subtle transition-all hover:scale-110"
+                    >
                         <X size={20} />
                     </button>
                 </header>
 
                 {/* Scrollable Body */}
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                    {/* Amount Entry */}
-                    <div className="text-center">
+                    {/* Amount Entry - Enhanced */}
+                    <div className="text-center space-y-4">
                         <div className="inline-flex items-center gap-2 justify-center">
-                            <span className="text-2xl font-bold text-text-muted">₹</span>
+                            <span className="text-3xl font-bold text-text-muted">₹</span>
                             <input
                                 type="number"
                                 ref={amountRef}
                                 value={form.amount}
                                 onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-                                className="w-40 text-4xl font-black text-center outline-none bg-transparent caret-primary text-text-main placeholder-text-muted/20"
+                                className="w-48 text-5xl font-black text-center outline-none bg-transparent caret-primary text-text-main placeholder-text-muted/20"
                                 placeholder="0"
                                 autoFocus
                                 required
                             />
                         </div>
+                        
+                        {/* Quick Amount Buttons */}
+                        {!editTransaction && (
+                            <div className="flex justify-center gap-2 flex-wrap">
+                                {[100, 500, 1000, 5000].map(amt => (
+                                    <button
+                                        key={amt}
+                                        type="button"
+                                        onClick={() => setForm(f => ({ ...f, amount: amt.toString() }))}
+                                        className="px-4 py-2 rounded-xl bg-canvas-subtle border border-card-border text-text-muted hover:border-primary hover:text-primary transition-all text-sm font-bold"
+                                    >
+                                        ₹{amt.toLocaleString()}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
 
                         {/* Type Toggle */}
                         <div className="mt-6 flex justify-center">
@@ -496,16 +523,38 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                     </div>
                 </div>
 
-                {/* Sticky Footer */}
+                {/* Sticky Footer - Enhanced */}
                 <div className="p-6 pt-4 border-t border-card-border bg-card">
-                    <button
-                        onClick={handleSubmit}
-                        ref={submitBtnRef}
-                        disabled={isSubmitting || !form.amount}
-                        className="modern-btn modern-btn-primary w-full py-4 text-base font-bold uppercase tracking-wider shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {isSubmitting ? 'Saving...' : (editTransaction ? 'Update' : 'Save Transaction')}
-                    </button>
+                    <div className="flex gap-3">
+                        <button
+                            onClick={onClose}
+                            className="px-6 py-4 rounded-xl border border-card-border text-text-muted hover:text-text-main hover:border-primary/30 transition-all text-sm font-bold uppercase"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handleSubmit}
+                            ref={submitBtnRef}
+                            disabled={isSubmitting || !form.amount || !form.description}
+                            className="flex-1 modern-btn modern-btn-primary py-4 text-base font-bold uppercase tracking-wider shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                            {isSubmitting ? (
+                                <>
+                                    <motion.div
+                                        animate={{ rotate: 360 }}
+                                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                        className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full"
+                                    />
+                                    Saving...
+                                </>
+                            ) : (
+                                <>
+                                    <Check size={18} />
+                                    {editTransaction ? 'Update Entry' : 'Add Transaction'}
+                                </>
+                            )}
+                        </button>
+                    </div>
                 </div>
             </motion.div>
         </div>

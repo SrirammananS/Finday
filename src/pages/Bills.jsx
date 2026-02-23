@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, Plus, Bell, Trash2, CheckCircle2, X, ChevronLeft, ChevronRight, Zap, Brain, TrendingUp, Calendar, List, Layers, Activity, Link2, Check } from 'lucide-react';
+import { FileText, Plus, Bell, Trash2, CheckCircle2, X, ChevronLeft, ChevronRight, Zap, Brain, TrendingUp, Calendar, List, Layers, Activity, Link2, Check, AlertCircle } from 'lucide-react';
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isSameMonth, isSameYear, parseISO, subDays, addDays } from 'date-fns';
 import { billManager } from '../services/billManager';
 import { smartAI } from '../services/smartAI';
@@ -300,8 +300,10 @@ const Bills = () => {
                             const paid = isPaid(payment);
                             const linkedTx = getLinkedTransaction(payment);
                             const template = payment.template || {};
-                            const isCC = template.billType === 'credit_card';
+                            const bill = bills.find(b => b.id === payment.billId);
+                            const isCC = bill?.billType === 'credit_card' || template.billType === 'credit_card';
                             const dueDt = parseISO(payment.dueDate);
+                            const isOverdue = !paid && dueDt < today;
 
                             return (
                                 <motion.div
@@ -312,7 +314,7 @@ const Bills = () => {
                                     className="group relative"
                                 >
                                     <div className="absolute -inset-[1px] bg-gradient-to-br from-white/10 to-transparent rounded-[2rem] opacity-0 group-hover:opacity-100 transition-all duration-500" />
-                                    <div className={`relative p-4 rounded-[1.8rem] bg-card border flex flex-col justify-between gap-3 overflow-hidden transition-all hover:bg-canvas-elevated h-full min-h-[150px] ${paid ? 'border-emerald-500/30 bg-emerald-500/5' : isCC ? 'border-amber-500/30' : 'border-card-border'}`}>
+                                    <div className={`relative p-4 rounded-[1.8rem] bg-card border flex flex-col justify-between gap-3 overflow-hidden transition-all hover:bg-canvas-elevated hover:scale-[1.02] h-full min-h-[150px] ${paid ? 'border-emerald-500/30 bg-emerald-500/5' : isOverdue ? 'border-rose-500/40 bg-rose-500/5 animate-pulse' : isCC ? 'border-amber-500/30' : 'border-card-border'}`}>
                                         <div className="flex justify-between items-start">
                                             <div className="flex items-center gap-2">
                                                 <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs transition-all shrink-0 ${paid ? 'bg-emerald-500/20 text-emerald-500' : isCC ? 'bg-amber-500/20 text-amber-500' : 'bg-canvas-subtle border border-card-border text-text-main'}`}>
@@ -334,8 +336,8 @@ const Bills = () => {
                                                 ) : (
                                                     <button
                                                         onClick={(e) => { e.stopPropagation(); setShowMarkPaidModal(payment); }}
-                                                        className="w-6 h-6 rounded-full flex items-center justify-center text-emerald-500/50 hover:text-emerald-500 hover:bg-emerald-500/10 transition-all"
-                                                        title="Mark as paid"
+                                                        className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${isOverdue ? 'text-rose-500/70 hover:text-rose-500 hover:bg-rose-500/10 animate-pulse' : 'text-emerald-500/50 hover:text-emerald-500 hover:bg-emerald-500/10'}`}
+                                                        title={isOverdue ? "Mark as paid (Overdue)" : "Mark as paid"}
                                                     >
                                                         <Check size={12} />
                                                     </button>
@@ -352,9 +354,11 @@ const Bills = () => {
                                         <div className="mt-1">
                                             <h3 className="text-xs font-black uppercase tracking-tight text-text-main mb-0.5 line-clamp-1 leading-tight">{payment.name}</h3>
                                             <div className="flex items-center gap-1.5 mb-2">
-                                                <span className={`text-[7px] font-black uppercase tracking-widest ${paid ? 'text-emerald-500' : 'text-text-muted'}`}>
+                                                <span className={`text-[7px] font-black uppercase tracking-widest ${paid ? 'text-emerald-500' : isOverdue ? 'text-rose-500' : 'text-text-muted'}`}>
                                                     {paid
                                                         ? (isCC ? 'CC CYCLE SETTLED' : 'PAID THIS MONTH')
+                                                        : isOverdue
+                                                        ? `OVERDUE • ${format(dueDt, 'do MMM')}`
                                                         : (isCC ? `CYCLE: ${payment.cycle} • DUE: ${format(dueDt, 'do MMM')}` : `DUE: ${format(dueDt, 'do MMM')}`)}
                                                 </span>
                                             </div>
@@ -596,9 +600,23 @@ const Bills = () => {
                             <div className="flex justify-between items-center mb-8">
                                 <div>
                                     <h2 className="text-xl font-black tracking-tighter text-text-main uppercase">Mark as Paid</h2>
-                                    <p className="text-xs text-text-muted mt-1">{showMarkPaidModal.name} • {formatCurrency(showMarkPaidModal.amount)}</p>
+                                    <div className="flex items-center gap-2 mt-2">
+                                        <p className="text-sm font-bold text-text-main">{showMarkPaidModal.name}</p>
+                                        <span className="text-xs text-text-muted">•</span>
+                                        <p className="text-sm font-black text-emerald-400">{formatCurrency(showMarkPaidModal.amount)}</p>
+                                    </div>
+                                    {(() => {
+                                        const dueDt = parseISO(showMarkPaidModal.dueDate);
+                                        const isOverdue = dueDt < today;
+                                        return isOverdue && (
+                                            <p className="text-xs text-rose-400 font-bold mt-1 flex items-center gap-1">
+                                                <AlertCircle size={12} />
+                                                Overdue by {Math.floor((today - dueDt) / (1000 * 60 * 60 * 24))} days
+                                            </p>
+                                        );
+                                    })()}
                                 </div>
-                                <button onClick={() => { setShowMarkPaidModal(null); setSelectedTransactionId(null); }} className="w-10 h-10 rounded-full bg-canvas-subtle border border-card-border flex items-center justify-center hover:bg-canvas-elevated transition-all">
+                                <button onClick={() => { setShowMarkPaidModal(null); setSelectedTransactionId(null); }} className="w-10 h-10 rounded-full bg-canvas-subtle border border-card-border flex items-center justify-center hover:bg-canvas-elevated transition-all hover:scale-110">
                                     <X size={20} />
                                 </button>
                             </div>

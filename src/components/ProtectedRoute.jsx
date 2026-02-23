@@ -9,15 +9,18 @@ const ProtectedRoute = ({ children }) => {
     const [waitTimeout, setWaitTimeout] = useState(false);
     const [hasCheckedStorage, setHasCheckedStorage] = useState(false);
 
-    // Check localStorage for credentials immediately
+    // Check localStorage for credentials immediately - FIXED: Better token validation
     const checkStorage = () => {
         const hasSpreadsheetId = localStorage.getItem('laksh_spreadsheet_id') ||
             localStorage.getItem('finday_spreadsheet_id');
         const hasToken = localStorage.getItem('google_access_token');
+        const tokenExpiry = localStorage.getItem('google_token_expiry');
+        const isTokenValid = hasToken && tokenExpiry && Date.now() < parseInt(tokenExpiry);
         const isGuestMode = localStorage.getItem('laksh_guest_mode') === 'true';
         const everConnected = localStorage.getItem('laksh_ever_connected') === 'true';
 
-        return (hasSpreadsheetId && hasToken) || isGuestMode || (everConnected && hasSpreadsheetId);
+        // FIXED: Check token validity to prevent redirect loops
+        return (hasSpreadsheetId && isTokenValid) || isGuestMode || (everConnected && hasSpreadsheetId && isTokenValid);
     };
 
     // Immediate check on mount

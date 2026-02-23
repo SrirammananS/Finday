@@ -54,22 +54,33 @@ const DynamicIsland = () => {
 
                 <div className="w-[1px] h-4 md:h-5 bg-card-border mx-1" />
 
-                {/* SMS Button */}
-                <button
+                {/* SMS Button - Enhanced */}
+                <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
                     onClick={() => setShowSMS(true)}
-                    className="w-10 h-10 md:w-11 md:h-11 flex items-center justify-center text-text-muted hover:text-primary hover:bg-primary/10 rounded-full transition-all"
+                    className="w-10 h-10 md:w-11 md:h-11 flex items-center justify-center text-text-muted hover:text-primary hover:bg-primary/10 rounded-full transition-all relative group"
                     title="Add from SMS"
                 >
                     <MessageSquare size={20} />
-                </button>
+                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full opacity-0 group-hover:opacity-100 transition-opacity animate-pulse" />
+                </motion.button>
 
-                {/* Add Button */}
-                <button
+                {/* Add Button - Enhanced */}
+                <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
                     onClick={() => setShowForm(true)}
-                    className="w-10 h-10 md:w-11 md:h-11 flex items-center justify-center bg-primary text-primary-foreground rounded-full hover:scale-110 active:scale-95 transition-all shadow-lg shadow-primary/25"
+                    className="w-10 h-10 md:w-11 md:h-11 flex items-center justify-center bg-primary text-primary-foreground rounded-full transition-all shadow-lg shadow-primary/25 hover:shadow-primary/40 relative group"
+                    title="Add Transaction"
                 >
                     <Plus size={22} />
-                </button>
+                    <motion.div
+                        className="absolute inset-0 bg-primary rounded-full opacity-0 group-hover:opacity-20"
+                        animate={{ scale: [1, 1.5, 1], opacity: [0, 0.3, 0] }}
+                        transition={{ duration: 2, repeat: Infinity }}
+                    />
+                </motion.button>
             </div >
 
             <AnimatePresence>

@@ -50,53 +50,67 @@ const SMSInput = ({ isOpen, onClose }) => {
                             onClick={e => e.stopPropagation()}
                             className="fixed bottom-0 left-0 right-0 w-full max-w-lg mx-auto bg-card border border-card-border rounded-t-3xl md:rounded-2xl overflow-hidden md:bottom-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2"
                         >
-                            {/* Header */}
-                            <div className="p-6 border-b border-card-border flex justify-between items-center">
+                            {/* Header - Enhanced */}
+                            <div className="p-6 border-b border-card-border flex justify-between items-center bg-gradient-to-r from-primary/10 to-transparent">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
-                                        <MessageSquare size={20} className="text-primary" />
+                                    <div className="w-12 h-12 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center">
+                                        <MessageSquare size={22} className="text-primary" />
                                     </div>
                                     <div>
-                                        <h3 className="text-lg font-black text-text-main">Add from SMS</h3>
-                                        <p className="text-xs text-text-muted">Paste your bank SMS</p>
+                                        <h3 className="text-lg font-black text-text-main uppercase tracking-tight">SMS Entry</h3>
+                                        <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-0.5">Paste Bank SMS</p>
                                     </div>
                                 </div>
-                                <button onClick={onClose} className="p-2 hover:bg-canvas-subtle rounded-full">
+                                <button 
+                                    onClick={onClose} 
+                                    className="p-2 hover:bg-canvas-subtle rounded-full transition-all hover:scale-110"
+                                >
                                     <X size={20} className="text-text-muted" />
                                 </button>
                             </div>
 
-                            {/* Body */}
-                            <div className="p-6">
+                            {/* Body - Enhanced */}
+                            <div className="p-6 space-y-4">
                                 <div className="relative">
                                     <textarea
                                         value={smsText}
                                         onChange={e => setSmsText(e.target.value)}
                                         placeholder="Paste your bank SMS here...&#10;&#10;Example:&#10;Rs.500.00 debited from A/c XX1234 on 26-01-26 to VPA swiggy@upi"
-                                        className="w-full h-40 bg-canvas-subtle border border-card-border rounded-xl p-4 text-sm text-text-main placeholder:text-text-muted/40 outline-none focus:border-primary resize-none"
+                                        className="w-full h-48 bg-canvas-subtle border border-card-border rounded-xl p-4 text-sm font-medium text-text-main placeholder:text-text-muted/40 outline-none focus:border-primary focus:bg-canvas-elevated resize-none transition-all"
+                                        autoFocus
                                     />
                                     <button
                                         onClick={handlePaste}
-                                        className="absolute top-3 right-3 p-2 bg-card border border-card-border rounded-lg text-text-muted hover:text-primary hover:border-primary transition-all"
+                                        className="absolute top-3 right-3 p-2.5 bg-card border border-card-border rounded-xl text-text-muted hover:text-primary hover:border-primary hover:bg-primary/10 transition-all group"
                                         title="Paste from clipboard"
                                     >
-                                        <Clipboard size={16} />
+                                        <Clipboard size={18} className="group-hover:scale-110 transition-transform" />
                                     </button>
                                 </div>
 
-                                <p className="text-[10px] text-text-muted mt-3 text-center">
-                                    We'll automatically detect the amount, merchant, and category
-                                </p>
+                                {/* Info Card */}
+                                <div className="bg-primary/5 border border-primary/20 rounded-xl p-4">
+                                    <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">Auto-Detection</p>
+                                    <p className="text-xs text-text-muted">
+                                        We'll automatically detect: Amount • Merchant • Category • Date
+                                    </p>
+                                </div>
                             </div>
 
-                            {/* Footer */}
-                            <div className="p-6 pt-0">
+                            {/* Footer - Enhanced */}
+                            <div className="p-6 pt-0 flex gap-3">
+                                <button
+                                    onClick={onClose}
+                                    className="px-6 py-4 rounded-xl border border-card-border text-text-muted hover:text-text-main hover:border-primary/30 transition-all text-sm font-bold uppercase"
+                                >
+                                    Cancel
+                                </button>
                                 <button
                                     onClick={handleDetect}
                                     disabled={!smsText.trim()}
-                                    className="w-full py-4 bg-primary text-primary-foreground rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="flex-1 py-4 bg-primary text-primary-foreground rounded-xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary/25 hover:shadow-primary/40 transition-all"
                                 >
-                                    <Send size={18} /> Detect Transaction
+                                    <Send size={18} /> Parse SMS
                                 </button>
                             </div>
                         </motion.div>

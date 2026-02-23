@@ -103,7 +103,24 @@ class MainActivity : AppCompatActivity() {
             Log.d("LAKSH", "WebView settings configured")
         }
         
+        // FIXED: Inject theme preference on page load
+        webView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                injectThemePreference()
+            }
+            override fun onViewDetachedFromWindow(v: View) {}
+        })
+
         webView.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                Log.d("LAKSH", "Page finished loading: $url")
+                // Inject theme preference after page loads
+                injectThemePreference()
+                // Inject any pending transactions from SMS
+                injectPendingTransactions()
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val url = request?.url?.toString() ?: return false
                 Log.d("LAKSH", "Loading URL: $url")
@@ -141,7 +158,9 @@ class MainActivity : AppCompatActivity() {
                         
                         if (accessToken != null) {
                             Log.d("LAKSH", "Extracted access token from deep link. Injecting...")
-                            val expiryMs = System.currentTimeMillis() + ((expiresIn?.toLongOrNull() ?: 3600L) * 1000)
+                            // FIXED: Set expiry to 1 year (365 days) to prevent frequent logins
+                            val ONE_YEAR_MS = 365L * 24 * 60 * 60 * 1000
+                            val expiryMs = System.currentTimeMillis() + ONE_YEAR_MS
                             
                             val script = """
                                 try {
@@ -183,12 +202,6 @@ class MainActivity : AppCompatActivity() {
                 Log.d("LAKSH", "Page started loading: $url")
             }
             
-            override fun onPageFinished(view: WebView?, url: String?) {
-                super.onPageFinished(view, url)
-                Log.d("LAKSH", "Page finished loading: $url")
-                // Inject any pending transactions from SMS
-                injectPendingTransactions()
-            }
             
             override fun onReceivedError(
                 view: WebView?,
@@ -336,8 +349,10 @@ class MainActivity : AppCompatActivity() {
                 val expires = params["expires_in"] ?: "3600"
                 
                 if (token != null) {
-                    val expiryMs = System.currentTimeMillis() + (expires.toLong() * 1000)
-                    Log.d("LAKSH", "Injecting OAuth token from deep link: $token")
+                    // FIXED: Set expiry to 1 year (365 days) to prevent frequent logins
+                    val ONE_YEAR_MS = 365L * 24 * 60 * 60 * 1000
+                    val expiryMs = System.currentTimeMillis() + ONE_YEAR_MS
+                    Log.d("LAKSH", "Injecting OAuth token from deep link: $token (expires in 1 year)")
                     
                     val script = """
                         try {
@@ -392,6 +407,31 @@ class MainActivity : AppCompatActivity() {
         handleIntent()
     }
     
+    // FIXED: Inject theme preference to WebView
+    private fun injectThemePreference() {
+        val theme = getSharedPreferences("laksh_prefs", MODE_PRIVATE)
+            .getString("theme", "dark") ?: "dark"
+        
+        val script = """
+            (function() {
+                try {
+                    const theme = '$theme';
+                    const root = document.documentElement;
+                    root.classList.remove('light', 'dark');
+                    root.classList.add(theme);
+                    localStorage.setItem('laksh_theme', theme);
+                    console.log('[LAKSH-NATIVE] Theme injected:', theme);
+                } catch(e) {
+                    console.error('[LAKSH-NATIVE] Theme injection failed:', e);
+                }
+            })();
+        """.trimIndent()
+        
+        webView.post {
+            webView.evaluateJavascript(script, null)
+        }
+    }
+
     private fun injectPendingTransactions() {
         val pending = TransactionStore.getPendingTransactions(this)
         if (pending != "[]" && pending.isNotEmpty()) {

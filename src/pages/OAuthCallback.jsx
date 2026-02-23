@@ -40,8 +40,11 @@ export default function OAuthCallback() {
 
                 console.log('[LAKSH OAuth] Token received');
 
-                // Store token for session restoration
-                const expiryMs = Date.now() + (parseInt(expiresIn || '3600') * 1000);
+                // Store token for session restoration - FIXED: 1 year expiry for Android
+                const isAndroid = /Android/i.test(navigator.userAgent) && /wv/i.test(navigator.userAgent);
+                const expiryMs = isAndroid 
+                    ? Date.now() + (365 * 24 * 60 * 60 * 1000) // 1 year for Android
+                    : Date.now() + (parseInt(expiresIn || '3600') * 1000); // Normal for web
                 localStorage.setItem('google_access_token', accessToken);
                 localStorage.setItem('google_token_expiry', String(expiryMs));
                 localStorage.setItem('oauth_pending', 'false');

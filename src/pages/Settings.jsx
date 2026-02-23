@@ -305,6 +305,38 @@ const Settings = () => {
                     )}
                 </section>
 
+                {/* SMS Auto-Add Setting */}
+                <section className="mb-12">
+                    <div className="flex items-center gap-3 mb-6 px-4">
+                        <Bell size={16} className="text-primary" />
+                        <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted">SMS Auto-Add</h3>
+                    </div>
+                    <div className="p-6 md:p-8 rounded-[2.2rem] md:rounded-[3rem] bg-card border border-card-border">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-6">
+                                <div className="w-16 h-16 rounded-[1.5rem] bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                                    <Zap size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-black uppercase tracking-tighter text-text-main">Auto-Add SMS Transactions</h3>
+                                    <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mt-1">
+                                        {localStorage.getItem('laksh_auto_add_sms') !== 'false' 
+                                            ? 'ENABLED • Transactions added directly to sheets' 
+                                            : 'DISABLED • Transactions queued for review'}
+                                    </p>
+                                </div>
+                            </div>
+                            <JellySwitch
+                                checked={localStorage.getItem('laksh_auto_add_sms') !== 'false'}
+                                onChange={(checked) => {
+                                    localStorage.setItem('laksh_auto_add_sms', checked ? 'true' : 'false');
+                                    window.location.reload(); // Reload to apply setting
+                                }}
+                            />
+                        </div>
+                    </div>
+                </section>
+
                 {/* Automation & UI Layer */}
                 <div className="grid grid-cols-2 gap-3 mb-12">
                     <button onClick={() => setShowSMSRules(true)} className="p-5 md:p-6 rounded-[1.8rem] md:rounded-[2.2rem] bg-card border border-card-border flex flex-col justify-between min-h-[120px] hover:border-card-border transition-all text-left">

@@ -23,10 +23,12 @@ object SmsParser {
     private val DEBIT_PATTERNS = listOf(
         // HDFC, ICICI, SBI format
         Pattern.compile("(?:debited|spent|paid|sent|withdrawn|purchase|txn|transaction|used at).{0,40}(?:rs\\.?|inr|₹|rupees)\\s*([\\d,]+\\.?\\d*)", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("(?:debited|deducted)\\s+with\\s+(?:rs\\.?|inr|₹)\\s*([\\d,]+\\.?\\d*)", Pattern.CASE_INSENSITIVE),
         Pattern.compile("(?:rs\\.?|inr|₹)\\s*([\\d,]+\\.?\\d*).{0,40}(?:debited|spent|paid|sent|withdrawn|deducted|has been)", Pattern.CASE_INSENSITIVE),
         Pattern.compile("(?:debit|dr|deducted)\\s*(?:of)?\\s*(?:rs\\.?|inr|₹)?\\s*([\\d,]+\\.?\\d*)", Pattern.CASE_INSENSITIVE),
         // UPI specific
         Pattern.compile("(?:upi|gpay|phonepe|paytm).{0,30}(?:rs\\.?|inr|₹)\\s*([\\d,]+\\.?\\d*)", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("(?:for|amount|amt)[:\\s]+(?:rs\\.?|inr|₹)\\s*([\\d,]+\\.?\\d*)", Pattern.CASE_INSENSITIVE),
         // Card transaction
         Pattern.compile("(?:card|\\*{4}\\d{4}).{0,30}(?:rs\\.?|inr|₹)\\s*([\\d,]+\\.?\\d*)", Pattern.CASE_INSENSITIVE),
         // Generic amount with debit context
@@ -39,7 +41,8 @@ object SmsParser {
         Pattern.compile("(?:rs\\.?|inr|₹)\\s*([\\d,]+\\.?\\d*).{0,40}(?:credited|received|deposited|added)", Pattern.CASE_INSENSITIVE),
         Pattern.compile("(?:credit|cr|received)\\s*(?:of)?\\s*(?:rs\\.?|inr|₹)?\\s*([\\d,]+\\.?\\d*)", Pattern.CASE_INSENSITIVE),
         // Salary/transfer
-        Pattern.compile("(?:salary|neft|imps|rtgs).{0,30}(?:rs\\.?|inr|₹)\\s*([\\d,]+\\.?\\d*)", Pattern.CASE_INSENSITIVE)
+        Pattern.compile("(?:salary|neft|imps|rtgs).{0,30}(?:rs\\.?|inr|₹)\\s*([\\d,]+\\.?\\d*)", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("(?:received|credited)\\s+(?:rs\\.?|inr|₹)\\s*([\\d,]+\\.?\\d*)", Pattern.CASE_INSENSITIVE)
     )
     
     private val MERCHANT_PATTERNS = listOf(

@@ -5,7 +5,9 @@ const ThemeContext = createContext();
 export const ThemeProvider = ({ children }) => {
     const [theme, setTheme] = useState(() => {
         if (typeof window !== 'undefined') {
-            return localStorage.getItem('finday_theme') || 'dark';
+            // FIXED: Use consistent storage key 'laksh_theme'
+            const stored = localStorage.getItem('laksh_theme') || localStorage.getItem('finday_theme');
+            return stored || 'dark';
         }
         return 'dark';
     });
@@ -16,7 +18,12 @@ export const ThemeProvider = ({ children }) => {
         root.classList.remove('light', 'dark');
         root.classList.add(theme);
         
-        localStorage.setItem('finday_theme', theme);
+        // FIXED: Use consistent storage key
+        localStorage.setItem('laksh_theme', theme);
+        // Migrate old key
+        if (localStorage.getItem('finday_theme')) {
+            localStorage.removeItem('finday_theme');
+        }
     }, [theme]);
 
     const toggleTheme = () => {

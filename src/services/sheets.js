@@ -314,25 +314,39 @@ class GoogleSheetsService {
 
     ensureTokenLoaded() {
         if (!this.accessToken) {
-            const keys = [
-                'google_access_token',
-                'laksh_access_token',
-                'laksh_gapi_token',
-                STORAGE_KEYS.GAPI_TOKEN
-            ];
+            // FIXED: Unified token loading with priority order
+            // Priority 1: Standard OAuth token (most common)
+            const standardToken = localStorage.getItem('google_access_token');
+            const standardExpiry = localStorage.getItem('google_token_expiry');
+            
+            // Priority 2: Storage service token
+            const storageToken = storage.get(STORAGE_KEYS.GAPI_TOKEN);
+            const storageExpiry = storage.get(STORAGE_KEYS.TOKEN_EXPIRY);
+            
+            // Priority 3: Legacy tokens (for backward compatibility)
+            const legacyToken = localStorage.getItem('laksh_access_token') || localStorage.getItem('laksh_gapi_token');
+            const legacyExpiry = localStorage.getItem('laksh_token_expiry');
 
-            for (const key of keys) {
-                const storedToken = localStorage.getItem(key);
-                const storedExpiry = localStorage.getItem('google_token_expiry') ||
-                    localStorage.getItem('laksh_token_expiry') ||
-                    localStorage.getItem(STORAGE_KEYS.TOKEN_EXPIRY);
-
-                if (storedToken && storedExpiry && Date.now() < parseInt(storedExpiry)) {
-                    this.accessToken = storedToken;
-                    this.isInitialized = true;
-                    console.log(`[LAKSH] Lazy-loaded OAuth token from storage (key: ${key})`);
-                    return true;
-                }
+            // Check in priority order
+            if (standardToken && standardExpiry && Date.now() < parseInt(standardExpiry)) {
+                this.accessToken = standardToken;
+                this.isInitialized = true;
+                console.log('[LAKSH] Loaded OAuth token from standard storage');
+                return true;
+            }
+            
+            if (storageToken && storageExpiry && Date.now() < parseInt(storageExpiry)) {
+                this.accessToken = storageToken;
+                this.isInitialized = true;
+                console.log('[LAKSH] Loaded OAuth token from storage service');
+                return true;
+            }
+            
+            if (legacyToken && legacyExpiry && Date.now() < parseInt(legacyExpiry)) {
+                this.accessToken = legacyToken;
+                this.isInitialized = true;
+                console.log('[LAKSH] Loaded OAuth token from legacy storage');
+                return true;
             }
         }
         return !!this.accessToken;
@@ -356,16 +370,37 @@ class GoogleSheetsService {
         });
 
         if (!response.ok) {
-            // Handle 401 specifically
+            // Handle 401 specifically - FIXED: Better error recovery
             if (response.status === 401) {
                 console.log('[LAKSH] 401 in fetch, trying refresh...');
-                const refreshed = await this.refreshToken();
-                if (refreshed) return this.makeApiRequest(url, options);
+                try {
+                    const refreshed = await this.refreshToken();
+                    if (refreshed) {
+                        // Retry the request with new token
+                        return this.makeApiRequest(url, options);
+                    } else {
+                        // Refresh failed, clear token and throw error
+                        this.accessToken = null;
+                        throw new Error('Authentication expired. Please sign in again.');
+                    }
+                } catch (refreshError) {
+                    console.error('[LAKSH] Token refresh failed:', refreshError);
+                    this.accessToken = null;
+                    throw new Error('Authentication expired. Please sign in again.');
+                }
             }
 
             // Log details for debugging 400/403 errors in native
             const errorText = await response.text().catch(() => 'No error body');
             console.error(`[LAKSH] API request failed: ${response.status} ${response.statusText}`, errorText);
+            
+            // FIXED: More specific error messages
+            if (response.status === 403) {
+                throw new Error('Permission denied. Please check app access in Google settings.');
+            } else if (response.status === 429) {
+                throw new Error('Rate limit exceeded. Please try again in a moment.');
+            }
+            
             throw new Error(`API request failed: ${response.status}`);
         }
 
@@ -838,19 +873,52 @@ class GoogleSheetsService {
         throw new Error('Sign in failed or cancelled');
     }
 
-    // Force refresh the token (used on 401 errors)
+    // Force refresh the token (used on 401 errors) - FIXED: Better error handling
     async refreshToken() {
-        // Use cloudBackup for token refresh
-        const { cloudBackup } = await importWithRetry(() => import('./cloudBackup'));
-        if (!cloudBackup.isSignedIn()) {
-            await cloudBackup.signIn();
+        try {
+            // Use cloudBackup for token refresh
+            const { cloudBackup } = await importWithRetry(() => import('./cloudBackup'));
+            
+            // Ensure cloudBackup is initialized
+            if (!cloudBackup.isInitialized) {
+                await cloudBackup.init();
+            }
+            
+            if (!cloudBackup.isSignedIn()) {
+                // Try to restore session first
+                const refreshToken = localStorage.getItem('google_refresh_token');
+                if (refreshToken) {
+                    try {
+                        await cloudBackup.refreshAccessToken();
+                    } catch (e) {
+                        console.warn('[LAKSH] Silent refresh failed, user needs to sign in again');
+                        return false;
+                    }
+                } else {
+                    // No refresh token, user needs to sign in
+                    return false;
+                }
+            }
+            
+            if (cloudBackup.isSignedIn() && cloudBackup.accessToken) {
+                if (window.gapi?.client) {
+                    window.gapi.client.setToken({ access_token: cloudBackup.accessToken });
+                }
+                this.accessToken = cloudBackup.accessToken;
+                
+                // Also update localStorage for consistency
+                const expiry = Date.now() + (55 * 60 * 1000); // 55 minutes
+                localStorage.setItem('google_access_token', cloudBackup.accessToken);
+                localStorage.setItem('google_token_expiry', String(expiry));
+                
+                return true;
+            }
+            
+            return false;
+        } catch (error) {
+            console.error('[LAKSH] Token refresh error:', error);
+            return false;
         }
-        if (cloudBackup.isSignedIn()) {
-            window.gapi.client.setToken({ access_token: cloudBackup.accessToken });
-            this.accessToken = cloudBackup.accessToken;
-            return true;
-        }
-        return false;
     }
 
     async signOut() {

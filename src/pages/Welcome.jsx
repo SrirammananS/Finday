@@ -70,11 +70,34 @@ const Welcome = () => {
             const savedToken = localStorage.getItem('google_access_token');
             const everConnected = localStorage.getItem('laksh_ever_connected');
 
-            if (savedId && savedToken && everConnected === 'true' && !redirectAttempted) {
+            // FIXED: Better token validation to prevent redirect loops
+            const tokenExpiry = localStorage.getItem('google_token_expiry');
+            const isTokenValid = savedToken && tokenExpiry && Date.now() < parseInt(tokenExpiry);
+            
+            if (savedId && isTokenValid && everConnected === 'true' && !redirectAttempted) {
+                console.log('[Welcome] Valid session found, redirecting to app...');
                 setHasCredentials(true);
                 setRedirectAttempted(true);
                 navigate('/', { replace: true });
                 return;
+            }
+            
+            // If token expired but we have refresh token, try to refresh silently
+            if (savedId && !isTokenValid && localStorage.getItem('google_refresh_token')) {
+                console.log('[Welcome] Token expired, attempting silent refresh...');
+                try {
+                    const { cloudBackup } = await import('../services/cloudBackup');
+                    await cloudBackup.init();
+                    if (cloudBackup.isSignedIn()) {
+                        console.log('[Welcome] Silent refresh successful');
+                        setHasCredentials(true);
+                        setRedirectAttempted(true);
+                        navigate('/', { replace: true });
+                        return;
+                    }
+                } catch (refreshError) {
+                    console.warn('[Welcome] Silent refresh failed:', refreshError);
+                }
             }
 
             if (savedToken && !savedId && !isLoading && step === 'welcome') {

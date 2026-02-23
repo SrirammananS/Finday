@@ -1,0 +1,321 @@
+/* ========================================
+   LAKSH FINANCE - COMPLETE COLOR SYSTEM
+   WCAG AA Compliant | Responsive | Accessible
+   ======================================== */
+
+@layer base {
+  :root {
+    /* ========================================
+       DARK MODE - Modern & Accessible
+       ======================================== */
+    
+    /* Primary Brand Color - Vibrant but Accessible */
+    --primary: #00D9FF;                    /* Cyan - High contrast */
+    --primary-rgb: 0, 217, 255;
+    --primary-foreground: #000000;
+    --primary-hover: #00B8D9;              /* Darker for hover */
+    --primary-active: #0099B8;            /* Even darker for active */
+    --primary-disabled: #4A5568;           /* Gray for disabled */
+    --primary-light: rgba(0, 217, 255, 0.1);
+    --primary-dark: #007A99;
+
+    /* Accent Colors - Vibrant & Distinct */
+    --accent-success: #10B981;              /* Emerald - Income */
+    --accent-success-rgb: 16, 185, 129;
+    --accent-danger: #EF4444;              /* Red - Expense */
+    --accent-danger-rgb: 239, 68, 68;
+    --accent-warning: #F59E0B;             /* Amber - Warning */
+    --accent-info: #3B82F6;                /* Blue - Info */
+    --accent-violet: #8B5CF6;              /* Violet - Special */
+    --accent-cyan: #06B6D4;                 /* Cyan - Secondary */
+
+    /* Background Layers - Depth & Hierarchy */
+    --canvas: #0A0E1A;                     /* Deep navy-black */
+    --canvas-subtle: #131823;              /* Slightly lighter */
+    --canvas-elevated: #1A1F2E;            /* Elevated surfaces */
+    --canvas-overlay: rgba(10, 14, 26, 0.95); /* Modal overlays */
+
+    /* Card Surfaces - Glassmorphism */
+    --card: rgba(26, 31, 46, 0.6);         /* Main cards */
+    --card-hover: rgba(26, 31, 46, 0.8);   /* Hover state */
+    --card-active: rgba(26, 31, 46, 0.9);  /* Active state */
+    --card-border: rgba(255, 255, 255, 0.1);
+    --card-border-hover: rgba(0, 217, 255, 0.3);
+    --card-glow: rgba(0, 217, 255, 0.05);
+
+    /* Text Colors - High Contrast */
+    --text-main: #F8FAFC;                  /* Primary text - WCAG AAA */
+    --text-muted: #CBD5E1;                  /* Secondary text - WCAG AA */
+    --text-subtle: #94A3B8;                 /* Tertiary text */
+    --text-disabled: #64748B;               /* Disabled text */
+    --text-inverse: #0A0E1A;                /* Text on light bg */
+
+    /* Border & Divider */
+    --border-default: rgba(255, 255, 255, 0.1);
+    --border-hover: rgba(0, 217, 255, 0.3);
+    --border-focus: rgba(0, 217, 255, 0.5);
+    --divider: rgba(255, 255, 255, 0.08);
+
+    /* Status Colors */
+    --status-success: #10B981;
+    --status-success-bg: rgba(16, 185, 129, 0.1);
+    --status-danger: #EF4444;
+    --status-danger-bg: rgba(239, 68, 68, 0.1);
+    --status-warning: #F59E0B;
+    --status-warning-bg: rgba(245, 158, 11, 0.1);
+    --status-info: #3B82F6;
+    --status-info-bg: rgba(59, 130, 246, 0.1);
+
+    /* Shadow & Glow */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+    --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.6);
+    --glow-primary: 0 0 20px rgba(0, 217, 255, 0.3);
+    --glow-primary-hover: 0 0 30px rgba(0, 217, 255, 0.5);
+  }
+
+  :root.light {
+    /* ========================================
+       LIGHT MODE - Clean & Professional
+       ======================================== */
+    
+    /* Primary Brand Color - Vibrant Cyan */
+    --primary: #00A8CC;                    /* Slightly darker for light mode */
+    --primary-rgb: 0, 168, 204;
+    --primary-foreground: #FFFFFF;
+    --primary-hover: #0088AA;              /* Darker for hover */
+    --primary-active: #006688;             /* Even darker for active */
+    --primary-disabled: #CBD5E1;           /* Light gray for disabled */
+    --primary-light: rgba(0, 168, 204, 0.1);
+    --primary-dark: #005577;
+
+    /* Accent Colors - Slightly Muted for Light Mode */
+    --accent-success: #059669;              /* Darker emerald */
+    --accent-success-rgb: 5, 150, 105;
+    --accent-danger: #DC2626;               /* Darker red */
+    --accent-danger-rgb: 220, 38, 38;
+    --accent-warning: #D97706;              /* Darker amber */
+    --accent-info: #2563EB;                 /* Darker blue */
+    --accent-violet: #7C3AED;               /* Darker violet */
+    --accent-cyan: #0891B2;                 /* Darker cyan */
+
+    /* Background Layers - Light & Airy */
+    --canvas: #FFFFFF;                      /* Pure white */
+    --canvas-subtle: #F8FAFC;               /* Very light gray */
+    --canvas-elevated: #F1F5F9;             /* Light gray */
+    --canvas-overlay: rgba(255, 255, 255, 0.95); /* Modal overlays */
+
+    /* Card Surfaces - Subtle Shadows */
+    --card: rgba(255, 255, 255, 0.9);       /* White cards */
+    --card-hover: rgba(255, 255, 255, 1);   /* Full white on hover */
+    --card-active: rgba(248, 250, 252, 1);  /* Slightly gray on active */
+    --card-border: rgba(0, 0, 0, 0.08);
+    --card-border-hover: rgba(0, 168, 204, 0.3);
+    --card-glow: rgba(0, 168, 204, 0.05);
+
+    /* Text Colors - Dark for Contrast */
+    --text-main: #0F172A;                  /* Near black - WCAG AAA */
+    --text-muted: #475569;                  /* Dark gray - WCAG AA */
+    --text-subtle: #64748B;                 /* Medium gray */
+    --text-disabled: #94A3B8;                /* Light gray */
+    --text-inverse: #FFFFFF;                 /* White text on dark bg */
+
+    /* Border & Divider */
+    --border-default: rgba(0, 0, 0, 0.08);
+    --border-hover: rgba(0, 168, 204, 0.3);
+    --border-focus: rgba(0, 168, 204, 0.5);
+    --divider: rgba(0, 0, 0, 0.06);
+
+    /* Status Colors - Darker for Light Mode */
+    --status-success: #059669;
+    --status-success-bg: rgba(5, 150, 105, 0.1);
+    --status-danger: #DC2626;
+    --status-danger-bg: rgba(220, 38, 38, 0.1);
+    --status-warning: #D97706;
+    --status-warning-bg: rgba(217, 119, 6, 0.1);
+    --status-info: #2563EB;
+    --status-info-bg: rgba(37, 99, 235, 0.1);
+
+    /* Shadow & Glow - Subtle for Light Mode */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+    --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+    --glow-primary: 0 0 15px rgba(0, 168, 204, 0.2);
+    --glow-primary-hover: 0 0 25px rgba(0, 168, 204, 0.3);
+  }
+
+  /* ========================================
+     RESPONSIVE COLOR ADJUSTMENTS
+     ======================================== */
+  
+  /* Mobile - Enhanced Contrast for Small Screens */
+  @media (max-width: 640px) {
+    :root {
+      --card-border: rgba(255, 255, 255, 0.15); /* Stronger borders */
+      --text-muted: #E2E8F0;                     /* Lighter muted text */
+    }
+    :root.light {
+      --card-border: rgba(0, 0, 0, 0.12);       /* Stronger borders */
+      --text-muted: #334155;                     /* Darker muted text */
+    }
+  }
+
+  /* Tablet - Balanced */
+  @media (min-width: 641px) and (max-width: 1024px) {
+    :root {
+      --card: rgba(26, 31, 46, 0.65);
+    }
+    :root.light {
+      --card: rgba(255, 255, 255, 0.92);
+    }
+  }
+
+  /* Desktop - Refined */
+  @media (min-width: 1025px) {
+    :root {
+      --card: rgba(26, 31, 46, 0.7);
+      --card-hover: rgba(26, 31, 46, 0.85);
+    }
+    :root.light {
+      --card: rgba(255, 255, 255, 0.95);
+      --card-hover: rgba(255, 255, 255, 1);
+    }
+  }
+
+  /* High Contrast Mode Support */
+  @media (prefers-contrast: high) {
+    :root {
+      --text-main: #FFFFFF;
+      --text-muted: #E2E8F0;
+      --card-border: rgba(255, 255, 255, 0.2);
+    }
+    :root.light {
+      --text-main: #000000;
+      --text-muted: #1E293B;
+      --card-border: rgba(0, 0, 0, 0.15);
+    }
+  }
+
+  /* Reduced Motion Support */
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      --glow-primary: none;
+      --glow-primary-hover: none;
+    }
+  }
+}
+
+/* ========================================
+   INTERACTIVE STATES
+   ======================================== */
+
+@layer components {
+  /* Button States */
+  .btn-primary {
+    background: var(--primary);
+    color: var(--primary-foreground);
+    border: 1px solid var(--primary);
+  }
+
+  .btn-primary:hover {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+    box-shadow: var(--glow-primary);
+  }
+
+  .btn-primary:active {
+    background: var(--primary-active);
+    border-color: var(--primary-active);
+    transform: scale(0.98);
+  }
+
+  .btn-primary:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    box-shadow: var(--glow-primary);
+  }
+
+  .btn-primary:disabled {
+    background: var(--primary-disabled);
+    border-color: var(--primary-disabled);
+    color: var(--text-disabled);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  /* Card States */
+  .modern-card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+  }
+
+  .modern-card:hover {
+    background: var(--card-hover);
+    border-color: var(--card-border-hover);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .modern-card:active {
+    background: var(--card-active);
+    transform: scale(0.99);
+  }
+
+  /* Input States */
+  .input-modern {
+    background: var(--canvas-subtle);
+    border: 1px solid var(--border-default);
+    color: var(--text-main);
+  }
+
+  .input-modern:hover {
+    border-color: var(--border-hover);
+  }
+
+  .input-modern:focus {
+    border-color: var(--border-focus);
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px var(--primary-light);
+  }
+
+  .input-modern:disabled {
+    background: var(--canvas-elevated);
+    border-color: var(--border-default);
+    color: var(--text-disabled);
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+
+  /* Link States */
+  a {
+    color: var(--primary);
+    transition: color 0.2s ease;
+  }
+
+  a:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
+  }
+
+  a:active {
+    color: var(--primary-active);
+  }
+
+  a:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* Touch Target Sizes for Mobile */
+  @media (max-width: 640px) {
+    button,
+    .btn-primary,
+    a {
+      min-height: 44px; /* iOS HIG recommendation */
+      min-width: 44px;
+    }
+  }
+}

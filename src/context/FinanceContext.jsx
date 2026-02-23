@@ -366,10 +366,13 @@ export const FinanceProvider = ({ children }) => {
                 const detailedError = 'Authentication failed. Your session may have expired. Please sign in again from Settings.';
                 setError(detailedError);
                 toast('Session expired. Please sign in again.', 'error');
+                // FIXED: Clear connection state on auth failure
+                setIsConnected(false);
             } else if (err.message?.includes('network') || err.message?.includes('fetch')) {
                 const detailedError = 'Network error. Please check your internet connection and try again.';
                 setError(detailedError);
                 toast('Connection failed. Check your internet.', 'error');
+                // Keep connected state for offline mode
             } else if (err.message?.includes('403') || err.message?.includes('permission')) {
                 const detailedError = 'Permission denied. Please ensure the app has access to your Google Sheets.';
                 setError(detailedError);
@@ -377,9 +380,15 @@ export const FinanceProvider = ({ children }) => {
             } else {
                 toast(`Sync failed: ${errorMessage}. Using cached data if available.`, 'error');
             }
+            
+            // FIXED: Always ensure loading state is cleared, even if error occurs
+            setIsLoading(false);
         } finally {
             setIsSyncing(false);
-            setIsLoading(false); // Ensure loading state is cleared
+            // Double-check loading state is cleared
+            if (isMountedRef.current) {
+                setIsLoading(false);
+            }
         }
     }, [config.spreadsheetId, isGuest, toast]);
 
@@ -594,7 +603,7 @@ export const FinanceProvider = ({ children }) => {
                         await initializeDefaultData();
                     }
 
-                    // Handle Android bridge for SMS transactions
+                    // Handle Android bridge for SMS transactions - FIXED: Auto-add directly to sheets
                     if (window.AndroidBridge && typeof window.AndroidBridge.getPendingTransactions === 'function') {
                         try {
                             const pendingJson = window.AndroidBridge.getPendingTransactions();
@@ -603,23 +612,52 @@ export const FinanceProvider = ({ children }) => {
                                 if (Array.isArray(pendingTxns) && pendingTxns.length > 0) {
                                     console.log('[LAKSH] Found pending Android transactions:', pendingTxns.length);
 
-                                    // Queue for approval instead of auto-adding
+                                    // FIXED: Auto-add directly to sheets if connected, otherwise queue for review
+                                    const autoAddEnabled = localStorage.getItem('laksh_auto_add_sms') !== 'false'; // Default true
                                     let addedCount = 0;
+                                    let queuedCount = 0;
+
                                     for (const txn of pendingTxns) {
-                                        // Ensure basic fields
-                                        const pending = {
+                                        const enriched = enrichTransaction({
                                             ...txn,
-                                            id: txn.id || Date.now() + Math.random().toString(),
-                                            status: 'pending', // Explicitly mark as pending
+                                            id: txn.id || generateId(),
                                             source: 'sms_android'
-                                        };
-                                        const enriched = enrichTransaction(pending);
-                                        const added = transactionDetector.addPending(enriched);
-                                        if (added) addedCount++;
+                                        });
+
+                                        // Auto-add if enabled and we have spreadsheet connection
+                                        if (autoAddEnabled && config.spreadsheetId && isConnected && !isGuest) {
+                                            try {
+                                                // Add directly to sheets
+                                                const finalAmount = enriched.type === 'expense' 
+                                                    ? -Math.abs(enriched.amount) 
+                                                    : Math.abs(enriched.amount);
+                                                
+                                                await addTransaction({
+                                                    ...enriched,
+                                                    amount: finalAmount,
+                                                    accountId: enriched.accountId || accounts[0]?.id || '',
+                                                    date: enriched.date || new Date().toISOString().split('T')[0]
+                                                });
+                                                addedCount++;
+                                                console.log('[LAKSH] Auto-added SMS transaction:', enriched.description);
+                                            } catch (addError) {
+                                                console.warn('[LAKSH] Auto-add failed, queuing for review:', addError);
+                                                // Fallback to pending queue if auto-add fails
+                                                transactionDetector.addPending(enriched);
+                                                queuedCount++;
+                                            }
+                                        } else {
+                                            // Queue for review if auto-add disabled or not connected
+                                            const added = transactionDetector.addPending(enriched);
+                                            if (added) queuedCount++;
+                                        }
                                     }
 
                                     if (addedCount > 0) {
-                                        toast(`${addedCount} new transaction(s) detected! Review them in the badge.`, 'info');
+                                        toast(`${addedCount} SMS transaction(s) added automatically ✓`, 'success');
+                                    }
+                                    if (queuedCount > 0) {
+                                        toast(`${queuedCount} transaction(s) queued for review`, 'info');
                                     }
 
                                     if (typeof window.AndroidBridge.clearPendingTransactions === 'function') {
@@ -766,9 +804,18 @@ export const FinanceProvider = ({ children }) => {
                             setIsGuest(false);
                             storage.set(STORAGE_KEYS.GUEST_MODE, 'false');
                         }
-                        // Trigger initial sync if we have any valid token
-                        if (cloudBackup.isSignedIn() || cloudBackup.accessToken || hasValidDirectToken) {
-                            console.log('[LAKSH] Triggering data refresh after login...');
+                        
+                        // FIXED: Check for OAuth refresh flag before deciding to refresh
+                        const oauthRefreshRequired = localStorage.getItem('oauth_refresh_required') === 'true';
+                        
+                        // Trigger initial sync if we have any valid token OR if OAuth refresh is required
+                        if (oauthRefreshRequired || cloudBackup.isSignedIn() || cloudBackup.accessToken || hasValidDirectToken) {
+                            if (oauthRefreshRequired) {
+                                console.log('[LAKSH] OAuth refresh flag detected, forcing data refresh...');
+                                localStorage.removeItem('oauth_refresh_required');
+                            } else {
+                                console.log('[LAKSH] Triggering data refresh after login...');
+                            }
                             setLoadingStatus({ step: 3, message: 'Fetching your data...', error: null });
                             try {
                                 // Ensure sheets service is initialized before refresh
@@ -782,6 +829,8 @@ export const FinanceProvider = ({ children }) => {
                                 if (hasCachedData) {
                                     console.log('[LAKSH] Using cached data due to refresh failure');
                                 }
+                                // FIXED: Always clear loading state even on error
+                                setIsLoading(false);
                             }
                         } else {
                             console.log('[LAKSH] No valid token, skipping refresh');
@@ -843,23 +892,28 @@ export const FinanceProvider = ({ children }) => {
 
     // ===== POLL FOR TOKEN (WebView Fix) =====
     useEffect(() => {
-        if (isConnected) return;
-
         const interval = setInterval(() => {
             const token = localStorage.getItem('google_access_token');
             const refreshRequired = localStorage.getItem('oauth_refresh_required');
-            // Ensure we don't reload if we are already in the process of connecting
-            if (token && !isConnected && !isLoading) {
-                console.log('[LAKSH] Token detected via polling, reloading to initialize...');
-                window.location.reload();
-            }
-            // Check if OAuth callback set refresh flag
-            if (refreshRequired === 'true' && config.spreadsheetId && !isSyncing) {
+            
+            // Check if OAuth callback set refresh flag - FIXED: Remove isConnected check
+            if (refreshRequired === 'true' && config.spreadsheetId && !isSyncing && !isLoading) {
                 console.log('[LAKSH] OAuth refresh required, triggering data refresh...');
                 localStorage.removeItem('oauth_refresh_required');
-                refreshData(config.spreadsheetId, true).catch(err => {
-                    console.error('[LAKSH] OAuth refresh failed:', err);
-                });
+                
+                // Ensure sheets service is ready before refresh
+                ensureSheetsReady()
+                    .then(() => refreshData(config.spreadsheetId, true))
+                    .catch(err => {
+                        console.error('[LAKSH] OAuth refresh failed:', err);
+                        setError('Failed to load data after sign-in. Please try refreshing.');
+                    });
+            }
+            
+            // Ensure we don't reload if we are already in the process of connecting
+            if (token && !isConnected && !isLoading && !refreshRequired) {
+                console.log('[LAKSH] Token detected via polling, reloading to initialize...');
+                window.location.reload();
             }
         }, 2000);
 
@@ -1877,7 +1931,6 @@ export const FinanceProvider = ({ children }) => {
         isConnected,
         isLoading,
         loadingStage, // Expose for UI
-        loadingStatus,
         loadingStatus,
         isSyncing,
         lastSyncTime,
