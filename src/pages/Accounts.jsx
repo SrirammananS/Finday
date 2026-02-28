@@ -2,7 +2,10 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wallet, CreditCard, Banknote, Plus, Trash2, X, ArrowRight, Eye, EyeOff, Lock as LockIcon, Search, ShieldCheck } from 'lucide-react';
+import PageLayout from '../components/PageLayout';
+import PageHeader from '../components/PageHeader';
+import StatCard from '../components/ui/StatCard';
+import { Wallet, CreditCard, Banknote, Plus, Trash2, X, ArrowRight, Eye, EyeOff, Lock as LockIcon, Search, ShieldCheck, TrendingUp, TrendingDown } from 'lucide-react';
 
 const Accounts = () => {
     const { accounts = [], addAccount, updateAccount, deleteAccount, isLoading, secretUnlocked, toggleSecretUnlock } = useFinance();
@@ -54,32 +57,14 @@ const Accounts = () => {
 
     return (
         <div className="min-h-screen text-text-main selection:bg-primary selection:text-black">
-            {/* Background handled by Layout */}
-
-            <motion.main
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="relative px-5 py-12 md:px-8 md:py-24 max-w-5xl mx-auto pb-40 text-text-main"
-            >
-                {/* Header Layer */}
-                <header className="mb-16">
-                    <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-12">
-                        <div>
-                            <div className="flex items-center gap-3 mb-6">
-                                <div className="p-3 rounded-2xl bg-canvas-subtle border border-card-border text-primary">
-                                    <Wallet size={24} />
-                                </div>
-                                <span className="text-[10px] font-black uppercase tracking-[0.5em] text-text-muted">Central Vault</span>
-                            </div>
-                            <h1 className="text-xl font-black tracking-[-0.04em] leading-none mb-1 transition-all text-text-main uppercase">
-                                Accounts
-                            </h1>
-                            <p className="text-[8px] font-semibold text-text-muted uppercase tracking-[0.4em] opacity-60">Financial Nodes</p>
-                        </div>
-
-                        <div className="mb-1">
-
-                            {secretCount > 0 && (
+            <PageLayout>
+                <PageHeader
+                    badge="Vault"
+                    title="Accounts"
+                    subtitle="Financial nodes"
+                    icon={Wallet}
+                    actions={
+                    secretCount > 0 && (
                                 <button
                                     onClick={toggleSecretUnlock}
                                     className={`group flex items-center gap-3 px-6 py-4 rounded-[1.5rem] border transition-all ${secretUnlocked ? 'bg-primary border-primary text-black' : 'bg-card border-card-border text-text-main hover:border-primary/50'}`}
@@ -90,65 +75,55 @@ const Accounts = () => {
                                     </div>
                                     {secretUnlocked ? <EyeOff size={18} strokeWidth={3} /> : <Eye size={18} strokeWidth={3} />}
                                 </button>
-                            )}
+                            )
+                    }
+                />
+
+                    {/* Summary - StatCards */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                        <div className="col-span-2 md:col-span-1 p-4 rounded-2xl bg-card border border-card-border">
+                            <Search className="w-8 h-8 text-text-muted/40 mb-2" size={20} />
+                            <input
+                                type="text"
+                                placeholder="Search accounts..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                className="w-full bg-transparent border-b border-card-border py-2 text-sm font-semibold text-text-main placeholder:text-text-muted/50 outline-none focus:border-primary transition-all"
+                            />
                         </div>
+                        <StatCard
+                            label="Liquid Assets"
+                            value={formatCurrency(visibleAccounts.filter(a => a.type !== 'credit').reduce((sum, a) => sum + a.balance, 0))}
+                            icon={TrendingUp}
+                            variant="income"
+                        />
+                        <StatCard
+                            label="Credit / Debt"
+                            value={formatCurrency(visibleAccounts.filter(a => a.type === 'credit').reduce((sum, a) => sum + a.balance, 0))}
+                            icon={TrendingDown}
+                            variant="expense"
+                        />
+                        <StatCard
+                            label="Net Worth"
+                            value={formatCurrency(totalBalance)}
+                            icon={Wallet}
+                            variant="primary"
+                        />
                     </div>
-
-                    {/* Summary Intelligence - Refined Cubes */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
-                        <div className="relative group p-6 rounded-[2rem] bg-card border border-card-border hover:bg-canvas-elevated transition-all flex flex-col justify-between h-32 md:h-40 overflow-hidden">
-                            <Search className="absolute top-4 right-4 text-text-muted/20 group-hover:text-primary/40 transition-colors" size={24} />
-                            <span className="text-[9px] font-black uppercase tracking-[0.3em] text-text-muted">Search Node</span>
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    placeholder="..."
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    className="w-full bg-transparent border-b-2 border-card-border/50 py-2 text-lg font-black uppercase text-text-main placeholder:text-text-muted/20 outline-none focus:border-primary transition-all relative z-10"
-                                />
-                                <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary scale-x-0 group-focus-within:scale-x-100 transition-transform origin-left" />
-                            </div>
-                        </div>
-
-                        <div className="p-6 rounded-[2rem] bg-card border border-card-border hover:bg-canvas-elevated transition-all flex flex-col justify-between h-32 md:h-40">
-                            <span className="text-[9px] font-black uppercase tracking-[0.3em] text-emerald-500/80">Liquid Assets</span>
-                            <div>
-                                <h3 className="text-2xl md:text-3xl font-black text-text-main tabular-nums tracking-tighter leading-none">{formatCurrency(visibleAccounts.filter(a => a.type !== 'credit').reduce((sum, a) => sum + a.balance, 0))}</h3>
-                            </div>
-                        </div>
-
-                        <div className="p-6 rounded-[2rem] bg-card border border-card-border hover:bg-canvas-elevated transition-all flex flex-col justify-between h-32 md:h-40">
-                            <span className="text-[9px] font-black uppercase tracking-[0.3em] text-rose-500/80">Leverage</span>
-                            <div>
-                                <h3 className="text-2xl md:text-3xl font-black text-text-main tabular-nums tracking-tighter leading-none">{formatCurrency(visibleAccounts.filter(a => a.type === 'credit').reduce((sum, a) => sum + a.balance, 0))}</h3>
-                            </div>
-                        </div>
-
-                        <div className="p-6 rounded-[2rem] bg-primary/[0.05] border border-primary/20 hover:bg-primary/[0.08] transition-all flex flex-col justify-between h-32 md:h-40 relative overflow-hidden group">
-                            <div className="absolute top-[-20%] right-[-10%] w-24 h-24 bg-primary/20 blur-[40px] rounded-full group-hover:bg-primary/30 transition-all" />
-                            <span className="text-[9px] font-black uppercase tracking-[0.3em] text-primary">Net Valuation</span>
-                            <div>
-                                <h3 className="text-2xl md:text-3xl font-black text-primary tabular-nums tracking-tighter leading-none">{formatCurrency(totalBalance)}</h3>
-                            </div>
-                        </div>
-                    </div>
-                </header>
 
                 {/* Account Grid */}
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mt-6">
                     {visibleAccounts.map((acc, idx) => {
                         const isCredit = acc.type === 'credit';
                         return (
                             <motion.div
                                 key={String(acc.id)}
-                                initial={{ y: 20, opacity: 0 }}
+                                initial={{ y: 10, opacity: 0 }}
                                 animate={{ y: 0, opacity: 1 }}
-                                transition={{ delay: 0.1 * idx }}
+                                transition={{ delay: 0.05 * idx }}
                             >
                                 <div className="group relative">
-                                    <div className="absolute -inset-[1px] bg-gradient-to-br from-primary/20 to-transparent rounded-[2rem] opacity-0 group-hover:opacity-100 transition-all duration-500" />
-                                    <div className="relative p-4 md:p-5 rounded-[1.8rem] bg-card border border-card-border min-h-[120px] flex flex-col justify-between overflow-hidden transition-all group-hover:bg-canvas-elevated">
+                                    <div className="relative p-4 md:p-6 rounded-2xl bg-card border border-card-border min-h-[140px] flex flex-col justify-between overflow-hidden transition-all hover:border-primary/20">
                                         <div className="absolute top-0 right-0 p-3 opacity-[0.015] -rotate-12 translate-x-2 translate-y-[-10%] group-hover:scale-110 transition-transform pointer-events-none">
                                             {acc.type === 'bank' ? <ShieldCheck size={80} /> : acc.type === 'credit' ? <CreditCard size={80} /> : <Banknote size={80} />}
                                         </div>
@@ -243,7 +218,7 @@ const Accounts = () => {
                         </div>
                     </motion.button>
                 </div>
-            </motion.main>
+            </PageLayout>
 
             {/* Modal Layer */}
             <AnimatePresence>

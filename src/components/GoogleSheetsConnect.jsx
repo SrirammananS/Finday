@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import { Cloud, Plus, FileSpreadsheet, Check, Loader2, RefreshCw, X, Smartphone, ExternalLink } from 'lucide-react';
 import { sheetsService } from '../services/sheets';
 import { cloudBackup } from '../services/cloudBackup';
@@ -125,7 +125,7 @@ export default function GoogleSheetsConnect({ onConnect, onDisconnect, isConnect
             const sheets = await sheetsService.listSpreadsheets();
             if (!isMountedRef.current) return;
             setSpreadsheets(sheets);
-        } catch (err) {
+        } catch {
             if (isMountedRef.current) {
                 setError('Failed to refresh list');
             }

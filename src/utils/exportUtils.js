@@ -13,7 +13,7 @@ export const exportToCSV = (transactions, accounts, categories) => {
     
     const rows = transactions.map(transaction => {
         const account = accounts.find(a => a.id === transaction.accountId);
-        const category = categories.find(c => c.name === transaction.category);
+        const _category = categories.find(c => c.name === transaction.category);
         
         return [
             transaction.date || '',
@@ -57,12 +57,12 @@ export const exportTransactions = (transactions, accounts, categories, format = 
     const dateStr = now.toISOString().split('T')[0];
     
     switch (format) {
-        case 'csv':
+        case 'csv': {
             const csvContent = exportToCSV(transactions, accounts, categories);
             downloadFile(csvContent, `transactions-${dateStr}.csv`, 'text/csv');
             break;
-            
-        case 'json':
+        }
+        case 'json': {
             const jsonContent = exportToJSON({
                 exported_at: now.toISOString(),
                 transactions,
@@ -71,13 +71,13 @@ export const exportTransactions = (transactions, accounts, categories, format = 
             });
             downloadFile(jsonContent, `financial-data-${dateStr}.json`, 'application/json');
             break;
-            
+        }
         default:
             throw new Error(`Unsupported export format: ${format}`);
     }
 };
 
-export const generateFinancialReport = (transactions, accounts, categories) => {
+export const generateFinancialReport = (transactions, accounts, _categories) => {
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();

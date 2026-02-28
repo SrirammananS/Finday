@@ -3,8 +3,10 @@ import { useParams, Link } from 'react-router-dom';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, TrendingUp, TrendingDown, Wallet, Filter, Calendar, ChevronLeft, ChevronRight, CreditCard, Edit3, ShieldCheck, Activity, Globe, Info } from 'lucide-react';
-import { format, addMonths, subMonths, startOfMonth, endOfMonth } from 'date-fns';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts';
+import { format, addMonths, subMonths } from 'date-fns';
 import TransactionForm from '../components/TransactionForm';
+import { useWalletChartData } from '../hooks/useWalletChartData';
 
 const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-IN', {
@@ -53,6 +55,9 @@ const AccountDetail = () => {
         const expenses = accountTransactions.filter(t => t.type === 'expense' || t.amount < 0).reduce((sum, t) => sum + Math.abs(t.amount), 0);
         return { income, expenses, count: accountTransactions.length };
     }, [accountTransactions]);
+
+    // Chart data: last 30 days income/expense trend for this account
+    const accountChartData = useWalletChartData(transactions, accountId, 30);
 
     const handleEditTransaction = (transaction) => {
         setEditingTransaction(transaction);
@@ -172,7 +177,7 @@ const AccountDetail = () => {
                 </div>
 
                 {/* Secondary Stats Row */}
-                <div className="grid grid-cols-2 md:grid-cols-2 gap-4 mb-16">
+                <div className="grid grid-cols-2 md:grid-cols-2 gap-4 mb-8">
                     <div className="p-8 rounded-[2.5rem] bg-emerald-500/[0.03] border border-emerald-500/10 flex items-center justify-between group hover:bg-emerald-500/[0.05] transition-all">
                         <div>
                             <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500/60 block mb-2">{isCreditCard ? 'PAYMENTS' : 'INFLOW'}</span>
@@ -186,6 +191,46 @@ const AccountDetail = () => {
                             <h4 className="text-2xl md:text-3xl font-black text-rose-400 tabular-nums tracking-tighter">{formatCurrency(stats.expenses)}</h4>
                         </div>
                         <TrendingDown size={24} className="text-rose-500/40 group-hover:scale-125 transition-transform" />
+                    </div>
+                </div>
+
+                {/* Income/Expense Trend Chart */}
+                <div className="p-6 md:p-8 rounded-[2.5rem] bg-card border border-card-border mb-12 overflow-hidden">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-4">Activity Trend (30 days)</h3>
+                    <div className="h-48 md:h-56 -mx-2">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={accountChartData}>
+                                <defs>
+                                    <linearGradient id="accIn" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                                    </linearGradient>
+                                    <linearGradient id="accOut" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.4} />
+                                        <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                                <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.5)' }} />
+                                <YAxis hide domain={['auto', 'auto']} />
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: 'rgba(0,0,0,0.9)',
+                                        border: '1px solid rgba(255,255,255,0.1)',
+                                        borderRadius: '12px',
+                                        color: '#fff',
+                                        fontSize: '12px',
+                                        fontWeight: 600,
+                                    }}
+                                    itemStyle={{ color: '#fff' }}
+                                    labelStyle={{ color: 'rgba(255,255,255,0.8)' }}
+                                    formatter={(value, name) => [`₹${Number(value).toLocaleString()}`, name === 'Inflow' ? 'Inflow' : 'Outflow']}
+                                    labelFormatter={(label) => `Day ${label}`}
+                                />
+                                <Area type="monotone" dataKey="income" stroke="#10b981" strokeWidth={2} fill="url(#accIn)" name="Inflow" />
+                                <Area type="monotone" dataKey="expense" stroke="#f43f5e" strokeWidth={2} fill="url(#accOut)" name="Outflow" />
+                            </AreaChart>
+                        </ResponsiveContainer>
                     </div>
                 </div>
 

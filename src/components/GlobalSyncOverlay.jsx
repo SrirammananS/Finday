@@ -11,7 +11,7 @@ const GlobalSyncOverlay = () => {
         const finance = useFinance();
         isSyncing = finance?.isSyncing ?? false;
         loadingStatus = finance?.loadingStatus ?? { message: 'Syncing...' };
-    } catch (e) {
+    } catch {
         // Context not ready
     }
 

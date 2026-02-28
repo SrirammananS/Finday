@@ -8,11 +8,10 @@ import LockScreen from './components/LockScreen';
 import ErrorBoundary from './components/ErrorBoundary';
 import PendingTransactionsBadge from './components/PendingTransactionsBadge';
 import { biometricAuth } from './services/biometricAuth';
-import { transactionDetector } from './services/transactionDetector';
 import { parseSMS, formatParsedTransaction } from './services/smsParser';
 import { pendingTransactionsService } from './services/pendingTransactions';
 import { useFinance } from './context/FinanceContext';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 
 import { lazyWithRetry } from './utils/lazyRetry';
 
@@ -28,9 +27,6 @@ const Bills = lazyWithRetry(() => import('./pages/Bills'));
 const Friends = lazyWithRetry(() => import('./pages/Friends'));
 const Welcome = lazyWithRetry(() => import('./pages/Welcome'));
 const OAuthCallback = lazyWithRetry(() => import('./pages/OAuthCallback'));
-
-import Lenis from 'lenis';
-import { motion } from 'framer-motion';
 
 import ScrollToTop from './components/ScrollToTop';
 import TypeGPUBackground from './components/ui/TypeGPUBackground';
@@ -116,18 +112,10 @@ function App() {
 
   useEffect(() => {
     if (isPWA && biometricAuth.isLockEnabled()) {
-      setIsLocked(true);
+      queueMicrotask(() => setIsLocked(true));
     }
   }, [isPWA]);
 
-  useEffect(() => {
-    const lenis = new Lenis();
-    function raf(time) {
-      lenis.raf(time);
-      requestAnimationFrame(raf);
-    }
-    requestAnimationFrame(raf);
-  }, []);
 
   useEffect(() => {
     const handleSharedContent = () => {
@@ -185,7 +173,7 @@ function App() {
                 if (txn.amount && !pendingTransactionsService.isDuplicate(Math.abs(txn.amount), txn.date || new Date().toISOString().split('T')[0])) {
                   pendingTransactionsService.add({
                     ...txn,
-                    id: txn.id || `sms_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    id: txn.id || `sms_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
                     source: 'sms_android',
                   });
                 }
@@ -229,8 +217,8 @@ function App() {
       </AnimatePresence>
 
       <TypeGPUBackground intensity="medium" />
-      <div className="fixed inset-0 pointer-events-none z-0 mix-blend-overlay opacity-20">
-        <AnimatedBackground variant="finance" intensity="low" />
+      <div className="fixed inset-0 pointer-events-none z-0 mix-blend-overlay opacity-25">
+        <AnimatedBackground variant="laksh" intensity="low" />
       </div>
 
 

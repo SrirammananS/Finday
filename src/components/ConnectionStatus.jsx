@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useFinance } from '../context/FinanceContext';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import {
     Wifi, WifiOff, Cloud, CloudOff, AlertCircle, CheckCircle2,
     RefreshCw, Loader2, X, ChevronDown, ChevronUp, Database,

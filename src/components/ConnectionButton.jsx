@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { useFinance } from '../context/FinanceContext';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
     Cloud, CloudOff, Loader2, Wifi, WifiOff, Shield,
     Database, FileSpreadsheet, X, CheckCircle2, AlertCircle
@@ -12,7 +12,7 @@ export default function ConnectionButton() {
     const {
         isConnected,
         isSyncing,
-        isLoading,
+        isLoading: _isLoading,
         lastSyncTime,
         error,
         config,

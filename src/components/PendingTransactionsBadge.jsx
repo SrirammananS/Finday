@@ -9,10 +9,11 @@ import { Sparkles, X, Check, Edit3, Trash2, ChevronLeft, ChevronRight, MessageSq
 import { pendingTransactionsService } from '../services/pendingTransactions';
 import { useFinance } from '../context/FinanceContext';
 import { useFeedback } from '../context/FeedbackContext';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 
 const PendingTransactionsBadge = () => {
-    const { addTransaction, accounts, categories } = useFinance();
+    const { addTransaction, accounts, categories, categoriesByUsage } = useFinance();
+    const displayCategories = categoriesByUsage?.length ? categoriesByUsage : categories;
     const { toast } = useFeedback();
     const location = useLocation();
     const [pending, setPending] = useState([]);
@@ -219,7 +220,7 @@ const PendingTransactionsBadge = () => {
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-bold uppercase text-text-muted tracking-wider block">Category</label>
                                             <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
-                                                {categories.map(c => (
+                                                {displayCategories.map(c => (
                                                     <button
                                                         key={c.name}
                                                         type="button"
@@ -278,7 +279,7 @@ const PendingTransactionsBadge = () => {
                                             <div className="flex items-center justify-between">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-2xl">
-                                                        {categories.find(c => c.name === currentTransaction.category)?.icon || '📦'}
+                                                        {displayCategories.find(c => c.name === currentTransaction.category)?.icon || '📦'}
                                                     </div>
                                                     <div className="text-left">
                                                         <p className="text-sm font-black text-text-main uppercase">{currentTransaction.category}</p>

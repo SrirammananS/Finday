@@ -23,7 +23,7 @@ export const FeedbackProvider = ({ children }) => {
     const toast = useCallback((message, type = 'success') => {
         if (!isMountedRef.current) return;
         
-        const id = Math.random().toString(36).substr(2, 9);
+        const id = Math.random().toString(36).substring(2, 11);
         setToasts(prev => [...prev, { id, message, type }]);
 
         // Auto-remove after 4s

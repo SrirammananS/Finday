@@ -1,6 +1,8 @@
 // Cloud Backup Section - WhatsApp-style One-Touch Backup UI
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
+
+const OAUTH_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 import { Cloud, CloudOff, RefreshCw, Download, Upload, User, LogOut, Shield, CheckCircle2, AlertCircle, Smartphone, ExternalLink } from 'lucide-react';
 import { cloudBackup } from '../services/cloudBackup';
 import { useFeedback } from '../context/FeedbackContext';
@@ -85,7 +87,7 @@ const CloudBackupSection = ({ onDataRestored, getData }) => {
                 case 'backup_started':
                     setBackupStatus('backing_up');
                     break;
-                case 'backup_completed':
+                case 'backup_completed': {
                     if (!isMountedRef.current) return;
                     setBackupStatus('success');
                     setLastBackupTime(status.timestamp);
@@ -95,7 +97,8 @@ const CloudBackupSection = ({ onDataRestored, getData }) => {
                     }, 3000);
                     addTimeout(timeout1);
                     break;
-                case 'backup_failed':
+                }
+                case 'backup_failed': {
                     if (!isMountedRef.current) return;
                     setBackupStatus('error');
                     setError(status.error);
@@ -105,10 +108,11 @@ const CloudBackupSection = ({ onDataRestored, getData }) => {
                     }, 3000);
                     addTimeout(timeout2);
                     break;
+                }
                 case 'restore_started':
                     setBackupStatus('restoring');
                     break;
-                case 'restore_completed':
+                case 'restore_completed': {
                     if (!isMountedRef.current) return;
                     setBackupStatus('success');
                     if (status.data && onDataRestored) {
@@ -120,7 +124,8 @@ const CloudBackupSection = ({ onDataRestored, getData }) => {
                     }, 3000);
                     addTimeout(timeout3);
                     break;
-                case 'restore_failed':
+                }
+                case 'restore_failed': {
                     if (!isMountedRef.current) return;
                     setBackupStatus('error');
                     setError(status.error);
@@ -130,6 +135,7 @@ const CloudBackupSection = ({ onDataRestored, getData }) => {
                     }, 3000);
                     addTimeout(timeout4);
                     break;
+                }
             }
         });
 

@@ -7,7 +7,8 @@ import { parseSMS, formatParsedTransaction } from '../services/smsParser';
 import { useFeedback } from '../context/FeedbackContext';
 
 const PendingTransactionsFeed = () => {
-    const { accounts, categories, addTransaction } = useFinance();
+    const { accounts, categories, categoriesByUsage, addTransaction } = useFinance();
+    const displayCategories = categoriesByUsage?.length ? categoriesByUsage : categories;
     const { toast } = useFeedback();
     const [pending, setPending] = useState([]);
     const [expanded, setExpanded] = useState(true);
@@ -115,7 +116,7 @@ const PendingTransactionsFeed = () => {
             } else {
                 toast('Clipboard is empty', 'error');
             }
-        } catch (e) {
+        } catch {
             toast('Could not access clipboard', 'error');
         }
     };
@@ -278,7 +279,7 @@ const PendingTransactionsFeed = () => {
                                                 onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))}
                                                 className="bg-canvas-subtle border border-card-border py-2 px-3 rounded-lg text-sm font-bold text-text-main outline-none"
                                             >
-                                                {categories.map(c => (
+                                                {displayCategories.map(c => (
                                                     <option key={c.name} value={c.name}>{c.name}</option>
                                                 ))}
                                             </select>

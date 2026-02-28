@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import { MapPin, X, Check, AlertCircle } from 'lucide-react';
 import smsParser from '../services/smsParser';
 

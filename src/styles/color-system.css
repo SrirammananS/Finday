@@ -9,15 +9,20 @@
        DARK MODE - Modern & Accessible
        ======================================== */
     
-    /* Primary Brand Color - Vibrant but Accessible */
-    --primary: #00D9FF;                    /* Cyan - High contrast */
-    --primary-rgb: 0, 217, 255;
+    /* Primary Brand Color - Logo-aligned neon green (circuit glow) */
+    --primary: #00E676;                    /* Neon green - LAKSH logo */
+    --primary-rgb: 0, 230, 118;
     --primary-foreground: #000000;
-    --primary-hover: #00B8D9;              /* Darker for hover */
-    --primary-active: #0099B8;            /* Even darker for active */
+    --primary-hover: #00C853;              /* Darker for hover */
+    --primary-active: #00B248;             /* Even darker for active */
     --primary-disabled: #4A5568;           /* Gray for disabled */
-    --primary-light: rgba(0, 217, 255, 0.1);
-    --primary-dark: #007A99;
+    --primary-light: rgba(0, 230, 118, 0.12);
+    --primary-dark: #009624;
+
+    /* Logo Rupee Accent - Golden (₹ coin) */
+    --accent-gold: #FFD700;
+    --accent-gold-rgb: 255, 215, 0;
+    --accent-gold-muted: rgba(255, 215, 0, 0.15);
 
     /* Accent Colors - Vibrant & Distinct */
     --accent-success: #10B981;              /* Emerald - Income */
@@ -40,8 +45,8 @@
     --card-hover: rgba(26, 31, 46, 0.8);   /* Hover state */
     --card-active: rgba(26, 31, 46, 0.9);  /* Active state */
     --card-border: rgba(255, 255, 255, 0.1);
-    --card-border-hover: rgba(0, 217, 255, 0.3);
-    --card-glow: rgba(0, 217, 255, 0.05);
+    --card-border-hover: rgba(0, 230, 118, 0.35);
+    --card-glow: rgba(0, 230, 118, 0.08);
 
     /* Text Colors - High Contrast */
     --text-main: #F8FAFC;                  /* Primary text - WCAG AAA */
@@ -52,8 +57,8 @@
 
     /* Border & Divider */
     --border-default: rgba(255, 255, 255, 0.1);
-    --border-hover: rgba(0, 217, 255, 0.3);
-    --border-focus: rgba(0, 217, 255, 0.5);
+    --border-hover: rgba(0, 230, 118, 0.35);
+    --border-focus: rgba(0, 230, 118, 0.5);
     --divider: rgba(255, 255, 255, 0.08);
 
     /* Status Colors */
@@ -71,8 +76,9 @@
     --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
     --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
     --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.6);
-    --glow-primary: 0 0 20px rgba(0, 217, 255, 0.3);
-    --glow-primary-hover: 0 0 30px rgba(0, 217, 255, 0.5);
+    --glow-primary: 0 0 20px rgba(0, 230, 118, 0.35);
+    --glow-primary-hover: 0 0 30px rgba(0, 230, 118, 0.5);
+    --glow-gold: 0 0 15px rgba(255, 215, 0, 0.25);
   }
 
   :root.light {
@@ -80,15 +86,15 @@
        LIGHT MODE - Clean & Professional
        ======================================== */
     
-    /* Primary Brand Color - Vibrant Cyan */
-    --primary: #00A8CC;                    /* Slightly darker for light mode */
-    --primary-rgb: 0, 168, 204;
+    /* Primary Brand Color - Logo neon green (light mode) */
+    --primary: #00C853;                    /* Slightly darker for light mode */
+    --primary-rgb: 0, 200, 83;
     --primary-foreground: #FFFFFF;
-    --primary-hover: #0088AA;              /* Darker for hover */
-    --primary-active: #006688;             /* Even darker for active */
+    --primary-hover: #00B248;              /* Darker for hover */
+    --primary-active: #009624;             /* Even darker for active */
     --primary-disabled: #CBD5E1;           /* Light gray for disabled */
-    --primary-light: rgba(0, 168, 204, 0.1);
-    --primary-dark: #005577;
+    --primary-light: rgba(0, 200, 83, 0.12);
+    --primary-dark: #007A3D;
 
     /* Accent Colors - Slightly Muted for Light Mode */
     --accent-success: #059669;              /* Darker emerald */
@@ -111,8 +117,8 @@
     --card-hover: rgba(255, 255, 255, 1);   /* Full white on hover */
     --card-active: rgba(248, 250, 252, 1);  /* Slightly gray on active */
     --card-border: rgba(0, 0, 0, 0.08);
-    --card-border-hover: rgba(0, 168, 204, 0.3);
-    --card-glow: rgba(0, 168, 204, 0.05);
+    --card-border-hover: rgba(0, 200, 83, 0.35);
+    --card-glow: rgba(0, 200, 83, 0.08);
 
     /* Text Colors - Dark for Contrast */
     --text-main: #0F172A;                  /* Near black - WCAG AAA */
@@ -123,8 +129,8 @@
 
     /* Border & Divider */
     --border-default: rgba(0, 0, 0, 0.08);
-    --border-hover: rgba(0, 168, 204, 0.3);
-    --border-focus: rgba(0, 168, 204, 0.5);
+    --border-hover: rgba(0, 200, 83, 0.35);
+    --border-focus: rgba(0, 200, 83, 0.5);
     --divider: rgba(0, 0, 0, 0.06);
 
     /* Status Colors - Darker for Light Mode */
@@ -142,8 +148,8 @@
     --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
     --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
     --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
-    --glow-primary: 0 0 15px rgba(0, 168, 204, 0.2);
-    --glow-primary-hover: 0 0 25px rgba(0, 168, 204, 0.3);
+    --glow-primary: 0 0 15px rgba(0, 200, 83, 0.2);
+    --glow-primary-hover: 0 0 25px rgba(0, 200, 83, 0.3);
   }
 
   /* ========================================

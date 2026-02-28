@@ -555,9 +555,26 @@
 
   /* ========================================
      DYNAMIC ISLAND NAV (2026 Edition)
+     Mobile: safe area for notched phones
+     Scrollable on mobile when icons overflow
      ======================================== */
+  .modern-island-wrapper {
+    @apply fixed left-1/2 -translate-x-1/2 z-[1000];
+    bottom: max(1rem, env(safe-area-inset-bottom, 0px) + 0.5rem);
+    width: fit-content;
+    max-width: min(calc(100vw - 2rem), 420px);
+    transition: transform 0.5s var(--ease-spring), opacity 0.5s var(--ease-spring);
+  }
+  @media (min-width: 768px) {
+    .modern-island-wrapper {
+      bottom: 2rem;
+      width: fit-content;
+      max-width: none;
+    }
+  }
+
   .modern-island {
-    @apply fixed bottom-5 md:bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex items-center p-1.5 rounded-full;
+    @apply flex items-center justify-center p-1.5 md:p-2 rounded-full flex-nowrap;
     background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(40px) saturate(180%);
     -webkit-backdrop-filter: blur(40px) saturate(180%);
@@ -567,6 +584,33 @@
       0 10px 40px rgba(0, 0, 0, 0.5),
       0 0 80px -20px rgba(var(--primary-rgb), 0.15);
     transition: all 0.5s var(--ease-spring);
+  }
+
+  /* Mobile: horizontal scroll with snap, gradient fade edges */
+  .modern-island-scroll {
+    @apply overflow-x-auto overflow-y-hidden;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .modern-island-scroll::-webkit-scrollbar {
+    display: none;
+  }
+  @media (max-width: 767px) {
+    .modern-island-scroll {
+      max-width: calc(100vw - 2rem);
+      scroll-padding-inline: 1rem;
+    }
+    .modern-island-item {
+      scroll-snap-align: center;
+      scroll-snap-stop: normal;
+    }
+  }
+  @media (min-width: 768px) {
+    .modern-island-scroll {
+      overflow: visible;
+    }
   }
 
   .modern-island:hover {
@@ -585,7 +629,7 @@
       0 10px 40px rgba(0, 0, 0, 0.1);
   }
 
-  body.modal-open .modern-island {
+  body.modal-open .modern-island-wrapper {
     transform: translate(-50%, 200%);
     pointer-events: none;
     opacity: 0;
@@ -996,9 +1040,96 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   opacity: 0.8;
 }
 
-/* Safe area insets for mobile */
+/* ========================================
+   MOBILE PWA UX ENHANCEMENTS
+   Safe areas, touch targets, gestures
+   ======================================== */
 .safe-area-inset {
   padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* Safe area padding for notched devices (iPhone X+, etc.) */
+.safe-area-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 20px);
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Bottom padding to clear floating nav - mobile uses safe area */
+.pb-nav {
+  padding-bottom: max(5.5rem, calc(5.5rem + env(safe-area-inset-bottom, 0px)));
+}
+@media (min-width: 768px) {
+  .pb-nav {
+    padding-bottom: 5rem;
+  }
+}
+
+/* Remove tap highlight flash on interactive elements - smoother mobile feel */
+button,
+a,
+[role="button"],
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Ensure tap targets meet 44px minimum (iOS HIG / Material) */
+@media (max-width: 768px) {
+  button:not(.no-min-tap),
+  .pressable,
+  [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Prevent double-tap zoom on buttons/links - faster response */
+  button,
+  a,
+  [role="button"],
+  .modern-card {
+    touch-action: manipulation;
+  }
+
+  /* Smooth momentum scrolling on iOS */
+  .overflow-x-auto,
+  .overflow-y-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Snappy scroll for horizontal card carousels */
+  .scroll-snap-x {
+    scroll-snap-type: x mandatory;
+    scroll-padding: 0 1rem;
+  }
+
+  .scroll-snap-x > * {
+    scroll-snap-align: start;
+  }
+}
+
+/* Glass nav bar (bottom navigation) - used by MobileNav */
+.glass-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 999;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  background: rgba(10, 14, 26, 0.85);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.3);
+}
+
+:root.light .glass-nav {
+  background: rgba(255, 255, 255, 0.9);
+  border-top-color: rgba(0, 0, 0, 0.06);
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.08);
 }
 
 /* Prevent text selection on interactive elements */

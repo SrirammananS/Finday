@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -77,7 +76,7 @@ async function main() {
     console.log(`[IWA] Unsigned bundle created: ${outWbn}`);
     console.log('[IWA] For production IWA, a signed web bundle (.swbn) is required.');
     console.log(`      Install Chromium tooling and run: gen-signed-web-bundle --private-key ${keyFile} --domain ${domain} --output ${outBundle} ${distDir}`);
-  } catch (e) {
+  } catch {
     console.log('[IWA] gen-signed-web-bundle not found and "wbn" module unavailable.');
     console.log('[IWA] Please install one of the following tools:');
     console.log('  - Chromium gen-signed-web-bundle (recommended for .swbn)');

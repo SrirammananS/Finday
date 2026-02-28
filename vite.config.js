@@ -32,7 +32,7 @@ export default defineConfig({
     },
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.ico', 'logo192.png', 'logo512.png'],
       manifest: {
         name: 'LAKSH - Personal Finance Tracker',
         short_name: 'LAKSH',
@@ -77,28 +77,28 @@ export default defineConfig({
             name: 'Add Transaction',
             short_name: 'Add',
             url: '/?action=add',
-            icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }]
+            icons: [{ src: 'logo192.png', sizes: '192x192' }]
           },
           {
             name: 'View Friends',
             short_name: 'Friends',
             url: '/friends',
-            icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }]
+            icons: [{ src: 'logo192.png', sizes: '192x192' }]
           }
         ],
         icons: [
           {
-            src: 'pwa-192x192.png',
+            src: 'logo192.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: 'pwa-512x512.png',
+            src: 'logo512.png',
             sizes: '512x512',
             type: 'image/png'
           },
           {
-            src: 'pwa-512x512.png',
+            src: 'logo512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'

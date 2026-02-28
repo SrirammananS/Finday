@@ -17,6 +17,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -50,10 +51,18 @@ class MainActivity : AppCompatActivity() {
         private const val PERMISSION_REQUEST_CODE = 100
         const val WEB_URL = "https://finma-ea199.web.app"
         
-        private val REQUIRED_PERMISSIONS = arrayOf(
-            Manifest.permission.RECEIVE_SMS,
-            Manifest.permission.READ_SMS
-        )
+        private val REQUIRED_PERMISSIONS = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(
+                Manifest.permission.RECEIVE_SMS,
+                Manifest.permission.READ_SMS,
+                Manifest.permission.POST_NOTIFICATIONS
+            )
+        } else {
+            arrayOf(
+                Manifest.permission.RECEIVE_SMS,
+                Manifest.permission.READ_SMS
+            )
+        }
     }
     
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -61,6 +70,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         
+        setupBackPress()
         setupWebView()
         checkPermissions()
         
@@ -277,29 +287,26 @@ class MainActivity : AppCompatActivity() {
         handleIntent()
     }
     
+    private fun setupBackPress() {
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (webView.canGoBack()) webView.goBack() else finish()
+            }
+        })
+    }
+
     private fun checkPermissions() {
         val permissionsToRequest = REQUIRED_PERMISSIONS.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
         
         if (permissionsToRequest.isNotEmpty()) {
+            Log.d("LAKSH", "Requesting permissions: $permissionsToRequest")
             ActivityCompat.requestPermissions(
                 this,
                 permissionsToRequest.toTypedArray(),
                 PERMISSION_REQUEST_CODE
             )
-        }
-        
-        // Request notification permission for Android 13+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
-                != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    PERMISSION_REQUEST_CODE + 1
-                )
-            }
         }
     }
     
@@ -310,10 +317,17 @@ class MainActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                Toast.makeText(this, "SMS auto-detection enabled!", Toast.LENGTH_SHORT).show()
+            val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            if (allGranted) {
+                Toast.makeText(this, "SMS & notifications enabled! You'll see transaction alerts.", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(this, "SMS permission needed for auto-detection", Toast.LENGTH_LONG).show()
+                val denied = permissions.filterIndexed { i, _ -> i < grantResults.size && grantResults[i] != PackageManager.PERMISSION_GRANTED }
+                if (Manifest.permission.POST_NOTIFICATIONS in denied) {
+                    Toast.makeText(this, "Enable notifications in Settings to get transaction alerts", Toast.LENGTH_LONG).show()
+                }
+                if (Manifest.permission.RECEIVE_SMS in denied || Manifest.permission.READ_SMS in denied) {
+                    Toast.makeText(this, "SMS permission needed for auto-detection", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -471,19 +485,14 @@ class MainActivity : AppCompatActivity() {
                 })();
                 """.trimIndent()
             ) {
-                // Clear native store after injection
-                TransactionStore.clearPending(this)
+                // BUG FIX: Do NOT clear pending on injection.
+                // Previously we cleared immediately, losing data if PWA failed to persist.
+                // Pending transactions are only removed when user taps Save/Ignore in notification,
+                // or when PWA calls AndroidBridge.removePendingTransaction(id) after saving.
             }
         }
     }
     
-    override fun onBackPressed() {
-        if (webView.canGoBack()) {
-            webView.goBack()
-        } else {
-            super.onBackPressed()
-        }
-    }
     
     override fun onResume() {
         super.onResume()
@@ -503,7 +512,7 @@ class MainActivity : AppCompatActivity() {
                 <style>
                     body {
                         font-family: -apple-system, sans-serif;
-                        background: #050505;
+                        background: #0f172a;
                         color: white;
                         display: flex;
                         flex-direction: column;
@@ -514,7 +523,7 @@ class MainActivity : AppCompatActivity() {
                         text-align: center;
                         padding: 20px;
                     }
-                    h1 { color: #CCFF00; font-size: 24px; margin-bottom: 10px; }
+                    h1 { color: #6366f1; font-size: 24px; margin-bottom: 10px; }
                     p { color: #94a3b8; margin: 16px 0; line-height: 1.5; }
                     .error-box {
                         background: rgba(255, 0, 0, 0.1);
@@ -527,8 +536,8 @@ class MainActivity : AppCompatActivity() {
                         color: #ff6b6b;
                     }
                     button {
-                        background: #CCFF00;
-                        color: black;
+                        background: #6366f1;
+                        color: white;
                         border: none;
                         padding: 16px 32px;
                         border-radius: 12px;
@@ -567,6 +576,11 @@ class WebAppInterface(private val activity: MainActivity) {
     @JavascriptInterface
     fun getPendingCount(): Int {
         return TransactionStore.getPendingCount(activity)
+    }
+
+    @JavascriptInterface
+    fun getPendingTransactions(): String {
+        return TransactionStore.getPendingTransactions(activity)
     }
     
     @JavascriptInterface

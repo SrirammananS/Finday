@@ -99,10 +99,11 @@ class RecurringService {
             case FREQUENCIES.DAILY:
                 next.setDate(next.getDate() + 1);
                 break;
-            case FREQUENCIES.WEEKLY:
+            case FREQUENCIES.WEEKLY: {
                 const daysUntil = (template.dayOfWeek - now.getDay() + 7) % 7 || 7;
                 next.setDate(next.getDate() + daysUntil);
                 break;
+            }
             case FREQUENCIES.BIWEEKLY:
                 next.setDate(next.getDate() + 14);
                 break;

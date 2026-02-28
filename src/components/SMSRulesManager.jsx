@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Trash2, Save, X, FlaskConical, CheckCircle2, AlertCircle } from 'lucide-react';
 import { getCustomRules, addCustomRule, deleteCustomRule, parseSMS } from '../services/smsParser';
@@ -22,15 +22,15 @@ const SMSRulesManager = ({ isOpen, onClose, embedded = false }) => {
         description: ''
     });
 
+    const loadRules = useCallback(() => {
+        setRules(getCustomRules());
+    }, []);
+
     useEffect(() => {
         if (isOpen || embedded) {
             loadRules();
         }
-    }, [isOpen, embedded]);
-
-    const loadRules = () => {
-        setRules(getCustomRules());
-    };
+    }, [isOpen, embedded, loadRules]);
 
     const handleAddRule = () => {
         if (!newRule.pattern) return;

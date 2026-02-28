@@ -29,7 +29,7 @@ class PendingTransactionsService {
         try {
             const stored = localStorage.getItem(PENDING_KEY);
             this.pending = stored ? JSON.parse(stored) : [];
-        } catch (e) {
+        } catch {
             this.pending = [];
         }
     }
@@ -71,7 +71,7 @@ class PendingTransactionsService {
         }
 
         const pending = {
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+            id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
             ...transaction,
             status: 'pending',
             createdAt: new Date().toISOString()
@@ -89,8 +89,8 @@ class PendingTransactionsService {
         if (this.isAndroid && window.AndroidBridge?.removePendingTransaction) {
             try {
                 window.AndroidBridge.removePendingTransaction(id);
-            } catch (e) {
-                console.warn('[PWA] Failed to sync remove with Android:', e);
+            } catch {
+                console.warn('[PWA] Failed to sync remove with Android');
             }
         }
     }
@@ -102,8 +102,8 @@ class PendingTransactionsService {
         if (this.isAndroid && window.AndroidBridge?.clearPendingTransactions) {
             try {
                 window.AndroidBridge.clearPendingTransactions();
-            } catch (e) {
-                console.warn('[PWA] Failed to sync clear with Android:', e);
+            } catch {
+                console.warn('[PWA] Failed to sync clear with Android');
             }
         }
     }

@@ -4,7 +4,6 @@
  * Uses pattern matching to extract amount, merchant, and type
  */
 
-import { storage, STORAGE_KEYS } from './storage';
 import { parseSMS } from './smsParser';
 import { smartAI } from './smartAI';
 import pendingService from './pendingTransactions';
@@ -162,9 +161,9 @@ class TransactionDetectorService {
     suggestCategory(merchant, type) {
         if (!merchant) return type === 'income' ? 'Salary' : 'Other';
 
-        const merchantLower = merchant.toLowerCase();
+        const _merchantLower = merchant.toLowerCase();
 
-        const categoryMap = {
+        const _categoryMap = {
             // Food & Dining
             'swiggy|zomato|food|restaurant|cafe|pizza|burger|dominos|mcdonalds|kfc|starbucks': 'Food & Dining',
             // Shopping
@@ -248,7 +247,7 @@ class TransactionDetectorService {
                 this.addPending(detected);
                 return detected;
             }
-        } catch (e) {
+        } catch {
             console.log('[TransactionDetector] Clipboard access denied');
         }
         return null;

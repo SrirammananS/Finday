@@ -1,13 +1,16 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, TrendingUp, TrendingDown, X, CheckCircle2, Plus, Trash2, Edit2, ArrowDownLeft, ArrowUpRight, ShieldCheck, UserPlus, SlidersHorizontal, History, DollarSign } from 'lucide-react';
+import PageLayout from '../components/PageLayout';
+import PageHeader from '../components/PageHeader';
+import StatCard from '../components/ui/StatCard';
+import { Users, TrendingUp, TrendingDown, X, CheckCircle2, Trash2, ArrowDownLeft, ArrowUpRight, ArrowRight, ShieldCheck, UserPlus, SlidersHorizontal, History, Link2 } from 'lucide-react';
 import { friendsService } from '../services/friendsService';
 import { calculateFriendBalances } from '../utils/friendBalances';
+import { format, subDays, addDays } from 'date-fns';
 
 const Friends = () => {
-    const { transactions = [], accounts = [], addTransaction } = useFinance();
-    const [selectedFriend, setSelectedFriend] = useState(null);
+    const { transactions = [], updateTransaction } = useFinance();
     const [filter, setFilter] = useState('all');
     const [showManage, setShowManage] = useState(false);
     const [friends, setFriends] = useState([]);
@@ -16,7 +19,10 @@ const Friends = () => {
     // Settle modal state
     const [showSettleModal, setShowSettleModal] = useState(false);
     const [settlingFriend, setSettlingFriend] = useState(null);
-    const [settleAmount, setSettleAmount] = useState('');
+    const [selectedSettleTxId, setSelectedSettleTxId] = useState(null);
+
+    // Activity modal state
+    const [showActivityModal, setShowActivityModal] = useState(null);
 
     // Load and sync friends
     useEffect(() => {
@@ -72,112 +78,95 @@ const Friends = () => {
         setFriends(friendsService.getAll());
     };
 
-    const handleSettle = async () => {
-        if (!settleAmount || !settlingFriend) return;
-        const amount = parseFloat(settleAmount);
-        if (amount <= 0) return;
-
-        await addTransaction({
-            date: new Date().toISOString().split('T')[0],
-            description: `Settlement: ${settlingFriend.name}`,
-            amount: amount,
-            category: 'Transfer',
-            accountId: accounts[0]?.id || '',
-            type: 'income',
-            friend: settlingFriend.name
-        });
-
-        setShowSettleModal(false);
-        setSettleAmount('');
-        setSettlingFriend(null);
-    };
-
     const openSettle = (friend) => {
         setSettlingFriend(friend);
-        setSettleAmount(Math.abs(friend.balance).toString());
+        setSelectedSettleTxId(null);
         setShowSettleModal(true);
+    };
+
+    // Matching transactions - same type (income/expense) and amount within tolerance, not already tagged
+    const matchingSettleTransactions = useMemo(() => {
+        if (!settlingFriend) return [];
+        const isTheyPaidMe = settlingFriend.balance > 0;
+        const targetAmt = Math.abs(settlingFriend.balance);
+
+        const now = new Date();
+        const start = subDays(now, 30);
+        const end = addDays(now, 5);
+
+        const matches = transactions.filter(t => {
+            const txDate = new Date(t.date);
+            if (txDate < start || txDate > end) return false;
+            const txAmt = parseFloat(t.amount) || 0;
+            const txAbs = Math.abs(txAmt);
+            const amtMatch = Math.abs(txAbs - targetAmt) <= (targetAmt || 1) * 0.15;
+            const typeMatch = isTheyPaidMe ? txAmt > 0 : txAmt < 0;
+            const notAlreadyTagged = !t.friend || t.friend.toLowerCase() !== settlingFriend.name.toLowerCase();
+            return typeMatch && amtMatch && notAlreadyTagged;
+        });
+
+        return matches.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 8);
+    }, [settlingFriend, transactions]);
+
+    const handleSettle = async () => {
+        if (!selectedSettleTxId || !settlingFriend) return;
+
+        const tx = transactions.find(t => t.id === selectedSettleTxId);
+        if (tx) {
+            await updateTransaction({ ...tx, friend: settlingFriend.name });
+        }
+
+        setShowSettleModal(false);
+        setSettlingFriend(null);
+        setSelectedSettleTxId(null);
     };
 
     return (
         <div className="min-h-screen text-text-main selection:bg-primary selection:text-black">
-            {/* Background handled by Layout */}
-
-            <motion.main
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="relative px-5 py-12 md:px-8 md:py-24 max-w-5xl mx-auto pb-40"
-            >
-                {/* Header Section */}
-                <header className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16">
-                    <div>
-                        <div className="flex items-center gap-3 mb-6">
-                            <div className="p-3 rounded-2xl bg-canvas-subtle border border-card-border text-primary">
-                                <Users size={24} />
-                            </div>
-                            <span className="text-[10px] font-black uppercase tracking-[0.5em] text-text-muted">Social Ledger Protocol</span>
-                        </div>
-                        <h1 className="text-2xl md:text-3xl font-black tracking-tighter leading-none mb-4 uppercase">
-                            Frien<span className="text-primary tracking-[-0.05em]">ds</span>.
-                        </h1>
-                        <p className="text-sm text-text-muted font-bold tracking-tight opacity-60">Synchronizing interpersonal liquidity nodes.</p>
-                    </div>
-
-                    <div className="flex flex-col items-end gap-4">
+            <PageLayout>
+                <PageHeader
+                    badge="Social"
+                    title="Friends"
+                    subtitle="Settle balances between contacts"
+                    icon={Users}
+                    actions={
                         <button
                             onClick={() => setShowManage(true)}
-                            className="h-14 px-8 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] bg-canvas-subtle border border-card-border text-text-muted hover:border-primary hover:text-primary transition-all flex items-center gap-3"
+                            className="h-10 px-6 rounded-xl text-xs font-bold uppercase tracking-wider bg-canvas-subtle border border-card-border text-text-muted hover:border-primary hover:text-primary transition-all flex items-center gap-2"
                         >
-                            <SlidersHorizontal size={16} />
-                            PROTOCOL SETTINGS
+                            <SlidersHorizontal size={14} />
+                            Manage
                         </button>
-                    </div>
-                </header>
+                    }
+                />
 
                 {/* Status Summary */}
-                {friendBalances.length > 0 && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
-                        <div className="group relative p-8 rounded-[2.5rem] bg-card border border-card-border flex flex-col justify-between min-h-[160px] overflow-hidden transition-all hover:bg-canvas-elevated">
-                            <TrendingUp className="absolute top-[-20%] right-[-10%] opacity-[0.02] -rotate-12 group-hover:scale-110 transition-transform" size={160} />
-                            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">RECEIVABLES</span>
-                            <div>
-                                <h3 className="text-2xl md:text-3xl font-black text-primary tabular-nums tracking-tighter leading-none">{formatCurrency(summary.totalOwedToMe)}</h3>
-                                <p className="text-[9px] font-black uppercase tracking-widest text-primary/30 mt-2">LINKED INFLOWS</p>
-                            </div>
-                        </div>
-                        <div className="group relative p-8 rounded-[2.5rem] bg-card border border-card-border flex flex-col justify-between min-h-[160px] overflow-hidden transition-all hover:bg-canvas-elevated">
-                            <TrendingDown className="absolute top-[-20%] right-[-10%] opacity-[0.02] -rotate-12 group-hover:scale-110 transition-transform" size={160} />
-                            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-rose-500">PAYABLES</span>
-                            <div>
-                                <h3 className="text-2xl md:text-3xl font-black text-rose-500 tabular-nums tracking-tighter leading-none">{formatCurrency(summary.totalIOwe)}</h3>
-                                <p className="text-[9px] font-black uppercase tracking-widest text-rose-500/30 mt-2">LINKED OUTFLOWS</p>
-                            </div>
-                        </div>
-                        <div className="group relative p-8 rounded-[2.5rem] bg-card border border-card-border flex flex-col justify-between min-h-[160px] overflow-hidden transition-all hover:bg-canvas-elevated">
-                            <ShieldCheck className="absolute top-[-20%] right-[-10%] opacity-[0.02] -rotate-12 group-hover:scale-110 transition-transform" size={160} />
-                            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted">NET DELTA</span>
-                            <div>
-                                <h3 className={`text-2xl md:text-3xl font-black tabular-nums tracking-tighter leading-none ${summary.netBalance >= 0 ? 'text-text-main' : 'text-rose-400'}`}>
-                                    {summary.netBalance >= 0 ? '+' : ''}{formatCurrency(summary.netBalance)}
-                                </h3>
-                                <p className="text-[9px] font-black uppercase tracking-widest text-text-muted/30 mt-2">SYSTEM BALANCE</p>
-                            </div>
-                        </div>
+                    {friendBalances.length > 0 && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6 md:mb-8">
+                        <StatCard label="They owe me" value={formatCurrency(summary.totalOwedToMe)} icon={TrendingUp} variant="income" />
+                        <StatCard label="I owe them" value={formatCurrency(summary.totalIOwe)} icon={TrendingDown} variant="expense" />
+                        <StatCard
+                            label="Net"
+                            value={`${summary.netBalance >= 0 ? '+' : ''}${formatCurrency(summary.netBalance)}`}
+                            icon={ShieldCheck}
+                            variant={summary.netBalance >= 0 ? 'primary' : 'expense'}
+                        />
                     </div>
                 )}
 
-                {/* Filter and Hub */}
-                <div className="flex flex-col md:flex-row gap-6 mb-12">
-                    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+                {/* Filter */}
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
+                    <div className="flex gap-2 p-1 bg-canvas-subtle border border-card-border rounded-xl">
                         {[
-                            { key: 'all', label: 'ALL CHANNELS' },
-                            { key: 'owes_me', label: 'OWED SIGNALS' },
-                            { key: 'i_owe', label: 'DEBT VECTORS' }
-                        ].map(tab => (
+                            { key: 'all', label: 'All' },
+                            { key: 'owes_me', label: 'They owe me' },
+                            { key: 'i_owe', label: 'I owe them' },
+                        ].map((tab) => (
                             <button
                                 key={tab.key}
                                 onClick={() => setFilter(tab.key)}
-                                className={`h-12 px-8 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all border shrink-0
-                                ${filter === tab.key ? 'bg-primary border-primary text-primary-foreground shadow-[0_0_20px_rgba(var(--primary-rgb),0.3)]' : 'bg-canvas-subtle text-text-muted border-card-border hover:bg-canvas-elevated'}`}
+                                className={`h-10 px-6 rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-2 shrink-0
+                                    ${filter === tab.key ? 'bg-primary text-primary-foreground' : 'text-text-muted hover:text-text-main'}`}
                             >
                                 {tab.label}
                             </button>
@@ -185,90 +174,87 @@ const Friends = () => {
                     </div>
                 </div>
 
-                {/* List Section */}
-                <div className="grid grid-cols-1 gap-8">
-                    {friendsList.length === 0 ? (
-                        <div className="py-32 rounded-[3.5rem] bg-card border border-dashed border-card-border text-center flex flex-col items-center justify-center">
-                            <Users size={40} className="text-text-muted/20 mb-6" />
-                            <h3 className="text-xl font-black uppercase tracking-tighter text-text-muted">No Nodes Detected</h3>
-                            <p className="text-[9px] font-black uppercase tracking-widest text-text-muted/40 mt-1">Initialize social transactions to map signals.</p>
+                {/* Friend Cards Grid */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    <button
+                        onClick={() => setShowManage(true)}
+                        className="group rounded-[1.8rem] border-2 border-dashed border-white/10 hover:border-primary/50 hover:bg-primary/[0.02] transition-all flex flex-col items-center justify-center gap-3 min-h-[120px] h-full"
+                    >
+                        <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-text-muted group-hover:bg-primary group-hover:text-black transition-all">
+                            <UserPlus size={20} strokeWidth={3} />
                         </div>
-                    ) : (
-                        friendsList.map((friend, idx) => (
-                            <motion.div
-                                key={friend.name}
-                                initial={{ y: 20, opacity: 0 }}
-                                animate={{ y: 0, opacity: 1 }}
-                                transition={{ delay: 0.1 * idx }}
-                                className="group p-8 md:p-10 rounded-[3.5rem] bg-card border border-card-border hover:border-text-muted/20 transition-all shadow-3xl overflow-hidden"
+                        <span className="text-xs font-bold uppercase tracking-tighter text-text-muted group-hover:text-text-main">Manage</span>
+                    </button>
+
+                    {friendsList.length === 0 && friendBalances.length === 0 && (
+                        <div className="col-span-full md:col-span-2 lg:col-span-3 py-16 rounded-2xl bg-card border border-dashed border-card-border text-center">
+                            <Users size={40} className="mx-auto text-text-muted/30 mb-4" />
+                            <h3 className="text-base font-bold text-text-muted">No friends with balances</h3>
+                            <p className="text-sm text-text-muted/60 mt-1">Add transactions with friend names to track splits</p>
+                            <button
+                                onClick={() => setShowManage(true)}
+                                className="mt-6 h-12 px-8 rounded-xl bg-primary text-primary-foreground text-xs font-bold uppercase tracking-wider hover:shadow-lg transition-all"
                             >
-                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8 mb-12">
-                                    <div className="flex items-center gap-6">
-                                        <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center font-black text-3xl transition-all shadow-xl ${friend.balance > 0 ? 'bg-primary text-primary-foreground' : friend.balance < 0 ? 'bg-rose-500 text-white shadow-rose-900/20' : 'bg-canvas-subtle text-text-muted'
-                                            }`}>
+                                Add friend
+                            </button>
+                        </div>
+                    )}
+
+                    {friendsList.map((friend, idx) => (
+                        <motion.div
+                            key={friend.name}
+                            initial={{ y: 20, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            transition={{ delay: 0.05 * idx }}
+                            className="group relative"
+                        >
+                            <div className="absolute -inset-[1px] bg-gradient-to-br from-white/10 to-transparent rounded-[2rem] opacity-0 group-hover:opacity-100 transition-all duration-500" />
+                            <div className={`relative p-4 md:p-6 rounded-2xl bg-card border flex flex-col justify-between gap-3 overflow-hidden transition-all hover:bg-canvas-elevated hover:border-primary/20 h-full min-h-[150px] ${friend.balance > 0 ? 'border-primary/20' : friend.balance < 0 ? 'border-rose-500/20' : 'border-card-border'}`}>
+                                <div className="flex justify-between items-start">
+                                    <div className="flex items-center gap-2">
+                                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs transition-all shrink-0 ${friend.balance > 0 ? 'bg-primary/20 text-primary' : friend.balance < 0 ? 'bg-rose-500/20 text-rose-500' : 'bg-canvas-subtle border border-card-border text-text-muted'}`}>
                                             {friend.name.charAt(0).toUpperCase()}
                                         </div>
-                                        <div>
-                                            <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-text-main">{friend.name}</h3>
-                                            <div className="flex items-center gap-2 mt-1">
-                                                <div className={`w-2 h-2 rounded-full animate-pulse ${friend.balance > 0 ? 'bg-primary' : friend.balance < 0 ? 'bg-rose-500' : 'bg-green-500'}`} />
-                                                <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${friend.balance > 0 ? 'text-primary' : friend.balance < 0 ? 'text-rose-400' : 'text-green-500'
-                                                    }`}>
-                                                    {friend.balance > 0 ? 'SIGNAL RECEIVABLE' : friend.balance < 0 ? 'SIGNAL PAYABLE' : 'CHANNEL SYNCHRONIZED'}
-                                                </span>
-                                            </div>
+                                        <div className="min-w-0">
+                                            <h3 className="text-xs font-black uppercase tracking-tight text-text-main leading-tight truncate">{friend.name}</h3>
+                                            <span className={`text-[10px] font-bold uppercase tracking-wider ${friend.balance > 0 ? 'text-primary' : friend.balance < 0 ? 'text-rose-500' : 'text-green-500'}`}>
+                                                {friend.balance > 0 ? 'They owe me' : friend.balance < 0 ? 'I owe them' : 'Settled'}
+                                            </span>
                                         </div>
-                                    </div>
-
-                                    <div className="flex flex-col items-end gap-2">
-                                        <div className={`text-2xl md:text-3xl font-black tabular-nums tracking-tighter ${friend.balance > 0 ? 'text-primary' : friend.balance < 0 ? 'text-rose-500' : 'text-green-500'
-                                            }`}>
-                                            {formatCurrency(friend.balance)}
-                                        </div>
-                                        {friend.balance > 0 && (
-                                            <button
-                                                onClick={() => openSettle(friend)}
-                                                className="h-10 px-8 rounded-full bg-primary text-primary-foreground text-[10px] font-black uppercase tracking-widest hover:shadow-[0_0_20px_rgba(var(--primary-rgb),0.5)] transition-all"
-                                            >
-                                                EXECUTE SETTLEMENT
-                                            </button>
-                                        )}
                                     </div>
                                 </div>
 
-                                {/* History Layer */}
-                                <div className="p-1 rounded-[2.5rem] bg-canvas-subtle/50 border border-card-border">
-                                    <div className="px-8 py-4 border-b border-card-border flex justify-between items-center">
-                                        <span className="text-[10px] font-black uppercase tracking-widest text-text-muted opacity-60">LINKED SIGNALS ({friend.transactionCount})</span>
-                                        <History size={14} className="text-text-muted/40" />
+                                <div className="mt-1">
+                                    <div className={`text-base md:text-lg font-black tabular-nums leading-none ${friend.balance > 0 ? 'text-primary' : friend.balance < 0 ? 'text-rose-500' : 'text-green-500'}`}>
+                                        {formatCurrency(friend.balance)}
                                     </div>
-                                    <div className="divide-y divide-card-border max-h-[300px] overflow-y-auto no-scrollbar">
-                                        {friend.history
-                                            .sort((a, b) => new Date(b.date) - new Date(a.date))
-                                            .map(t => (
-                                                <div key={t.id} className="p-6 flex items-center justify-between group/item hover:bg-canvas-subtle transition-colors">
-                                                    <div className="flex items-center gap-5">
-                                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${parseFloat(t.amount) < 0 ? 'bg-canvas-subtle text-text-main opacity-40' : 'bg-primary/20 text-primary'
-                                                            }`}>
-                                                            {parseFloat(t.amount) < 0 ? <ArrowUpRight size={18} /> : <ArrowDownLeft size={18} />}
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-sm font-black uppercase tracking-tight text-text-muted group-hover/item:text-text-main">{t.description}</p>
-                                                            <p className="text-[9px] font-black uppercase tracking-widest text-text-muted mt-1 opacity-50">{formatDate(t.date)} • {t.category}</p>
-                                                        </div>
-                                                    </div>
-                                                    <div className={`text-lg font-black tabular-nums ${parseFloat(t.amount) < 0 ? 'text-text-main alpha-60' : 'text-primary'}`}>
-                                                        {formatCurrency(t.amount)}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                    </div>
+                                    {friend.balance !== 0 && (
+                                        <button
+                                            onClick={() => openSettle(friend)}
+                                            className={`mt-3 h-9 px-4 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all w-full
+                                                ${friend.balance > 0
+                                                    ? 'bg-primary text-primary-foreground hover:shadow-[0_0_20px_rgba(var(--primary-rgb),0.5)]'
+                                                    : 'bg-rose-500 text-white hover:shadow-rose-500/30'
+                                                }`}
+                                        >
+                                            {friend.balance > 0 ? 'Record payment' : 'I paid them'}
+                                        </button>
+                                    )}
                                 </div>
-                            </motion.div>
-                        ))
-                    )}
+
+                                <div className="border-t border-card-border pt-3 mt-auto flex items-center justify-between">
+                                    <button
+                                        onClick={() => setShowActivityModal(friend)}
+                                        className="text-[8px] font-black uppercase tracking-widest text-text-muted hover:text-primary transition-all flex items-center gap-1"
+                                    >
+                                        Activity ({friend.transactionCount}) <ArrowRight size={10} />
+                                    </button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    ))}
                 </div>
-            </motion.main>
+            </PageLayout>
 
             {/* Manage Modal */}
             <AnimatePresence>
@@ -289,7 +275,7 @@ const Friends = () => {
                             onClick={e => e.stopPropagation()}
                         >
                             <div className="flex justify-between items-center mb-12">
-                                <h2 className="text-2xl md:text-3xl font-black tracking-tighter text-text-main uppercase">Neural Connections</h2>
+                                <h2 className="text-2xl md:text-3xl font-black tracking-tighter text-text-main uppercase">Manage Friends</h2>
                                 <button onClick={() => setShowManage(false)} className="w-12 h-12 rounded-full bg-canvas-subtle border border-card-border flex items-center justify-center hover:bg-canvas-elevated transition-all">
                                     <X size={24} />
                                 </button>
@@ -302,14 +288,14 @@ const Friends = () => {
                                         value={newFriendName}
                                         onChange={e => setNewFriendName(e.target.value)}
                                         onKeyDown={e => e.key === 'Enter' && handleAddFriend()}
-                                        placeholder="NEW ENTITY NAME..."
-                                        className="flex-1 h-20 bg-canvas-subtle border border-card-border px-8 rounded-3xl outline-none focus:border-primary transition-all font-black text-lg uppercase tracking-widest text-text-main"
+                                        placeholder="Friend's name..."
+                                        className="flex-1 h-16 bg-canvas-subtle border border-card-border px-6 rounded-2xl outline-none focus:border-primary transition-all font-bold text-base text-text-main"
                                     />
                                     <button
                                         onClick={handleAddFriend}
-                                        className="w-20 h-20 bg-primary text-primary-foreground rounded-3xl flex items-center justify-center hover:shadow-[0_0_20px_rgba(var(--primary-rgb),0.5)] transition-all"
+                                        className="w-16 h-16 bg-primary text-primary-foreground rounded-2xl flex items-center justify-center hover:shadow-[0_0_20px_rgba(var(--primary-rgb),0.5)] transition-all shrink-0"
                                     >
-                                        <UserPlus size={28} />
+                                        <UserPlus size={24} />
                                     </button>
                                 </div>
                             </div>
@@ -318,7 +304,7 @@ const Friends = () => {
                                 {friends.map(f => {
                                     const balanceInfo = friendBalances.find(fb => fb.name.toLowerCase() === f.name.toLowerCase());
                                     return (
-                                        <div key={f.id} className="p-6 rounded-3xl bg-canvas-subtle border border-card-border flex items-center justify-between group/friendItem">
+                                        <div key={f.id} className="p-4 rounded-2xl bg-canvas-subtle border border-card-border flex items-center justify-between group/friendItem">
                                             <div className="flex items-center gap-5">
                                                 <div className="w-12 h-12 rounded-2xl bg-canvas-elevated flex items-center justify-center text-xs font-black uppercase tracking-widest text-text-muted">
                                                     {f.name.charAt(0)}
@@ -326,9 +312,9 @@ const Friends = () => {
                                                 <div>
                                                     <p className="font-black text-text-main uppercase tracking-tight">{f.name}</p>
                                                     {balanceInfo && (
-                                                        <p className={`text-[10px] font-black uppercase tracking-widest ${balanceInfo.balance > 0 ? 'text-primary' : balanceInfo.balance < 0 ? 'text-rose-500' : 'text-text-muted/40'
+                                                        <p className={`text-xs font-bold ${balanceInfo.balance > 0 ? 'text-primary' : balanceInfo.balance < 0 ? 'text-rose-500' : 'text-text-muted/60'
                                                             }`}>
-                                                            {balanceInfo.balance > 0 ? `LINKED RECV ₹${balanceInfo.balance}` : balanceInfo.balance < 0 ? `LINKED PAYB ₹${Math.abs(balanceInfo.balance)}` : 'NULL DELTA'}
+                                                            {balanceInfo.balance > 0 ? `They owe ₹${Math.round(balanceInfo.balance)}` : balanceInfo.balance < 0 ? `I owe ₹${Math.round(Math.abs(balanceInfo.balance))}` : 'Settled'}
                                                         </p>
                                                     )}
                                                 </div>
@@ -366,37 +352,114 @@ const Friends = () => {
                             className="relative w-full max-w-md bg-card border border-card-border p-10 rounded-[3rem] shadow-3xl text-center"
                             onClick={e => e.stopPropagation()}
                         >
-                            <div className="w-24 h-24 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-8 text-primary">
-                                <CheckCircle2 size={48} />
-                            </div>
-                            <h3 className="text-2xl font-black text-text-main uppercase tracking-tighter mb-2">Execute Settle</h3>
-                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted/60 mb-10">Record inbound transfer from {settlingFriend.name}</p>
+                            {(() => {
+                                const isTheyPaidMe = settlingFriend.balance > 0;
+                                return (
+                                    <>
+                                        <div className={`w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 ${isTheyPaidMe ? 'bg-primary/10 border border-primary/20 text-primary' : 'bg-rose-500/10 border border-rose-500/20 text-rose-500'}`}>
+                                            <Link2 size={48} />
+                                        </div>
+                                        <h3 className="text-2xl font-black text-text-main uppercase tracking-tighter mb-2">
+                                            {isTheyPaidMe ? 'Record payment' : 'I paid them'}
+                                        </h3>
+                                        <p className="text-xs font-medium text-text-muted mb-6">
+                                            Link to an existing transaction — no new transaction added
+                                        </p>
 
-                            <div className="mb-10">
-                                <div className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted mb-4">CONFIRMED VECTOR AMOUNT</div>
-                                <div className="relative">
-                                    <input
-                                        type="number"
-                                        value={settleAmount}
-                                        onChange={(e) => setSettleAmount(e.target.value)}
-                                        className="w-full bg-canvas-subtle border border-card-border h-24 rounded-[1.8rem] text-center text-4xl font-black text-primary outline-none focus:border-primary transition-all tabular-nums"
-                                    />
-                                    <div className="absolute right-8 top-1/2 -translate-y-1/2 text-primary font-black text-xl opacity-40">₹</div>
-                                </div>
-                            </div>
+                                        <div className="mb-6">
+                                            <div className="text-xs font-bold uppercase tracking-wider text-text-muted mb-3">Select transaction</div>
+                                            {matchingSettleTransactions.length > 0 ? (
+                                                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                                    {matchingSettleTransactions.map(tx => (
+                                                        <button
+                                                            key={tx.id}
+                                                            type="button"
+                                                            onClick={() => setSelectedSettleTxId(selectedSettleTxId === tx.id ? null : tx.id)}
+                                                            className={`w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between ${selectedSettleTxId === tx.id ? 'border-primary bg-primary/10' : 'border-card-border bg-canvas-subtle hover:border-primary/30'}`}
+                                                        >
+                                                            <div>
+                                                                <p className="text-sm font-bold text-text-main line-clamp-1">{tx.description}</p>
+                                                                <p className="text-xs text-text-muted">{format(new Date(tx.date), 'dd MMM yyyy')}</p>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-sm font-bold tabular-nums">{formatCurrency(tx.amount)}</span>
+                                                                {selectedSettleTxId === tx.id && <CheckCircle2 size={16} className="text-primary" />}
+                                                            </div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-sm text-text-muted text-center py-6 bg-canvas-subtle rounded-2xl">No matching transactions in last 30 days. Add the transaction in Ledger first, then link it here.</p>
+                                            )}
+                                        </div>
 
-                            <button
-                                onClick={handleSettle}
-                                className="w-full h-20 bg-primary text-primary-foreground rounded-[1.8rem] font-black text-lg uppercase tracking-widest shadow-[0_0_50px_rgba(var(--primary-rgb),0.3)] hover:shadow-[0_0_60px_rgba(var(--primary-rgb),0.5)] transition-all"
-                            >
-                                FINALIZE CLEARANCE
-                            </button>
-                            <button
-                                onClick={() => setShowSettleModal(false)}
-                                className="mt-4 text-[10px] font-black uppercase tracking-widest text-text-muted hover:text-text-main transition-colors"
-                            >
-                                ABORT PROTOCOL
-                            </button>
+                                        <button
+                                            onClick={handleSettle}
+                                            disabled={!selectedSettleTxId}
+                                            className={`w-full h-14 rounded-2xl font-black text-base uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isTheyPaidMe ? 'bg-primary text-primary-foreground shadow-[0_0_50px_rgba(var(--primary-rgb),0.3)] hover:shadow-[0_0_60px_rgba(var(--primary-rgb),0.5)]' : 'bg-rose-500 text-white shadow-rose-500/20 hover:shadow-rose-500/30'}`}
+                                        >
+                                            Link & confirm
+                                        </button>
+                                        <button
+                                            onClick={() => setShowSettleModal(false)}
+                                            className="mt-4 text-xs font-bold uppercase tracking-wider text-text-muted hover:text-text-main transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </>
+                                );
+                            })()}
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* Activity Modal */}
+            <AnimatePresence>
+                {showActivityModal && (
+                    <div className="fixed inset-0 z-[10002] flex items-end md:items-center justify-center p-0 md:p-6">
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setShowActivityModal(null)}
+                            className="absolute inset-0 bg-black/80 backdrop-blur-xl"
+                        />
+                        <motion.div
+                            initial={{ y: '100%', opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            exit={{ y: '100%', opacity: 0 }}
+                            className="relative bg-card border border-card-border p-6 md:p-10 rounded-t-[3rem] md:rounded-[3rem] w-full max-w-md shadow-3xl max-h-[80vh] flex flex-col"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-xl font-black tracking-tighter text-text-main uppercase">Activity</h2>
+                                <button onClick={() => setShowActivityModal(null)} className="w-10 h-10 rounded-full bg-canvas-subtle border border-card-border flex items-center justify-center hover:bg-canvas-elevated transition-all">
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <p className="text-sm font-bold text-text-muted mb-4">{showActivityModal.name}</p>
+                            <div className="divide-y divide-card-border/50 overflow-y-auto flex-1 min-h-0">
+                                {(showActivityModal.history || [])
+                                    .slice()
+                                    .sort((a, b) => new Date(b.date) - new Date(a.date))
+                                    .map(t => (
+                                        <div key={t.id} className="py-4 flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${parseFloat(t.amount) < 0 ? 'bg-canvas-subtle text-text-main opacity-60' : 'bg-primary/20 text-primary'}`}>
+                                                    {parseFloat(t.amount) < 0 ? <ArrowUpRight size={14} /> : <ArrowDownLeft size={14} />}
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-bold text-text-main">{t.description}</p>
+                                                    <p className="text-xs text-text-muted">{formatDate(t.date)} • {t.category}</p>
+                                                </div>
+                                            </div>
+                                            <div className={`text-sm font-bold tabular-nums ${parseFloat(t.amount) < 0 ? 'text-text-main opacity-70' : 'text-primary'}`}>
+                                                {formatCurrency(t.amount)}
+                                            </div>
+                                        </div>
+                                    ))}
+                            </div>
                         </motion.div>
                     </div>
                 )}

@@ -66,12 +66,20 @@
             </intent-filter>
         </receiver>
 
+        <!-- Transaction Edit - category & bank selection from notification -->
+        <activity
+            android:name=".TransactionEditActivity"
+            android:exported="false"
+            android:theme="@style/Theme.LAKSH"
+            android:parentActivityName=".MainActivity" />
+
         <!-- Notification Action Receiver -->
         <receiver
             android:name=".NotificationActionReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.laksh.finance.ACTION_APPROVE" />
+                <action android:name="com.laksh.finance.ACTION_REPLY" />
                 <action android:name="com.laksh.finance.ACTION_DISMISS" />
             </intent-filter>
         </receiver>

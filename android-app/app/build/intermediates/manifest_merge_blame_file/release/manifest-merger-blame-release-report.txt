@@ -1,0 +1,259 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.laksh.finance"
+4    android:versionCode="6"
+5    android:versionName="1.1.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="24"
+9        android:targetSdkVersion="35" />
+10
+11    <!-- SMS Permissions for auto-detection -->
+12    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+12-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:6:5-70
+12-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:6:22-67
+13    <uses-permission android:name="android.permission.READ_SMS" />
+13-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:7:5-67
+13-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:7:22-64
+14
+15    <!-- Internet for WebView -->
+16    <uses-permission android:name="android.permission.INTERNET" />
+16-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:10:5-67
+16-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:10:22-64
+17    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+17-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:11:5-79
+17-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:11:22-76
+18
+19    <!-- Notifications -->
+20    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+20-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:14:5-77
+20-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:14:22-74
+21    <uses-permission android:name="android.permission.VIBRATE" />
+21-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:15:5-66
+21-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:15:22-63
+22
+23    <!-- Boot receiver to start service -->
+24    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+24-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:18:5-81
+24-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:18:22-78
+25
+26    <permission
+26-->[androidx.core:core:1.12.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/4dde0fce54f6341b6da19770f76a2130/transformed/core-1.12.0/AndroidManifest.xml:22:5-24:47
+27        android:name="com.laksh.finance.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+27-->[androidx.core:core:1.12.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/4dde0fce54f6341b6da19770f76a2130/transformed/core-1.12.0/AndroidManifest.xml:23:9-81
+28        android:protectionLevel="signature" />
+28-->[androidx.core:core:1.12.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/4dde0fce54f6341b6da19770f76a2130/transformed/core-1.12.0/AndroidManifest.xml:24:9-44
+29
+30    <uses-permission android:name="com.laksh.finance.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+30-->[androidx.core:core:1.12.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/4dde0fce54f6341b6da19770f76a2130/transformed/core-1.12.0/AndroidManifest.xml:26:5-97
+30-->[androidx.core:core:1.12.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/4dde0fce54f6341b6da19770f76a2130/transformed/core-1.12.0/AndroidManifest.xml:26:22-94
+31
+32    <application
+32-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:20:5-87:19
+33        android:allowBackup="true"
+33-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:21:9-35
+34        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+34-->[androidx.core:core:1.12.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/4dde0fce54f6341b6da19770f76a2130/transformed/core-1.12.0/AndroidManifest.xml:28:18-86
+35        android:extractNativeLibs="false"
+36        android:icon="@mipmap/ic_launcher"
+36-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:22:9-43
+37        android:label="@string/app_name"
+37-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:23:9-41
+38        android:roundIcon="@mipmap/ic_launcher_round"
+38-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:24:9-54
+39        android:supportsRtl="true"
+39-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:25:9-35
+40        android:theme="@style/Theme.LAKSH"
+40-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:26:9-43
+41        android:usesCleartextTraffic="true" >
+41-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:27:9-44
+42
+43        <!-- Main Activity with WebView -->
+44        <activity
+44-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:31:9-49:20
+45            android:name="com.laksh.finance.MainActivity"
+45-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:32:13-41
+46            android:exported="true"
+46-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:33:13-36
+47            android:launchMode="singleTask"
+47-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:34:13-44
+48            android:screenOrientation="portrait"
+48-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:35:13-49
+49            android:theme="@style/Theme.LAKSH" >
+49-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:36:13-47
+50            <intent-filter>
+50-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:37:13-40:29
+51                <action android:name="android.intent.action.MAIN" />
+51-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:38:17-69
+51-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:38:25-66
+52
+53                <category android:name="android.intent.category.LAUNCHER" />
+53-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:39:17-77
+53-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:39:27-74
+54            </intent-filter>
+55
+56            <!-- Deep Link for OAuth Callback -->
+57            <intent-filter android:autoVerify="true" >
+57-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:43:13-48:29
+57-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:43:28-53
+58                <action android:name="android.intent.action.VIEW" />
+58-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:44:17-69
+58-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:44:25-66
+59
+60                <category android:name="android.intent.category.DEFAULT" />
+60-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:45:17-76
+60-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:45:27-73
+61                <category android:name="android.intent.category.BROWSABLE" />
+61-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:46:17-78
+61-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:46:27-75
+62
+63                <data
+63-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:47:17-78
+64                    android:host="oauth-callback"
+64-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:47:46-75
+65                    android:scheme="laksh" />
+65-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:47:23-45
+66            </intent-filter>
+67        </activity>
+68
+69        <!-- SMS Broadcast Receiver: no android:permission so system can deliver on all OEMs -->
+70        <receiver
+70-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:52:9-58:20
+71            android:name="com.laksh.finance.SmsReceiver"
+71-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:53:13-40
+72            android:exported="true" >
+72-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:54:13-36
+73            <intent-filter android:priority="999" >
+73-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:55:13-57:29
+73-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:55:28-50
+74                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+74-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:56:17-82
+74-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:56:25-79
+75            </intent-filter>
+76        </receiver>
+77
+78        <!-- Boot Receiver -->
+79        <receiver
+79-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:61:9-67:20
+80            android:name="com.laksh.finance.BootReceiver"
+80-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:62:13-41
+81            android:exported="true" >
+81-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:63:13-36
+82            <intent-filter>
+82-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:64:13-66:29
+83                <action android:name="android.intent.action.BOOT_COMPLETED" />
+83-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:65:17-79
+83-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:65:25-76
+84            </intent-filter>
+85        </receiver>
+86
+87        <!-- Transaction Edit - category & bank selection from notification -->
+88        <activity
+88-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:70:9-74:58
+89            android:name="com.laksh.finance.TransactionEditActivity"
+89-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:71:13-52
+90            android:exported="false"
+90-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:72:13-37
+91            android:parentActivityName="com.laksh.finance.MainActivity"
+91-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:74:13-55
+92            android:theme="@style/Theme.LAKSH" />
+92-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:73:13-47
+93
+94        <!-- Notification Action Receiver -->
+95        <receiver
+95-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:77:9-85:20
+96            android:name="com.laksh.finance.NotificationActionReceiver"
+96-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:78:13-55
+97            android:exported="false" >
+97-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:79:13-37
+98            <intent-filter>
+98-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:80:13-84:29
+99                <action android:name="com.laksh.finance.ACTION_APPROVE" />
+99-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:81:17-75
+99-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:81:25-72
+100                <action android:name="com.laksh.finance.ACTION_REPLY" />
+100-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:82:17-73
+100-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:82:25-70
+101                <action android:name="com.laksh.finance.ACTION_DISMISS" />
+101-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:83:17-75
+101-->/Users/srirammanan.s/AI/LAKSH/Finday/android-app/app/src/main/AndroidManifest.xml:83:25-72
+102            </intent-filter>
+103        </receiver>
+104
+105        <provider
+105-->[androidx.emoji2:emoji2:1.2.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/ebd7e8b0739ea5852a86f1ec4bdee03d/transformed/emoji2-1.2.0/AndroidManifest.xml:24:9-32:20
+106            android:name="androidx.startup.InitializationProvider"
+106-->[androidx.emoji2:emoji2:1.2.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/ebd7e8b0739ea5852a86f1ec4bdee03d/transformed/emoji2-1.2.0/AndroidManifest.xml:25:13-67
+107            android:authorities="com.laksh.finance.androidx-startup"
+107-->[androidx.emoji2:emoji2:1.2.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/ebd7e8b0739ea5852a86f1ec4bdee03d/transformed/emoji2-1.2.0/AndroidManifest.xml:26:13-68
+108            android:exported="false" >
+108-->[androidx.emoji2:emoji2:1.2.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/ebd7e8b0739ea5852a86f1ec4bdee03d/transformed/emoji2-1.2.0/AndroidManifest.xml:27:13-37
+109            <meta-data
+109-->[androidx.emoji2:emoji2:1.2.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/ebd7e8b0739ea5852a86f1ec4bdee03d/transformed/emoji2-1.2.0/AndroidManifest.xml:29:13-31:52
+110                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+110-->[androidx.emoji2:emoji2:1.2.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/ebd7e8b0739ea5852a86f1ec4bdee03d/transformed/emoji2-1.2.0/AndroidManifest.xml:30:17-75
+111                android:value="androidx.startup" />
+111-->[androidx.emoji2:emoji2:1.2.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/ebd7e8b0739ea5852a86f1ec4bdee03d/transformed/emoji2-1.2.0/AndroidManifest.xml:31:17-49
+112            <meta-data
+112-->[androidx.lifecycle:lifecycle-process:2.7.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/f32f8a6bb35ea86a0bdc621e810ebd3e/transformed/lifecycle-process-2.7.0/AndroidManifest.xml:29:13-31:52
+113                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+113-->[androidx.lifecycle:lifecycle-process:2.7.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/f32f8a6bb35ea86a0bdc621e810ebd3e/transformed/lifecycle-process-2.7.0/AndroidManifest.xml:30:17-78
+114                android:value="androidx.startup" />
+114-->[androidx.lifecycle:lifecycle-process:2.7.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/f32f8a6bb35ea86a0bdc621e810ebd3e/transformed/lifecycle-process-2.7.0/AndroidManifest.xml:31:17-49
+115            <meta-data
+115-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:29:13-31:52
+116                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+116-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:30:17-85
+117                android:value="androidx.startup" />
+117-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:31:17-49
+118        </provider>
+119
+120        <service
+120-->[androidx.room:room-runtime:2.6.1] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/fc5152a31fcf94dc443c5d0de47bb6bd/transformed/room-runtime-2.6.1/AndroidManifest.xml:24:9-28:63
+121            android:name="androidx.room.MultiInstanceInvalidationService"
+121-->[androidx.room:room-runtime:2.6.1] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/fc5152a31fcf94dc443c5d0de47bb6bd/transformed/room-runtime-2.6.1/AndroidManifest.xml:25:13-74
+122            android:directBootAware="true"
+122-->[androidx.room:room-runtime:2.6.1] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/fc5152a31fcf94dc443c5d0de47bb6bd/transformed/room-runtime-2.6.1/AndroidManifest.xml:26:13-43
+123            android:exported="false" />
+123-->[androidx.room:room-runtime:2.6.1] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/fc5152a31fcf94dc443c5d0de47bb6bd/transformed/room-runtime-2.6.1/AndroidManifest.xml:27:13-37
+124
+125        <receiver
+125-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:34:9-52:20
+126            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+126-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:35:13-76
+127            android:directBootAware="false"
+127-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:36:13-44
+128            android:enabled="true"
+128-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:37:13-35
+129            android:exported="true"
+129-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:38:13-36
+130            android:permission="android.permission.DUMP" >
+130-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:39:13-57
+131            <intent-filter>
+131-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:40:13-42:29
+132                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
+132-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:41:17-91
+132-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:41:25-88
+133            </intent-filter>
+134            <intent-filter>
+134-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:43:13-45:29
+135                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
+135-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:44:17-85
+135-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:44:25-82
+136            </intent-filter>
+137            <intent-filter>
+137-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:46:13-48:29
+138                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
+138-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:47:17-88
+138-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:47:25-85
+139            </intent-filter>
+140            <intent-filter>
+140-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:49:13-51:29
+141                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
+141-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:50:17-95
+141-->[androidx.profileinstaller:profileinstaller:1.3.0] /private/var/folders/cq/lwtzj0qn29vbl3qshy5mwjs40000gp/T/cursor-sandbox-cache/d98ba194ef0f35516e90584cf07662a8/gradle/caches/transforms-3/19e15dbf13abf551346cc809eecbb624/transformed/profileinstaller-1.3.0/AndroidManifest.xml:50:25-92
+142            </intent-filter>
+143        </receiver>
+144    </application>
+145
+146</manifest>

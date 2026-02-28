@@ -6,7 +6,7 @@
 
     <uses-sdk
         android:minSdkVersion="24"
-        android:targetSdkVersion="33" />
+        android:targetSdkVersion="35" />
 
     <!-- SMS Permissions for auto-detection -->
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
@@ -67,11 +67,10 @@
             </intent-filter>
         </activity>
 
-        <!-- SMS Broadcast Receiver -->
+        <!-- SMS Broadcast Receiver: no android:permission so system can deliver on all OEMs -->
         <receiver
             android:name="com.laksh.finance.SmsReceiver"
-            android:exported="true"
-            android:permission="android.permission.BROADCAST_SMS" >
+            android:exported="true" >
             <intent-filter android:priority="999" >
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
@@ -86,12 +85,20 @@
             </intent-filter>
         </receiver>
 
+        <!-- Transaction Edit - category & bank selection from notification -->
+        <activity
+            android:name="com.laksh.finance.TransactionEditActivity"
+            android:exported="false"
+            android:parentActivityName="com.laksh.finance.MainActivity"
+            android:theme="@style/Theme.LAKSH" />
+
         <!-- Notification Action Receiver -->
         <receiver
             android:name="com.laksh.finance.NotificationActionReceiver"
             android:exported="false" >
             <intent-filter>
                 <action android:name="com.laksh.finance.ACTION_APPROVE" />
+                <action android:name="com.laksh.finance.ACTION_REPLY" />
                 <action android:name="com.laksh.finance.ACTION_DISMISS" />
             </intent-filter>
         </receiver>
@@ -110,6 +117,11 @@
                 android:name="androidx.profileinstaller.ProfileInstallerInitializer"
                 android:value="androidx.startup" />
         </provider>
+
+        <service
+            android:name="androidx.room.MultiInstanceInvalidationService"
+            android:directBootAware="true"
+            android:exported="false" />
 
         <receiver
             android:name="androidx.profileinstaller.ProfileInstallReceiver"

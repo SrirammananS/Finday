@@ -15,10 +15,11 @@ const AnimatedBackground = ({ variant = 'default', intensity = 'medium' }) => {
 
     const settings = intensityMap[intensity] || intensityMap.medium;
 
-    // Color schemes
+    // Color schemes - logo-aligned neon green + golden rupee
     const colorSchemes = {
         default: ['#22c55e', '#3b82f6', '#a855f7'],
         finance: ['#10b981', '#06b6d4', '#8b5cf6'],
+        laksh: ['#00E676', '#FFD700', '#00C853'],  /* Neon green + gold - logo theme */
         warm: ['#f59e0b', '#ef4444', '#ec4899'],
         cool: ['#3b82f6', '#06b6d4', '#8b5cf6'],
     };

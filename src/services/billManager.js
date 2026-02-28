@@ -44,7 +44,7 @@ class BillManagerService {
 
     addBill(bill) {
         const newBill = {
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+            id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
             name: bill.name,
             amount: bill.amount,
             category: bill.category || 'Utilities/Bills',

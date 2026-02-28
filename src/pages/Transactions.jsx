@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import TransactionForm from '../components/TransactionForm';
+import PageLayout from '../components/PageLayout';
+import PageHeader from '../components/PageHeader';
 import { Search, Trash2, Filter, Plus, Download, FileText, ChevronDown, Calendar, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { exportTransactions, generateFinancialReport, downloadFile } from '../utils/exportUtils';
 
@@ -21,7 +23,7 @@ const Transactions = () => {
     const [search, setSearch] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('');
     const [dateRange, setDateRange] = useState('all');
-    const [sortBy, setSortBy] = useState('date');
+    const [sortBy, _setSortBy] = useState('date');
     const [showExportMenu, setShowExportMenu] = useState(false);
 
     const handleExportCSV = () => { exportTransactions(filteredAndSorted, accounts, categories, 'csv'); setShowExportMenu(false); };
@@ -84,27 +86,14 @@ const Transactions = () => {
 
     return (
         <div className="min-h-screen text-text-main selection:bg-primary selection:text-black">
-            {/* Background handled by Layout */}
-
-            <motion.main
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="relative px-5 py-12 md:px-8 md:py-20 max-w-5xl mx-auto pb-40"
-            >
-                {/* Header Section */}
-                <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-16">
-                    <div>
-                        <div className="flex items-center gap-2 mb-4">
-                            <div className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_10px_rgba(var(--primary-rgb),1)]" />
-                            <span className="text-[10px] font-black uppercase tracking-[0.4em] text-text-muted">Ledger Protocol</span>
-                        </div>
-                        <h1 className="text-xl font-black tracking-[-0.04em] leading-none mb-1 transition-all text-text-main uppercase">
-                            Ledger
-                        </h1>
-                        <p className="text-[8px] font-semibold text-text-muted uppercase tracking-[0.4em] opacity-60">Complete history across all nodes.</p>
-                    </div>
-
-                    <div className="flex items-center gap-4">
+            <PageLayout>
+                <PageHeader
+                    badge="Ledger"
+                    title="Transactions"
+                    subtitle="Complete history across all nodes"
+                    icon={FileText}
+                    actions={
+                    <div className="flex items-center gap-3">
                         <div className="relative">
                             <motion.button
                                 whileTap={{ scale: 0.95 }}
@@ -151,118 +140,110 @@ const Transactions = () => {
                             <span className="text-xs uppercase tracking-widest">Signal</span>
                         </motion.button>
                     </div>
-                </header>
+                    }
+                />
 
-                {/* Search & Intelligence Hub */}
-                <div className="mb-12 space-y-6">
+                {/* Search & Filters - Minimal, informative */}
+                <div className="mb-8 space-y-4">
                     <div className="relative group">
-                        <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-primary transition-colors" size={24} />
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-primary transition-colors" size={20} />
                         <input
                             type="text"
-                            placeholder="Trace signals..."
+                            placeholder="Search transactions..."
                             value={search}
                             onChange={e => setSearch(e.target.value)}
-                            className="w-full h-16 bg-canvas-subtle border border-card-border pl-14 pr-8 rounded-[1.5rem] font-black text-base outline-none focus:border-primary/50 focus:bg-canvas-elevated transition-all placeholder:text-text-muted/50 text-text-main"
+                            className="w-full h-12 bg-canvas-subtle border border-card-border pl-12 pr-24 rounded-xl font-semibold text-sm outline-none focus:border-primary/50 transition-all placeholder:text-text-muted/50 text-text-main"
                         />
-                        <div className="absolute right-8 top-1/2 -translate-y-1/2 px-3 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-black uppercase tracking-tighter border border-primary/20">
-                            {filteredAndSorted.length} DATA NODES
-                        </div>
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-text-muted">
+                            {filteredAndSorted.length} results
+                        </span>
                     </div>
 
-                    <div className="flex flex-wrap gap-3">
-                        {/* Custom Selects with Gen Z feel */}
-                        <div className="relative flex-1 min-w-[160px]">
-                            <Filter size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                    <div className="flex flex-wrap gap-2">
+                        <div className="relative flex-1 min-w-[140px]">
+                            <Filter size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
                             <select
                                 value={selectedCategory}
                                 onChange={(e) => setSelectedCategory(e.target.value)}
-                                className="w-full h-12 pl-10 pr-10 rounded-2xl bg-canvas-subtle border border-card-border text-[10px] font-black uppercase tracking-widest outline-none appearance-none hover:bg-canvas-elevated transition-all cursor-pointer text-text-main"
+                                className="w-full h-10 pl-9 pr-8 rounded-xl bg-canvas-subtle border border-card-border text-[10px] font-semibold outline-none appearance-none hover:bg-canvas-elevated transition-all cursor-pointer text-text-main"
                             >
-                                <option value="">All Streams</option>
+                                <option value="">All Categories</option>
                                 {categories.map(cat => (
                                     <option key={cat.name} value={cat.name}>{cat.name}</option>
                                 ))}
                             </select>
-                            <ChevronDown size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                            <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
                         </div>
 
-                        <div className="relative flex-1 min-w-[160px]">
-                            <Calendar size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                        <div className="relative flex-1 min-w-[140px]">
+                            <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
                             <select
                                 value={dateRange}
                                 onChange={(e) => setDateRange(e.target.value)}
-                                className="w-full h-12 pl-10 pr-10 rounded-2xl bg-canvas-subtle border border-card-border text-[10px] font-black uppercase tracking-widest outline-none appearance-none hover:bg-canvas-elevated transition-all cursor-pointer text-text-main"
+                                className="w-full h-10 pl-9 pr-8 rounded-xl bg-canvas-subtle border border-card-border text-[10px] font-semibold outline-none appearance-none hover:bg-canvas-elevated transition-all cursor-pointer text-text-main"
                             >
-                                <option value="all">Infinite Loop</option>
+                                <option value="all">All Time</option>
                                 <option value="week">Past Week</option>
                                 <option value="month">Past Month</option>
-                                <option value="quarter">Fiscal Quarter</option>
+                                <option value="quarter">Past Quarter</option>
                             </select>
-                            <ChevronDown size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                            <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
                         </div>
 
                         {(search || selectedCategory || dateRange !== 'all') && (
                             <button
                                 onClick={() => { setSearch(''); setSelectedCategory(''); setDateRange('all'); }}
-                                className="h-12 px-6 rounded-2xl text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/5 transition-all"
+                                className="h-10 px-4 rounded-xl text-[10px] font-bold text-primary hover:bg-primary/5 transition-all"
                             >
-                                Reset Terminal
+                                Reset
                             </button>
                         )}
                     </div>
                 </div>
 
-                {/* Timeline Section */}
-                <div className="space-y-16">
-                    {sortedGroupedEntries.map(([date, items], gIdx) => (
+                {/* Timeline - Clean, minimal */}
+                <div className="space-y-6">
+                    {sortedGroupedEntries.map(([date, items]) => (
                         <div key={date} className="relative">
-                            <div className="sticky top-2 z-30 mb-8">
-                                <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full bg-card backdrop-blur-xl border border-card-border shadow-lg">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-text-main">{date}</span>
-                                </div>
+                            <div className="sticky top-2 z-30 mb-3">
+                                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-card border border-card-border text-[10px] font-bold uppercase text-text-muted">
+                                    {date}
+                                </span>
                             </div>
-
-                            <div className="space-y-4 ml-2 pl-6 border-l border-card-border">
+                            <div className="space-y-3">
                                 {items.map((t, iIdx) => {
                                     const cat = categories.find(c => c.name === t.category);
                                     const isIncome = t.amount > 0;
                                     const account = accounts.find(a => a.id === t.accountId);
-                                    const accountName = account ? account.name : 'Unknown Node';
+                                    const accountName = account ? account.name : '—';
 
                                     return (
                                         <motion.div
                                             key={`${t.id}-${t.date}`}
-                                            initial={{ x: -20, opacity: 0 }}
+                                            initial={{ x: -10, opacity: 0 }}
                                             whileInView={{ x: 0, opacity: 1 }}
                                             viewport={{ once: true }}
-                                            transition={{ delay: 0.05 * iIdx }}
+                                            transition={{ delay: 0.03 * iIdx }}
                                             onClick={() => { setEditing(t); setShowForm(true); }}
-                                            className="group relative p-4 md:p-5 modern-card grid grid-cols-[auto_1fr_auto] items-center gap-4 cursor-pointer"
+                                            className="group p-4 md:p-6 rounded-2xl bg-card border border-card-border flex items-center gap-4 cursor-pointer hover:border-primary/20 transition-all"
                                         >
-                                            <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-canvas-subtle border border-card-border flex items-center justify-center text-2xl md:text-3xl shrink-0 group-hover:scale-110 transition-transform">
+                                            <div className="w-10 h-10 rounded-xl bg-canvas-subtle flex items-center justify-center text-xl shrink-0">
                                                 {cat?.icon || '📦'}
                                             </div>
-                                            <div className="min-w-0">
-                                                <p className="text-sm md:text-base font-bold text-text-main uppercase tracking-tight truncate leading-tight">
-                                                    {t.description}
-                                                </p>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    <span className="text-[8px] md:text-[9px] font-medium text-text-muted uppercase tracking-widest">{t.category}</span>
-                                                    <span className="w-1 h-1 rounded-full bg-white/20" />
-                                                    <span className="text-[8px] md:text-[9px] font-medium text-text-muted uppercase tracking-widest">{accountName}</span>
-                                                </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-bold text-text-main truncate">{t.description}</p>
+                                                <p className="text-[10px] font-semibold text-text-muted">{t.category} · {accountName}</p>
                                             </div>
-                                            <div className="flex flex-col items-end">
-                                                <p className={`text-base md:text-lg font-black tabular-nums tracking-tighter flex items-center gap-1 md:gap-2 ${isIncome ? 'text-emerald-400' : 'text-text-main'}`}>
-                                                    {isIncome ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <p className={`text-sm font-black tabular-nums ${isIncome ? 'text-emerald-400' : 'text-text-main'}`}>
+                                                    {isIncome ? <ArrowUpRight size={14} className="inline" /> : <ArrowDownRight size={14} className="inline" />}{' '}
                                                     {formatCurrency(t.amount)}
                                                 </p>
                                                 <button
-                                                    onClick={(e) => { e.stopPropagation(); if (confirm('Purge signal?')) deleteTransaction(t); }}
-                                                    className="text-[9px] font-black text-rose-500/50 hover:text-rose-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all mt-1"
+                                                    onClick={(e) => { e.stopPropagation(); if (confirm('Delete this transaction?')) deleteTransaction(t); }}
+                                                    className="w-8 h-8 rounded-lg flex items-center justify-center text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10 opacity-0 group-hover:opacity-100 transition-all"
                                                 >
-                                                    Purge
+                                                    <Trash2 size={14} />
                                                 </button>
                                             </div>
                                         </motion.div>
@@ -273,22 +254,23 @@ const Transactions = () => {
                     ))}
 
                     {filteredAndSorted.length === 0 && (
-                        <div className="py-32 text-center">
-                            <motion.div
-                                initial={{ scale: 0.9, opacity: 0 }}
-                                animate={{ scale: 1, opacity: 1 }}
-                                className="mb-6 inline-flex w-24 h-24 rounded-full bg-canvas-elevated items-center justify-center opacity-20"
+                        <div className="py-16 md:py-20 text-center rounded-2xl bg-card border border-dashed border-card-border p-6">
+                            <Search size={40} className="mx-auto text-text-muted/30 mb-4" />
+                            <p className="text-base font-bold text-text-muted">No transactions found</p>
+                            <p className="text-sm text-text-muted/60 mt-1 mb-4">Try adjusting your filters or add your first transaction</p>
+                            <motion.button
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() => setShowForm(true)}
+                                className="px-6 py-3 rounded-xl bg-primary text-primary-foreground text-sm font-bold uppercase tracking-wider"
                             >
-                                <Search size={40} />
-                            </motion.div>
-                            <p className="text-xl font-black uppercase tracking-widest text-text-muted">No Signals Detected</p>
-                            <p className="text-sm text-text-muted/40 font-bold mt-2">The frequency is clear. Try a different trace.</p>
+                                Add Transaction
+                            </motion.button>
                         </div>
                     )}
                 </div>
 
                 {showForm && <TransactionForm onClose={() => { setShowForm(false); setEditing(null); }} editTransaction={editing} />}
-            </motion.main>
+            </PageLayout>
         </div>
     );
 };

@@ -1,7 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Sparkles, X, History, TrendingUp, TrendingDown, Activity, BrainCircuit, Globe, PieChart, Info, Lock as LockIcon, Calendar, Filter, Layers, ChevronLeft, ChevronRight, Check, List } from 'lucide-react';
+import PageLayout from '../components/PageLayout';
+import PageHeader from '../components/PageHeader';
+import StatCard from '../components/ui/StatCard';
+import SectionCard from '../components/ui/SectionCard';
+import { Search, Sparkles, X, TrendingUp, TrendingDown, PieChart, Info, Lock as LockIcon, Calendar, Filter, Layers, ChevronLeft, ChevronRight, Check, Globe, BrainCircuit } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, isWithinInterval, addMonths, subMonths, parseISO, startOfDay, endOfDay } from 'date-fns';
 
 const formatCurrency = (amount) => {
@@ -223,26 +227,13 @@ const Insights = () => {
 
     return (
         <div className="min-h-screen text-text-main selection:bg-primary selection:text-black overflow-x-hidden">
-            <motion.main
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="relative px-4 py-6 md:px-8 md:py-24 max-w-5xl mx-auto pb-32"
-            >
-                {/* Header */}
-                <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 md:gap-8 mb-6 md:mb-12">
-                    <div>
-                        <div className="flex items-center gap-2 mb-3 md:mb-6">
-                            <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-card border border-card-border overflow-hidden p-0.5">
-                                <img src="/mascot.png" alt="Laksh AI" className="w-full h-full object-cover" />
-                            </div>
-                            <span className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.3em] md:tracking-[0.5em] text-text-muted">Analytics</span>
-                        </div>
-                        <h1 className="text-lg md:text-xl font-black tracking-[-0.04em] leading-none mb-0.5 transition-all text-text-main uppercase">
-                            Insights
-                        </h1>
-                        <p className="text-[7px] md:text-[8px] font-semibold text-text-muted uppercase tracking-[0.3em] opacity-60">Deep Data Exploration</p>
-                    </div>
-
+            <PageLayout>
+                <PageHeader
+                    badge="Analytics"
+                    title="Insights"
+                    subtitle="Deep data exploration"
+                    icon={PieChart}
+                    actions={
                     <div className="flex flex-col items-end gap-2 relative">
                         {dateSelection.mode === 'month' && activeMonthKey && (
                             <>
@@ -280,7 +271,8 @@ const Insights = () => {
                             </>
                         )}
                     </div>
-                </header>
+                    }
+                />
 
                 {/* ADVANCED SEARCH & FILTER SECTION */}
                 <div className="space-y-3 md:space-y-6 mb-8 md:mb-16">
@@ -363,11 +355,11 @@ const Insights = () => {
                                 <select
                                     value={selectedCategory}
                                     onChange={(e) => setSelectedCategory(e.target.value)}
-                                    className="bg-transparent border-none p-0 text-xs md:text-lg font-black uppercase text-text-main outline-none w-full appearance-none tracking-tight cursor-pointer"
+                                    className="bg-transparent border-none p-0 text-sm font-bold uppercase text-text-main outline-none w-full appearance-none tracking-tight cursor-pointer"
                                 >
-                                    <option value="All">All</option>
+                                    <option key="all" value="All">All</option>
                                     {categories.map(c => (
-                                        <option key={c.id} value={c.name}>{c.name}</option>
+                                        <option key={c.id || c.name} value={c.name}>{c.name}</option>
                                     ))}
                                 </select>
                             </div>
@@ -396,69 +388,36 @@ const Insights = () => {
                     </AnimatePresence>
                 </div>
 
-                {/* Filtered Results Summary Cards */}
-                <div className="grid grid-cols-2 gap-2 mb-6 md:mb-8">
-                    <div className="p-4 md:p-6 rounded-[1.2rem] md:rounded-[2rem] bg-emerald-500/[0.03] border border-emerald-500/10 flex flex-col justify-between group min-h-[100px] md:min-h-[140px]">
-                        <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500 mb-2 md:mb-4">
-                            <TrendingUp size={14} className="md:w-[18px] md:h-[18px]" />
-                        </div>
-                        <div>
-                            <span className="text-[7px] md:text-[9px] font-black uppercase tracking-widest text-emerald-500/60 block mb-0.5">Inflow</span>
-                            <h3 className="text-lg md:text-2xl font-black text-emerald-400 tabular-nums tracking-tighter leading-none">{formatCurrency(totalIncome)}</h3>
-                        </div>
-                    </div>
-
-                    <div className="p-4 md:p-6 rounded-[1.2rem] md:rounded-[2rem] bg-rose-500/[0.03] border border-rose-500/10 flex flex-col justify-between group min-h-[100px] md:min-h-[140px]">
-                        <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-rose-500/10 flex items-center justify-center text-rose-500 mb-2 md:mb-4">
-                            <TrendingDown size={14} className="md:w-[18px] md:h-[18px]" />
-                        </div>
-                        <div>
-                            <span className="text-[7px] md:text-[9px] font-black uppercase tracking-widest text-rose-500/60 block mb-0.5">Outflow</span>
-                            <h3 className="text-lg md:text-2xl font-black text-rose-400 tabular-nums tracking-tighter leading-none">{formatCurrency(totalExpenses)}</h3>
-                        </div>
-                    </div>
-
-                    {/* Total Search Value - Replaces Financial Health */}
-                    <div className="col-span-2 p-5 md:p-8 rounded-[1.5rem] md:rounded-[2.5rem] bg-card border border-card-border relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 p-8 md:p-16 opacity-[0.03] -rotate-12 group-hover:scale-110 transition-transform">
-                            <PieChart size={120} className="md:w-[200px] md:h-[200px]" />
-                        </div>
-                        <div className="relative z-10 flex flex-row items-center justify-between gap-4">
-                            <div className="text-left">
-                                <h3 className="text-[9px] md:text-sm font-black uppercase tracking-[0.2em] md:tracking-[0.3em] text-text-muted mb-1">Search Volume</h3>
-                                <p className={`text-3xl md:text-5xl font-black tabular-nums tracking-tighter ${netValue >= 0 ? 'text-primary' : 'text-rose-500'}`}>
-                                    {netValue >= 0 ? '+' : ''}{formatCurrency(netValue)}
-                                </p>
-                            </div>
-                            <div className="flex items-center bg-canvas-subtle p-2 md:p-3 rounded-xl md:rounded-2xl border border-card-border">
-                                <div className="text-center px-1 md:px-2">
-                                    <span className="text-[6px] md:text-[8px] font-black uppercase tracking-widest text-text-muted/60 block">Count</span>
-                                    <span className="text-lg md:text-xl font-black text-text-main tabular-nums">{filteredData.length}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                {/* Summary - StatCards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 md:mb-8">
+                    <StatCard label="Inflow" value={formatCurrency(totalIncome)} icon={TrendingUp} variant="income" />
+                    <StatCard label="Outflow" value={formatCurrency(totalExpenses)} icon={TrendingDown} variant="expense" />
+                    <StatCard
+                        label="Net"
+                        value={`${netValue >= 0 ? '+' : ''}${formatCurrency(netValue)}`}
+                        icon={PieChart}
+                        variant={netValue >= 0 ? 'primary' : 'expense'}
+                    />
+                    <StatCard
+                        label="Transactions"
+                        value={String(filteredData.length)}
+                        subtext="In period"
+                        variant="neutral"
+                    />
                 </div>
 
                 {/* Categories List */}
-                <div className="mb-10 md:mb-16">
-                    <div className="flex justify-between items-end mb-4 md:mb-8 px-2 md:px-4">
-                        <div>
-                            <h3 className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] text-text-muted mb-1">Breakdown</h3>
-                            <p className="text-[10px] md:text-xs font-black uppercase text-primary tracking-widest">By Category</p>
-                        </div>
-                    </div>
-
+                <SectionCard title="Breakdown" subtitle="By category" className="mb-6 md:mb-8">
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-2 md:gap-3">
                         {sortedCategories.length > 0 ? (
                             sortedCategories.map((cat, idx) => (
                                 <motion.div
                                     key={cat.name}
-                                    initial={{ x: -10, opacity: 0.5 }}
+                                    initial={{ x: -8, opacity: 0.5 }}
                                     whileInView={{ x: 0, opacity: 1 }}
-                                    transition={{ delay: 0.02 * idx, duration: 0.2 }}
+                                    transition={{ delay: 0.02 * idx }}
                                     viewport={{ once: true }}
-                                    className="p-3 md:p-4 rounded-[1.2rem] md:rounded-[2rem] bg-card border border-card-border flex items-center justify-between group hover:bg-canvas-elevated hover:border-primary/20 transition-all"
+                                    className="p-3 rounded-xl bg-canvas-subtle/30 border border-transparent flex items-center justify-between hover:border-primary/15 transition-all"
                                 >
                                     <div className="flex items-center gap-3 md:gap-4">
                                         <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-canvas-subtle border border-card-border flex items-center justify-center text-lg md:text-xl">
@@ -478,36 +437,29 @@ const Insights = () => {
                                 </motion.div>
                             ))
                         ) : (
-                            <div className="col-span-2 py-12 md:py-20 rounded-[2rem] md:rounded-[3rem] bg-card border border-dashed border-card-border text-center">
-                                <Info size={24} className="md:w-8 md:h-8 mx-auto text-text-muted/20 mb-3" />
-                                <p className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.3em] text-text-muted">No data found for this filter.</p>
+                            <div className="col-span-2 py-12 rounded-2xl bg-canvas-subtle/30 border border-dashed border-card-border text-center p-6">
+                                <Info size={32} className="mx-auto text-text-muted/30 mb-3" />
+                                <p className="text-sm font-bold text-text-muted">No data for this filter</p>
+                                <p className="text-xs text-text-muted/60 mt-1">Try a different date range or category</p>
                             </div>
                         )}
                     </div>
-                </div>
+                </SectionCard>
 
-                {/* Transaction List with Dates */}
+                {/* Transaction List */}
                 {filteredData.length > 0 && (
-                    <div className="mb-10 md:mb-16">
-                        <div className="flex justify-between items-end mb-4 md:mb-6 px-2 md:px-4">
-                            <div>
-                                <h3 className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] text-text-muted mb-1">Transactions</h3>
-                                <p className="text-[10px] md:text-xs font-black uppercase text-primary tracking-widest">Detailed View</p>
-                            </div>
-                            <span className="text-[10px] font-bold text-text-muted bg-canvas-subtle px-3 py-1 rounded-full">{filteredData.length} items</span>
-                        </div>
-
+                    <SectionCard title="Transactions" subtitle={`${filteredData.length} items`} className="mb-6">
                         <div className="space-y-2">
                             {filteredData.slice(0, 20).map((tx, idx) => {
                                 const isExpense = parseFloat(tx.amount) < 0;
                                 return (
                                     <motion.div
                                         key={tx.id || idx}
-                                        initial={{ x: -20, opacity: 0 }}
+                                        initial={{ x: -10, opacity: 0 }}
                                         whileInView={{ x: 0, opacity: 1 }}
                                         transition={{ delay: 0.02 * idx }}
                                         viewport={{ once: true }}
-                                        className="p-3 md:p-4 rounded-xl md:rounded-2xl bg-card border border-card-border flex items-center justify-between gap-3 hover:bg-canvas-elevated hover:border-primary/20 transition-all"
+                                        className="p-3 rounded-xl bg-canvas-subtle/30 border border-transparent flex items-center justify-between gap-3 hover:border-primary/15 transition-all"
                                     >
                                         <div className="flex items-center gap-3 flex-1 min-w-0">
                                             <div className={`w-10 h-10 md:w-11 md:h-11 rounded-xl flex items-center justify-center text-lg shrink-0 ${isExpense ? 'bg-rose-500/10 text-rose-500' : 'bg-emerald-500/10 text-emerald-500'
@@ -531,16 +483,12 @@ const Insights = () => {
                             })}
 
                             {filteredData.length > 20 && (
-                                <div className="text-center py-4">
-                                    <p className="text-[10px] font-bold text-text-muted">Showing first 20 of {filteredData.length} transactions</p>
-                                </div>
+                                <p className="text-center py-3 text-[10px] font-semibold text-text-muted">Showing first 20 of {filteredData.length}</p>
                             )}
                         </div>
-                    </div>
+                    </SectionCard>
                 )}
-
-                <p className="text-[9px] font-black uppercase tracking-[0.5em] text-text-muted/20 text-center mt-20">LAKSH ANALYTICS V3.1</p>
-            </motion.main>
+            </PageLayout>
         </div>
     );
 };

@@ -1,10 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Sparkles, TrendingUp, TrendingDown, Target, Zap, BrainCircuit, BarChart3 } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
 
 const SmartAnalytics = ({ isOpen, onClose }) => {
-    const { transactions, categories } = useFinance();
+    const { transactions, categories: _categories } = useFinance();
 
     const analysis = useMemo(() => {
         if (!transactions || transactions.length === 0) return null;

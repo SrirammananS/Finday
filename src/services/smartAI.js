@@ -16,7 +16,7 @@ class SmartAIService {
                 mappings: {},
                 frequencies: {}
             };
-        } catch (e) {
+        } catch {
             return { mappings: {}, frequencies: {} };
         }
     }
@@ -28,7 +28,7 @@ class SmartAIService {
     /**
      * Predict category for a transaction
      */
-    predictCategory(description, amount) {
+    predictCategory(description, _amount) {
         if (!description) return { category: 'Other', confidence: 0 };
 
         const desc = description.toLowerCase();

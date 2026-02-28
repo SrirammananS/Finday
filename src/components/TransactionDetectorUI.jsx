@@ -11,7 +11,8 @@ import { useFinance } from '../context/FinanceContext';
 import { useFeedback } from '../context/FeedbackContext';
 
 const TransactionDetectorUI = () => {
-    const { addTransaction, accounts, categories } = useFinance();
+    const { addTransaction, accounts, categories, categoriesByUsage } = useFinance();
+    const displayCategories = categoriesByUsage?.length ? categoriesByUsage : categories;
     const { toast } = useFeedback();
     const [pendingTransactions, setPendingTransactions] = useState([]);
     const [expanded, setExpanded] = useState(true);
@@ -25,7 +26,7 @@ const TransactionDetectorUI = () => {
         setPendingTransactions(transactionDetector.getPending());
 
         // Subscribe to new detections
-        const unsubscribe = transactionDetector.subscribe((transaction) => {
+        const unsubscribe = transactionDetector.subscribe((_transaction) => {
             setPendingTransactions(transactionDetector.getPending());
             toast('New transaction detected!');
         });
@@ -78,7 +79,7 @@ const TransactionDetectorUI = () => {
             setPendingTransactions(transactionDetector.getPending());
             setEditingId(null);
             toast('Transaction added ✓');
-        } catch (e) {
+        } catch {
             toast('Failed to add transaction', 'error');
         }
     };
@@ -218,7 +219,7 @@ const TransactionDetectorUI = () => {
                                                         onChange={(e) => setEditForm({...editForm, category: e.target.value})}
                                                         className="p-2 rounded-lg bg-canvas-subtle border border-card-border text-sm"
                                                     >
-                                                        {categories.map(c => (
+                                                        {displayCategories.map(c => (
                                                             <option key={c.name} value={c.name}>{c.name}</option>
                                                         ))}
                                                     </select>

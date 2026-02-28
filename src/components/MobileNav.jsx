@@ -19,8 +19,7 @@ const MobileNav = () => {
                         key={link.to}
                         to={link.to}
                         className={({ isActive }) =>
-                            `group relative flex flex-col items-center gap-1.5 transition-all outline-none ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'
-                            }`
+                            `group relative flex flex-col items-center gap-1.5 transition-all outline-none ${isActive ? 'text-primary' : 'text-text-muted'}`
                         }
                     >
                         {({ isActive }) => (
@@ -28,13 +27,13 @@ const MobileNav = () => {
                                 <div className={`text-2xl transition-all duration-300 ${isActive ? 'scale-125 -translate-y-1' : 'opacity-60 grayscale group-hover:grayscale-0'}`}>
                                     {link.emoji}
                                 </div>
-                                <span className={`text-[9px] font-black uppercase tracking-[0.15em] transition-all ${isActive ? 'opacity-100' : 'opacity-0'}`}>
+                                <span className={`text-xs font-black uppercase tracking-[0.15em] transition-all ${isActive ? 'opacity-100' : 'opacity-0'}`}>
                                     {link.label}
                                 </span>
                                 {isActive && (
                                     <motion.div
                                         layoutId="nav-glow"
-                                        className="absolute -top-4 w-8 h-1 bg-indigo-500 rounded-full blur-[2px] shadow-[0_0_10px_rgba(99,102,241,0.8)]"
+                                        className="absolute -top-4 w-8 h-1 bg-primary rounded-full blur-[2px] shadow-[0_0_10px_rgba(var(--primary-rgb),0.8)]"
                                     />
                                 )}
                             </>

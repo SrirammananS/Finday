@@ -25,7 +25,7 @@ import { storage, STORAGE_KEYS } from '../services/storage';
 
 const Welcome = () => {
     const navigate = useNavigate();
-    const { isConnected, isLoading: contextLoading, updateConfig, createFinanceSheet, setGuestMode, forceRefresh, refreshData, config } = useFinance();
+    const { isConnected: _isConnected, isLoading: contextLoading, updateConfig, createFinanceSheet, setGuestMode, forceRefresh, refreshData, config } = useFinance();
     const [step, setStep] = useState('welcome');
     const [spreadsheets, setSpreadsheets] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -33,7 +33,7 @@ const Welcome = () => {
     const [hasCredentials, setHasCredentials] = useState(false);
     const [redirectAttempted, setRedirectAttempted] = useState(false);
     const [copyStatus, setCopyStatus] = useState('');
-    const [showUrl, setShowUrl] = useState(false);
+    const [_showUrl, setShowUrl] = useState(false);
     const [successUrl, setSuccessUrl] = useState('');
 
     const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -170,7 +170,7 @@ const Welcome = () => {
 
             // Navigate immediately - ProtectedRoute will show content
             navigate('/', { replace: true });
-        } catch (err) {
+        } catch {
             if (isMountedRef.current) setError('Failed to connect.');
         } finally {
             if (isMountedRef.current) setIsLoading(false);
@@ -209,7 +209,7 @@ const Welcome = () => {
             if (isMountedRef.current) {
                 setSpreadsheets(sheets);
             }
-        } catch (err) {
+        } catch {
             if (isMountedRef.current) setError('Failed to refresh list.');
         } finally {
             if (isMountedRef.current) setIsLoading(false);
@@ -236,7 +236,7 @@ const Welcome = () => {
             const sheets = await sheetsService.listSpreadsheets();
             setSpreadsheets(sheets);
             setStep('select');
-        } catch (err) {
+        } catch {
             setError('Bridge failed. Check URL.');
         } finally {
             setIsLoading(false);
@@ -274,7 +274,7 @@ const Welcome = () => {
                             >
                                 <div className="w-32 h-32 mx-auto rounded-[3rem] bg-card border border-card-border flex items-center justify-center shadow-3xl relative group overflow-hidden">
                                     <div className="absolute inset-0 rounded-[3rem] bg-primary/20 blur group-hover:blur-xl transition-all opacity-0 group-hover:opacity-100" />
-                                    <img src="/mascot.png" alt="Laksh Mascot" className="w-full h-full object-cover relative z-10 p-1" />
+                                    <img src="/logo192.png" alt="Laksh Mascot" className="w-full h-full object-cover relative z-10 p-1" />
                                 </div>
                                 <h1 className="text-4xl md:text-5xl font-extrabold tracking-[-0.04em] mt-10 leading-none text-text-main">
                                     LAKSH

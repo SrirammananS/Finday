@@ -74,7 +74,7 @@ const SkeletonDashboard = () => {
                 >
                     <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full" />
                     <div className="relative w-24 h-24 rounded-3xl bg-card border border-card-border overflow-hidden shadow-2xl">
-                        <img src="/mascot.png" alt="Laksh AI" className="w-full h-full object-cover" />
+                        <img src="/logo192.png" alt="Laksh AI" className="w-full h-full object-cover" />
                     </div>
 
                     {/* Step Icon Badge */}

@@ -2,12 +2,12 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { sheetsService } from '../services/sheets';
 import { transactionDetector } from '../services/transactionDetector';
 import { localDB } from '../services/localDB';
-import { recurringService } from '../services/recurringService';
 import { storage, STORAGE_KEYS } from '../services/storage';
 import { importWithRetry } from '../utils/lazyRetry';
+import { logger } from '../utils/logger';
 import { enrichTransaction } from '../services/smsParser';
 import { friendsService } from '../services/friendsService';
-import { format, subMonths, startOfMonth, endOfMonth, isWithinInterval, parseISO, subDays, addDays } from 'date-fns';
+import { format, subMonths, parseISO, subDays, addDays } from 'date-fns';
 
 const FinanceContext = createContext();
 
@@ -49,7 +49,7 @@ export const FinanceProvider = ({ children }) => {
 
     // Simple toast function without dependencies
     const toast = useCallback((message, type = 'success') => {
-        console.log(`${type.toUpperCase()}: ${message}`);
+        logger.info(`${type.toUpperCase()}: ${message}`);
         // Components can handle UI feedback themselves
     }, []);
 
@@ -139,9 +139,11 @@ export const FinanceProvider = ({ children }) => {
         // Load persistent flags to avoid re-generating for the same cycle
         const existingCycles = new Set(paymentsList.map(p => `${p.billId}:${p.cycle}`));
 
-        console.log(`[LAKSH] Running Smart Bill Audit (Cycle: ${currentMonthKey})...`);
+        logger.info(`Running Smart Bill Audit (Cycle: ${currentMonthKey})...`);
 
         // Phase 1: Status Sync (Auto-detect payments for EXISTING bills)
+        // Use working copy to avoid stale closure when updateBillPayment runs
+        let workingPayments = [...paymentsList];
         for (const payment of paymentsList.filter(p => p.status === 'pending')) {
             const bill = billsList.find(b => b.id === payment.billId);
             if (!bill) continue;
@@ -164,12 +166,10 @@ export const FinanceProvider = ({ children }) => {
             });
 
             if (match) {
-                console.log(`[LAKSH] Auto-detected payment for ${payment.name}! Linking TxID: ${match.id}`);
-                await updateBillPayment(payment.id, {
-                    status: 'paid',
-                    paidDate: match.date,
-                    transactionId: match.id
-                });
+                logger.info(`Auto-detected payment for ${payment.name}! Linking TxID: ${match.id}`);
+                const updates = { status: 'paid', paidDate: match.date, transactionId: match.id };
+                await updateBillPayment(payment.id, updates, workingPayments);
+                workingPayments = workingPayments.map(p => p.id === payment.id ? { ...p, ...updates } : p);
             }
         }
 
@@ -249,10 +249,10 @@ export const FinanceProvider = ({ children }) => {
                     newPayments.push(newPayment);
                     generatedBuffer.current.add(uniqueKey);
                 } catch (sheetsErr) {
-                    console.error(`[LAKSH] Smart generate fail for ${bill.name}:`, sheetsErr);
+                    logger.error(`Smart generate fail for ${bill.name}:`, sheetsErr);
                 }
             } catch (err) {
-                console.error(`[LAKSH] Generation error for ${bill.name}:`, err);
+                logger.error(`Generation error for ${bill.name}:`, err);
             }
         }
 
@@ -264,8 +264,8 @@ export const FinanceProvider = ({ children }) => {
         // Store flag in _Config to mark this check as complete
         try {
             await sheetsService.setConfig(spreadsheetId, 'last_bill_audit', new Date().toISOString());
-        } catch (e) {
-            console.warn('[LAKSH] Failed to update bill audit flag in cloud');
+        } catch {
+            logger.warn('Failed to update bill audit flag in cloud');
         }
     };
 
@@ -275,18 +275,18 @@ export const FinanceProvider = ({ children }) => {
     const refreshData = useCallback(async (sheetId, forceRefresh = false) => {
         // If sheetId is passed, we proceed regardless of isGuest (used during login transition)
         if (isGuest && !sheetId) {
-            console.log('[LAKSH] Guest mode active, skipping cloud refresh');
+            logger.info('Guest mode active, skipping cloud refresh');
             setIsLoading(false);
             return;
         }
 
         const spreadsheetId = sheetId || config.spreadsheetId;
         if (!spreadsheetId) {
-            console.warn('[LAKSH] refreshData called without spreadsheetId');
+            logger.warn('refreshData called without spreadsheetId');
             return;
         }
 
-        console.log(`[LAKSH] Starting data refresh for sheet: ${spreadsheetId.substring(0, 10)}...`);
+        logger.info(`Starting data refresh for sheet: ${spreadsheetId.substring(0, 10)}...`);
 
         // Clear cache if force refresh requested
         if (forceRefresh) {
@@ -298,7 +298,7 @@ export const FinanceProvider = ({ children }) => {
 
         try {
             // Ensure sheets service is initialized before fetching
-            console.log('[LAKSH] Ensuring sheets service is initialized...');
+            logger.info('Ensuring sheets service is initialized...');
             if (!sheetsService.isInitialized) {
                 await sheetsService.init();
             }
@@ -310,7 +310,7 @@ export const FinanceProvider = ({ children }) => {
                 throw new Error('Authentication required. Please sign in again.');
             }
             // Fetch all data in parallel with retry
-            console.log(`[LAKSH] Fetching data for sheet: ${spreadsheetId}`);
+            logger.info(`Fetching data for sheet: ${spreadsheetId}`);
             const [fetchedTransactions, fetchedAccounts, fetchedCategories, fetchedBills, fetchedBillPayments, fetchedConfig] = await Promise.all([
                 sheetsService.getTransactions(spreadsheetId, 12), // Get more months for bill detection
                 sheetsService.getAccounts(spreadsheetId),
@@ -320,7 +320,7 @@ export const FinanceProvider = ({ children }) => {
                 sheetsService.getConfig(spreadsheetId)
             ]);
 
-            console.log('[LAKSH] Fetch results:', {
+            logger.info('Fetch results:', {
                 transactions: fetchedTransactions?.length || 0,
                 accounts: fetchedAccounts?.length || 0,
                 categories: fetchedCategories?.length || 0,
@@ -352,11 +352,11 @@ export const FinanceProvider = ({ children }) => {
             setLoadingStatus({ step: 4, message: 'Ready!', error: null });
 
             // Background: Flush any pending offline writes
-            sheetsService.flushQueue().catch(e => console.log('[LAKSH] Post-refresh flush background:', e));
+            sheetsService.flushQueue().catch(e => logger.info('Post-refresh flush background:', e));
 
-            console.log('[LAKSH] Sync complete!');
+            logger.info('Sync complete!');
         } catch (err) {
-            console.error('[LAKSH] Refresh failed:', err);
+            logger.error('Refresh failed:', err);
             const errorMessage = err.message || 'Unknown error occurred';
             setError(errorMessage);
             setLoadingStatus({ step: 3, message: 'Sync failed', error: errorMessage });
@@ -487,7 +487,7 @@ export const FinanceProvider = ({ children }) => {
             const isTokenValid = savedToken && tokenExpiry && Date.now() < parseInt(tokenExpiry);
 
             if (savedId && isTokenValid && isConnected) {
-                console.log('[LAKSH] Already connected, loading cache + triggering background sync...');
+                logger.info('Already connected, loading cache + triggering background sync...');
                 setLoadingStatus({ step: 3, message: 'Loading cached data...', error: null });
 
                 // 1. Load cached data immediately for fast UI
@@ -501,15 +501,15 @@ export const FinanceProvider = ({ children }) => {
                         setBillPayments(cachedData.billPayments || []);
                     }
                 } catch (cacheErr) {
-                    console.warn('[LAKSH] Failed to load cache on reconnect:', cacheErr);
+                    logger.warn('Failed to load cache on reconnect:', cacheErr);
                 }
 
                 setLoadingStatus({ step: 4, message: 'Ready!', error: null });
                 setIsLoading(false);
 
                 // 2. Trigger background sync to get latest data
-                console.log('[LAKSH] Triggering background sync for fresh data...');
-                refreshData(savedId, false).catch(e => console.warn('[LAKSH] Background sync failed:', e.message));
+                logger.info('Triggering background sync for fresh data...');
+                refreshData(savedId, false).catch(e => logger.warn('Background sync failed:', e.message));
                 return;
             }
 
@@ -519,7 +519,7 @@ export const FinanceProvider = ({ children }) => {
             // Check for guest mode first
             const isGuestMode = storage.getBool(STORAGE_KEYS.GUEST_MODE);
             if (isGuestMode) {
-                console.log('[LAKSH] Guest mode detected, loading local data');
+                logger.info('Guest mode detected, loading local data');
                 setLoadingStatus({ step: 1, message: 'Loading local data...', error: null });
                 try {
                     const cachedData = await localDB.getAllData();
@@ -536,7 +536,7 @@ export const FinanceProvider = ({ children }) => {
                     setIsLoading(false);
                     return;
                 } catch (e) {
-                    console.error('[LAKSH] Guest mode init failed:', e);
+                    logger.error('Guest mode init failed:', e);
                     await initializeDefaultData();
                     setIsConnected(true);
                     setLoadingStatus({ step: 4, message: 'Ready!', error: null });
@@ -547,22 +547,23 @@ export const FinanceProvider = ({ children }) => {
 
             // Special handling for Android WebView - but respect first-time setup
             if (isAndroidWebView()) {
-                console.log('[LAKSH] Detected Android WebView');
+                logger.info('Detected Android WebView');
 
                 // Try to restore session silently first using Refresh Token
                 const refreshToken = localStorage.getItem('google_refresh_token');
                 if (refreshToken) {
-                    console.log('[LAKSH] Attempting silent refresh for Android...');
+                    logger.info('Attempting silent refresh for Android...');
                     try {
-                        await cloudBackup.init(); // This now handles refresh internally
+                        const { cloudBackup } = await importWithRetry(() => import('../services/cloudBackup'));
+                        await cloudBackup.init();
                         if (cloudBackup.isSignedIn()) {
-                            console.log('[LAKSH] Silent refresh successful!');
+                            logger.info('Silent refresh successful!');
                             setIsConnected(true);
                             refreshData(null, true); // Fetch fresh data
                             return;
                         }
                     } catch (e) {
-                        console.warn('[LAKSH] Silent refresh failed:', e);
+                        logger.warn('Silent refresh failed:', e);
                     }
                 }
 
@@ -574,21 +575,21 @@ export const FinanceProvider = ({ children }) => {
                     storage.get(STORAGE_KEYS.EVER_CONNECTED);
 
                 if (!hasEverConnected) {
-                    console.log('[LAKSH] Fresh install - needs Google Sheets setup');
+                    logger.info('Fresh install - needs Google Sheets setup');
                     setIsConnected(false);
                     setIsLoading(false);
                     setLoadingStatus({ step: 0, message: 'Setup required', error: null });
                     return;
                 }
 
-                console.log('[LAKSH] Previously connected - initializing offline mode');
+                logger.info('Previously connected - initializing offline mode');
                 setLoadingStatus({ step: 2, message: 'Loading cached data...', error: null });
                 try {
                     const cachedData = await localDB.getAllData();
                     if (!isMountedRef.current) return;
 
                     if (cachedData.hasData) {
-                        console.log('[LAKSH] Loading cached data for WebView');
+                        logger.info('Loading cached data for WebView');
                         setTransactions(cachedData.transactions || []);
                         setAccounts(cachedData.accounts || []);
                         setCategories(cachedData.categories || []);
@@ -599,7 +600,7 @@ export const FinanceProvider = ({ children }) => {
                         }
                         hasCachedData = true;
                     } else {
-                        console.log('[LAKSH] No cached data - initializing with defaults');
+                        logger.info('No cached data - initializing with defaults');
                         await initializeDefaultData();
                     }
 
@@ -607,10 +608,10 @@ export const FinanceProvider = ({ children }) => {
                     if (window.AndroidBridge && typeof window.AndroidBridge.getPendingTransactions === 'function') {
                         try {
                             const pendingJson = window.AndroidBridge.getPendingTransactions();
-                            if (pendingJson && pendingJson !== '[]') {
-                                const pendingTxns = JSON.parse(pendingJson);
-                                if (Array.isArray(pendingTxns) && pendingTxns.length > 0) {
-                                    console.log('[LAKSH] Found pending Android transactions:', pendingTxns.length);
+                                    if (pendingJson && pendingJson !== '[]') {
+                                        const pendingTxns = JSON.parse(pendingJson);
+                                        if (Array.isArray(pendingTxns) && pendingTxns.length > 0) {
+                                            logger.info('Found pending Android transactions:', pendingTxns.length);
 
                                     // FIXED: Auto-add directly to sheets if connected, otherwise queue for review
                                     const autoAddEnabled = localStorage.getItem('laksh_auto_add_sms') !== 'false'; // Default true
@@ -639,9 +640,9 @@ export const FinanceProvider = ({ children }) => {
                                                     date: enriched.date || new Date().toISOString().split('T')[0]
                                                 });
                                                 addedCount++;
-                                                console.log('[LAKSH] Auto-added SMS transaction:', enriched.description);
+                                                logger.info('Auto-added SMS transaction:', enriched.description);
                                             } catch (addError) {
-                                                console.warn('[LAKSH] Auto-add failed, queuing for review:', addError);
+                                                logger.warn('Auto-add failed, queuing for review:', addError);
                                                 // Fallback to pending queue if auto-add fails
                                                 transactionDetector.addPending(enriched);
                                                 queuedCount++;
@@ -666,12 +667,12 @@ export const FinanceProvider = ({ children }) => {
                                 }
                             }
                         } catch (e) {
-                            console.log('[LAKSH] Bridge error (safe to ignore):', e.message);
+                            logger.info('Bridge error (safe to ignore):', e.message);
                         }
                     }
 
                     // Set as connected in offline mode only after previous connection
-                    console.log('[LAKSH] WebView offline mode activated');
+                    logger.info('WebView offline mode activated');
                     setIsConnected(true);
 
                     // Show toast to indicate data loaded
@@ -683,7 +684,7 @@ export const FinanceProvider = ({ children }) => {
                     // For Android, if we have cached data and a token, refresh immediately
                     const token = savedToken || localStorage.getItem('laksh_access_token');
                     if (hasCachedData && token) {
-                        console.log('[LAKSH] Android: Triggering background sync refresh');
+                        logger.info('Android: Triggering background sync refresh');
                         toast('Android: Starting background sync...', 'info');
                         refreshData(savedId, true)
                             .then(() => toast('Android: Sync complete!', 'success'))
@@ -696,7 +697,7 @@ export const FinanceProvider = ({ children }) => {
                     }
 
                 } catch (e) {
-                    console.error('[LAKSH] Failed to initialize WebView data:', e);
+                    logger.error('Failed to initialize WebView data:', e);
                     await initializeDefaultData();
                 }
             }
@@ -706,10 +707,10 @@ export const FinanceProvider = ({ children }) => {
             if (bridge && typeof bridge.getPendingTransactions === 'function') {
                 try {
                     const pendingJson = bridge.getPendingTransactions();
-                    if (pendingJson && pendingJson !== '[]') {
-                        const pendingTxns = JSON.parse(pendingJson);
-                        if (Array.isArray(pendingTxns) && pendingTxns.length > 0) {
-                            console.log('[LAKSH] Processing bridge transactions:', pendingTxns.length);
+                            if (pendingJson && pendingJson !== '[]') {
+                                const pendingTxns = JSON.parse(pendingJson);
+                                if (Array.isArray(pendingTxns) && pendingTxns.length > 0) {
+                                    logger.info('Processing bridge transactions:', pendingTxns.length);
 
                             let addedCount = 0;
                             for (const txn of pendingTxns) {
@@ -738,7 +739,7 @@ export const FinanceProvider = ({ children }) => {
                         }
                     }
                 } catch (e) {
-                    console.warn('[LAKSH] Bridge sync error:', e.message);
+                    logger.warn('Bridge sync error:', e.message);
                 }
             }
 
@@ -752,10 +753,10 @@ export const FinanceProvider = ({ children }) => {
             // Initialize cloudBackup first to check for existing sessions
             try {
                 await cloudBackup.init();
-                console.log('[FinanceContext] CloudBackup initialized successfully');
+                logger.info('CloudBackup initialized successfully');
                 setLoadingStatus({ step: 3, message: 'Fetching your data...', error: null });
             } catch (error) {
-                console.log('[FinanceContext] CloudBackup init error, continuing with offline mode:', error);
+                logger.info('CloudBackup init error, continuing with offline mode:', error);
                 setLoadingStatus({ step: 2, message: 'Using offline mode...', error: error.message });
             }
 
@@ -769,7 +770,7 @@ export const FinanceProvider = ({ children }) => {
             const directExpiry = localStorage.getItem('google_token_expiry');
             const hasValidDirectToken = directToken && directExpiry && Date.now() < parseInt(directExpiry);
 
-            console.log('[LAKSH] Auth check:', {
+            logger.info('Auth check:', {
                 savedSpreadsheetId: !!savedSpreadsheetId,
                 cloudBackupSignedIn: cloudBackup.isSignedIn(),
                 cloudBackupToken: !!cloudBackup.accessToken,
@@ -811,10 +812,10 @@ export const FinanceProvider = ({ children }) => {
                         // Trigger initial sync if we have any valid token OR if OAuth refresh is required
                         if (oauthRefreshRequired || cloudBackup.isSignedIn() || cloudBackup.accessToken || hasValidDirectToken) {
                             if (oauthRefreshRequired) {
-                                console.log('[LAKSH] OAuth refresh flag detected, forcing data refresh...');
+                                logger.info('OAuth refresh flag detected, forcing data refresh...');
                                 localStorage.removeItem('oauth_refresh_required');
                             } else {
-                                console.log('[LAKSH] Triggering data refresh after login...');
+                                logger.info('Triggering data refresh after login...');
                             }
                             setLoadingStatus({ step: 3, message: 'Fetching your data...', error: null });
                             try {
@@ -822,18 +823,18 @@ export const FinanceProvider = ({ children }) => {
                                 await ensureSheetsReady();
                                 await refreshData(savedSpreadsheetId, true); // Force refresh after login
                             } catch (refreshError) {
-                                console.error('[LAKSH] Refresh after login failed:', refreshError);
+                                logger.error('Refresh after login failed:', refreshError);
                                 setError(refreshError.message || 'Failed to load data after login');
                                 setLoadingStatus({ step: 3, message: 'Failed to load data', error: refreshError.message });
                                 // Still show as connected if we have cached data
                                 if (hasCachedData) {
-                                    console.log('[LAKSH] Using cached data due to refresh failure');
+                                    logger.info('Using cached data due to refresh failure');
                                 }
                                 // FIXED: Always clear loading state even on error
                                 setIsLoading(false);
                             }
                         } else {
-                            console.log('[LAKSH] No valid token, skipping refresh');
+                            logger.info('No valid token, skipping refresh');
                             setIsLoading(false);
                         }
                     }
@@ -880,7 +881,7 @@ export const FinanceProvider = ({ children }) => {
         };
 
         autoConnect().catch(error => {
-            console.error('[FinanceContext] AutoConnect error:', error);
+            logger.error('AutoConnect error:', error);
             if (isMountedRef.current) {
                 setIsLoading(false);
                 setIsConnected(false);
@@ -898,21 +899,21 @@ export const FinanceProvider = ({ children }) => {
             
             // Check if OAuth callback set refresh flag - FIXED: Remove isConnected check
             if (refreshRequired === 'true' && config.spreadsheetId && !isSyncing && !isLoading) {
-                console.log('[LAKSH] OAuth refresh required, triggering data refresh...');
+                logger.info('OAuth refresh required, triggering data refresh...');
                 localStorage.removeItem('oauth_refresh_required');
                 
                 // Ensure sheets service is ready before refresh
                 ensureSheetsReady()
                     .then(() => refreshData(config.spreadsheetId, true))
                     .catch(err => {
-                        console.error('[LAKSH] OAuth refresh failed:', err);
+                        logger.error('OAuth refresh failed:', err);
                         setError('Failed to load data after sign-in. Please try refreshing.');
                     });
             }
             
             // Ensure we don't reload if we are already in the process of connecting
             if (token && !isConnected && !isLoading && !refreshRequired) {
-                console.log('[LAKSH] Token detected via polling, reloading to initialize...');
+                logger.info('Token detected via polling, reloading to initialize...');
                 window.location.reload();
             }
         }, 2000);
@@ -952,12 +953,12 @@ export const FinanceProvider = ({ children }) => {
                                 const reg = await navigator.serviceWorker.ready;
                                 await reg.showNotification('LAKSH: Upcoming Bills', {
                                     body: `You have ${upcoming.length} bill${upcoming.length > 1 ? 's' : ''} due in the next ${notifyDays} days!`,
-                                    icon: '/mascot.png'
+                                    icon: '/logo192.png'
                                 });
                             } else if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
                                 new Notification('LAKSH: Upcoming Bills', {
                                     body: `You have ${upcoming.length} bill${upcoming.length > 1 ? 's' : ''} due in the next ${notifyDays} days!`,
-                                    icon: '/mascot.png'
+                                    icon: '/logo192.png'
                                 });
                             }
                         } catch (e) {
@@ -985,14 +986,14 @@ export const FinanceProvider = ({ children }) => {
 
     useEffect(() => {
         const generateCCBills = async () => {
-            console.log('[Finday CC] generateCCBills triggered. Checking conditions...');
+            logger.info('[Finday CC] generateCCBills triggered. Checking conditions...');
             // Only run if we have data and not currently syncing
             if (accounts.length === 0 && transactions.length === 0) {
-                console.log('[Finday CC] Skipping: No accounts/transactions loaded yet.');
+                logger.info('[Finday CC] Skipping: No accounts/transactions loaded yet.');
                 return;
             }
             if (isSyncing) {
-                console.log('[Finday CC] Skipping: Currently syncing.');
+                logger.info('[Finday CC] Skipping: Currently syncing.');
                 return;
             }
             // Relaxing lastSyncTime check since cached data is enough to generate bills
@@ -1002,13 +1003,13 @@ export const FinanceProvider = ({ children }) => {
             const lockKey = 'finday_cc_bill_lock';
             const lock = localStorage.getItem(lockKey);
             if (lock && Date.now() - parseInt(lock) < 30000) {
-                console.log('[Finday CC] Skipping: Locked (ran recently).');
+                logger.info('[Finday CC] Skipping: Locked (ran recently).');
                 return;
             }
             localStorage.setItem(lockKey, Date.now().toString());
 
             const creditAccounts = accounts.filter(a => a.type === 'credit');
-            console.log(`[Finday CC] Found ${creditAccounts.length} credit accounts.`);
+            logger.info(`[Finday CC] Found ${creditAccounts.length} credit accounts.`);
 
             const today = new Date();
             const currentDay = today.getDate();
@@ -1023,7 +1024,7 @@ export const FinanceProvider = ({ children }) => {
                 const billingDay = parseInt(acc.billingDay);
                 const dueDay = parseInt(acc.dueDay) || billingDay + 20;
 
-                console.log(`[Finday CC] Checking ${acc.name}. BillingDay: ${billingDay}, CurrentDay: ${currentDay}`);
+                logger.info(`[Finday CC] Checking ${acc.name}. BillingDay: ${billingDay}, CurrentDay: ${currentDay}`);
 
                 // Check if we are past the billing day for this month
                 if (currentDay >= billingDay) {
@@ -1068,7 +1069,7 @@ export const FinanceProvider = ({ children }) => {
 
                     const existingBill = existingBillByCycle || existingBillByName;
                     if (existingBill) {
-                        console.log(`[Finday CC] Skipping ${acc.name}: Bill already exists (${existingBill.name})`);
+                        logger.info(`[Finday CC] Skipping ${acc.name}: Bill already exists (${existingBill.name})`);
                     }
 
                     // Check ephemeral lock for this specific bill (session scope)
@@ -1076,7 +1077,7 @@ export const FinanceProvider = ({ children }) => {
                     const inMemoryLock = createdBillsRef.current.has(billLockKey);
 
                     if (inMemoryLock) {
-                        console.log(`[Finday CC] Skipping ${acc.name}: In-memory lock active.`);
+                        logger.info(`[Finday CC] Skipping ${acc.name}: In-memory lock active.`);
                     }
 
                     if (!existingBill && !inMemoryLock) {
@@ -1099,7 +1100,7 @@ export const FinanceProvider = ({ children }) => {
                         const debt = acc.balance < 0 ? Math.abs(acc.balance) : 0;
                         const totalSpent = totalFromTx > 0 ? totalFromTx : debt;
 
-                        console.log(`[Finday CC] ${acc.name}: Cycle ${cycleStartStr} to ${cycleEndStr}. TxTotal: ${totalFromTx}, Debt: ${debt}, TotalSpent: ${totalSpent}`);
+                        logger.info(`[Finday CC] ${acc.name}: Cycle ${cycleStartStr} to ${cycleEndStr}. TxTotal: ${totalFromTx}, Debt: ${debt}, TotalSpent: ${totalSpent}`);
 
                         if (totalSpent > 0 || totalFromTx > 0) {
                             createdBillsRef.current.add(billLockKey);
@@ -1117,13 +1118,13 @@ export const FinanceProvider = ({ children }) => {
                                 cycleEnd: cycleEndStr
                             };
 
-                            console.log(`[Finday CC] GENERATING BILL: ${billName} - ${totalSpent}`);
+                            logger.info(`[Finday CC] GENERATING BILL: ${billName} - ${totalSpent}`);
                             await addBill(newBill);
 
                             if (Notification.permission === 'granted') {
                                 new Notification('Statement Ready', {
                                     body: `${acc.name}: ₹${totalSpent.toLocaleString()}`,
-                                    icon: '/mascot.png'
+                                    icon: '/logo192.png'
                                 });
                             }
                         }
@@ -1184,9 +1185,9 @@ export const FinanceProvider = ({ children }) => {
                 bills: []
             });
 
-            console.log('[LAKSH] Mobile app initialized with default data');
+            logger.info('Mobile app initialized with default data');
         } catch (error) {
-            console.error('Failed to initialize default data:', error);
+            logger.error('Failed to initialize default data:', error);
         }
     };
 
@@ -1252,7 +1253,7 @@ export const FinanceProvider = ({ children }) => {
                     try {
                         await sheetsService.updateAccount(config.spreadsheetId, data.accountId, { balance: newBalance });
                     } catch (accError) {
-                        console.warn('[LAKSH] Failed to sync account balance, will retry on next sync', accError);
+                        logger.warn('Failed to sync account balance, will retry on next sync', accError);
                     }
                     // State already updated optimistically above
                     // State already updated optimistically above
@@ -1328,7 +1329,7 @@ export const FinanceProvider = ({ children }) => {
                                     setBills(prev => prev.map(b => b.id === matchedBill.id ? { ...b, status: 'paid' } : b));
                                     toast(`Auto-marked Bill "${matchedBill.name}" as paid ✓`);
                                 } catch (e) {
-                                    console.warn('Failed to auto-mark bill', e);
+                                    logger.warn('Failed to auto-mark bill', e);
                                 }
                             }
                         }
@@ -1357,7 +1358,7 @@ export const FinanceProvider = ({ children }) => {
             toast('Record posted to cloud');
             return { ...transaction, synced: true };
         } catch (err) {
-            console.error('Add transaction failed:', err);
+            logger.error('Add transaction failed:', err);
             setError(err.message);
             toast('Connection timeout. Retrying...', 'error');
             throw err;
@@ -1371,7 +1372,7 @@ export const FinanceProvider = ({ children }) => {
         const originalTransaction = transactions.find(t => t.id === transaction.id);
 
         if (!originalTransaction) {
-            console.error('Original transaction not found');
+            logger.error('Original transaction not found');
             return transaction;
         }
 
@@ -1411,7 +1412,7 @@ export const FinanceProvider = ({ children }) => {
                     const oldNewBalance = oldAccount.balance - originalTransaction.amount;
                     await sheetsService.updateAccount(config.spreadsheetId, oldAccount.id, { balance: oldNewBalance });
                     setAccounts(prev => prev.map(a => a.id === oldAccount.id ? { ...a, balance: oldNewBalance } : a));
-                    console.log(`[Finday] Old account ${oldAccount.name}: ${oldAccount.balance} -> ${oldNewBalance}`);
+                    logger.info(`[Finday] Old account ${oldAccount.name}: ${oldAccount.balance} -> ${oldNewBalance}`);
                 }
 
                 if (newAccount) {
@@ -1419,7 +1420,7 @@ export const FinanceProvider = ({ children }) => {
                     const newNewBalance = newAccount.balance + transaction.amount;
                     await sheetsService.updateAccount(config.spreadsheetId, newAccount.id, { balance: newNewBalance });
                     setAccounts(prev => prev.map(a => a.id === newAccount.id ? { ...a, balance: newNewBalance } : a));
-                    console.log(`[Finday] New account ${newAccount.name}: ${newAccount.balance} -> ${newNewBalance}`);
+                    logger.info(`[Finday] New account ${newAccount.name}: ${newAccount.balance} -> ${newNewBalance}`);
                 }
             } else if (amountChanged) {
                 // Same account, amount changed: just apply the difference
@@ -1429,7 +1430,7 @@ export const FinanceProvider = ({ children }) => {
                     const newBalance = account.balance + amountDiff;
                     await sheetsService.updateAccount(config.spreadsheetId, account.id, { balance: newBalance });
                     setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, balance: newBalance } : a));
-                    console.log(`[Finday] Account ${account.name}: ${account.balance} -> ${newBalance} (diff: ${amountDiff})`);
+                    logger.info(`[Finday] Account ${account.name}: ${account.balance} -> ${newBalance} (diff: ${amountDiff})`);
                 }
             }
 
@@ -1448,7 +1449,7 @@ export const FinanceProvider = ({ children }) => {
             toast('Record modified successfully');
             return { ...transaction, synced: true };
         } catch (err) {
-            console.error('Update transaction failed:', err);
+            logger.error('Update transaction failed:', err);
             toast('Failed to update record', 'error');
             throw err;
         } finally {
@@ -1470,7 +1471,7 @@ export const FinanceProvider = ({ children }) => {
             setLastSyncTime(new Date());
             toast('Entry removed from ledger');
         } catch (err) {
-            console.error('Delete transaction failed:', err);
+            logger.error('Delete transaction failed:', err);
             // Revert
             const reverted = [...transactions, transaction];
             setTransactions(reverted);
@@ -1520,7 +1521,7 @@ export const FinanceProvider = ({ children }) => {
             await sheetsService.updateAccount(config.spreadsheetId, accountId, updates);
             setLastSyncTime(new Date());
         } catch (err) {
-            console.error('Update account failed:', err);
+            logger.error('Update account failed:', err);
             throw err;
         } finally {
             setIsSyncing(false);
@@ -1580,8 +1581,6 @@ export const FinanceProvider = ({ children }) => {
         try {
             await sheetsService.updateCategory(config.spreadsheetId, oldName, category);
             setLastSyncTime(new Date());
-        } catch (err) {
-            throw err;
         } finally {
             setIsSyncing(false);
         }
@@ -1666,14 +1665,15 @@ export const FinanceProvider = ({ children }) => {
 
             setLastSyncTime(new Date());
         } catch (err) {
-            console.error('[LAKSH] updateBill failed:', err);
+            logger.error('updateBill failed:', err);
         } finally {
             setIsSyncing(false);
         }
     };
 
-    const updateBillPayment = async (paymentId, updates) => {
-        const newPayments = billPayments.map(p => p.id === paymentId ? { ...p, ...updates } : p);
+    const updateBillPayment = async (paymentId, updates, paymentsOverride) => {
+        const base = paymentsOverride ?? billPayments;
+        const newPayments = base.map(p => p.id === paymentId ? { ...p, ...updates } : p);
         setBillPayments(newPayments);
         localDB.saveData({ transactions, accounts, categories, bills, billPayments: newPayments });
 
@@ -1684,7 +1684,7 @@ export const FinanceProvider = ({ children }) => {
             await sheetsService.updateBillPayment(config.spreadsheetId, paymentId, updates);
             setLastSyncTime(new Date());
         } catch (err) {
-            console.error('[LAKSH] updateBillPayment failed:', err);
+            logger.error('updateBillPayment failed:', err);
             throw err;
         } finally {
             setIsSyncing(false);
@@ -1716,7 +1716,7 @@ export const FinanceProvider = ({ children }) => {
 
             setLastSyncTime(new Date());
         } catch (err) {
-            console.error('[LAKSH] deleteBill failed:', err);
+            logger.error('deleteBill failed:', err);
             // Restore local state on failure
             setBills(prev => [...prev, bill]);
         } finally {
@@ -1738,19 +1738,19 @@ export const FinanceProvider = ({ children }) => {
 
             // 1. Time Extraction
             const now = new Date();
-            let timeFiltered = false;
+            let _timeFiltered = false;
 
             if (q.includes('this month')) {
                 results = results.filter(t => new Date(t.date).getMonth() === now.getMonth() && new Date(t.date).getFullYear() === now.getFullYear());
-                timeFiltered = true;
+                _timeFiltered = true;
             } else if (q.includes('last month')) {
                 const lm = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
                 const ly = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
                 results = results.filter(t => new Date(t.date).getMonth() === lm && new Date(t.date).getFullYear() === ly);
-                timeFiltered = true;
+                _timeFiltered = true;
             } else if (q.includes('this year')) {
                 results = results.filter(t => new Date(t.date).getFullYear() === now.getFullYear());
-                timeFiltered = true;
+                _timeFiltered = true;
             }
 
             // 2. Category Extraction
@@ -1782,7 +1782,7 @@ export const FinanceProvider = ({ children }) => {
         try {
             return await sheetsService.smartQuery(config.spreadsheetId, query);
         } catch (err) {
-            console.warn('Sheets smartQuery failed, falling back to local:', err);
+            logger.warn('Sheets smartQuery failed, falling back to local:', err);
             return localQuery();
         }
     };
@@ -1808,19 +1808,16 @@ export const FinanceProvider = ({ children }) => {
         // Handle object-based updates (e.g. { spreadsheetId: '...' })
         if (typeof key === 'object' && key !== null) {
             const updates = key;
-            setConfig(prev => {
-                const newConfig = { ...prev, ...updates };
-                // If spreadsheetId is being set, also update isConnected and trigger refresh
-                if (updates.spreadsheetId) {
-                    setIsConnected(true);
-                    setIsGuest(false);
-                    storage.set(STORAGE_KEYS.GUEST_MODE, 'false');
-                    storage.set(STORAGE_KEYS.SPREADSHEET_ID, updates.spreadsheetId);
-                    // Standard trigger for refreshData
-                    refreshData(updates.spreadsheetId);
-                }
-                return newConfig;
-            });
+            if (updates.spreadsheetId) {
+                setIsConnected(true);
+                setIsGuest(false);
+                storage.set(STORAGE_KEYS.GUEST_MODE, 'false');
+                storage.set(STORAGE_KEYS.SPREADSHEET_ID, updates.spreadsheetId);
+            }
+            setConfig(prev => ({ ...prev, ...updates }));
+            if (updates.spreadsheetId) {
+                await refreshData(updates.spreadsheetId);
+            }
             return;
         }
 
@@ -1831,14 +1828,14 @@ export const FinanceProvider = ({ children }) => {
             await sheetsService.setConfig(spreadsheetId, key, value);
             setConfig(prev => ({ ...prev, [key]: value }));
         } catch (err) {
-            console.error('Config update failed:', err);
+            logger.error('Config update failed:', err);
         }
     }, [config.spreadsheetId]);
 
     const disconnect = useCallback(async () => {
         // Special handling for Android WebView
         if (isAndroidWebView()) {
-            console.log('[LAKSH] Disconnecting in WebView mode');
+            logger.info('Disconnecting in WebView mode');
 
             // Clear all local data including "ever connected" flag
             await localDB.clearAll();
@@ -1911,7 +1908,7 @@ export const FinanceProvider = ({ children }) => {
             });
 
             toast('Data restored from backup ✓');
-            console.log('[LAKSH] Restored from backup:', {
+            logger.info('Restored from backup:', {
                 transactions: data.transactions?.length || 0,
                 accounts: data.accounts?.length || 0,
                 categories: data.categories?.length || 0,
@@ -1920,11 +1917,24 @@ export const FinanceProvider = ({ children }) => {
 
             return true;
         } catch (error) {
-            console.error('[LAKSH] Restore failed:', error);
+            logger.error('Restore failed:', error);
             toast('Failed to restore data', 'error');
             return false;
         }
     }, [toast]);
+
+    // Categories sorted by usage (most-used first); "Other" always last
+    const categoriesByUsage = useMemo(() => {
+        const counts = {};
+        categories.forEach(c => { counts[c.name] = 0; });
+        transactions.forEach(t => {
+            if (t.category && counts[t.category] !== undefined) counts[t.category]++;
+        });
+        const withUsage = categories.map(c => ({ ...c, _count: counts[c.name] ?? 0 }));
+        const other = withUsage.find(c => c.name === 'Other');
+        const rest = withUsage.filter(c => c.name !== 'Other').sort((a, b) => b._count - a._count);
+        return other ? [...rest, other] : rest;
+    }, [categories, transactions]);
 
     const value = {
         isGuest,
@@ -1938,6 +1948,7 @@ export const FinanceProvider = ({ children }) => {
         transactions,
         accounts,
         categories,
+        categoriesByUsage,
         bills,
         friends: friendsWithBalance,
         config,
@@ -1963,6 +1974,9 @@ export const FinanceProvider = ({ children }) => {
         updateConfig,
         disconnect,
         forceRefresh,
+        forceSync: async () => {
+            if (config.spreadsheetId) await refreshData(config.spreadsheetId, true);
+        },
         getCacheInfo,
         restoreFromBackup,
         exportData: async () => {
@@ -2005,7 +2019,7 @@ export const FinanceProvider = ({ children }) => {
                 });
                 return true;
             } catch (e) {
-                console.error('Import failed:', e);
+                logger.error('Import failed:', e);
                 return false;
             }
         },

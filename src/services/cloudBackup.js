@@ -442,7 +442,7 @@ class CloudBackupService {
                     storage.setBackupSession(response.access_token, userInfo);
                     await this.setupEncryptionKey();
                     resolve(userInfo);
-                } catch (e) {
+                } catch {
                     resolve(null);
                 }
             };
@@ -498,7 +498,7 @@ class CloudBackupService {
         if (this.accessToken) {
             try {
                 window.google?.accounts?.oauth2?.revoke(this.accessToken);
-            } catch (e) { }
+            } catch { /* revoke may fail if token invalid */ }
         }
 
         storage.clearBackupSession();

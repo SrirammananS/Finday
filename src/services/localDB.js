@@ -1,3 +1,4 @@
+/* eslint-disable no-async-promise-executor -- IndexedDB callbacks require async in executor */
 // IndexedDB service for offline-first data persistence
 // Implements stale-while-revalidate pattern for PWA
 
@@ -84,8 +85,8 @@ class LocalDB {
                 const request = store.getAll();
                 request.onsuccess = () => resolve(request.result || []);
                 request.onerror = () => reject(request.error);
-            } catch (e) {
-                console.error(`[LAKSH DB] getAll(${storeName}) failed:`, e);
+            } catch (err) {
+                console.error(`[LAKSH DB] getAll(${storeName}) failed:`, err);
                 resolve([]);
             }
         });
@@ -98,8 +99,8 @@ class LocalDB {
                 const request = store.get(key);
                 request.onsuccess = () => resolve(request.result);
                 request.onerror = () => reject(request.error);
-            } catch (e) {
-                console.error(`[LAKSH DB] get(${storeName}, ${key}) failed:`, e);
+            } catch (err) {
+                console.error(`[LAKSH DB] get(${storeName}, ${key}) failed:`, err);
                 resolve(undefined);
             }
         });
@@ -154,8 +155,8 @@ class LocalDB {
 
                 tx.oncomplete = () => resolve(true);
                 tx.onerror = () => reject(tx.error);
-            } catch (e) {
-                console.error(`[LAKSH DB] putAll(${storeName}) failed:`, e);
+            } catch (err) {
+                console.error(`[LAKSH DB] putAll(${storeName}) failed:`, err);
                 resolve(false);
             }
         });
@@ -168,7 +169,7 @@ class LocalDB {
                 const request = store.clear();
                 request.onsuccess = () => resolve(true);
                 request.onerror = () => reject(request.error);
-            } catch (e) {
+            } catch {
                 resolve(false);
             }
         });
@@ -182,7 +183,7 @@ class LocalDB {
                 const request = store.get(key);
                 request.onsuccess = () => resolve(request.result?.value || null);
                 request.onerror = () => reject(request.error);
-            } catch (e) {
+            } catch {
                 resolve(null);
             }
         });
@@ -195,7 +196,7 @@ class LocalDB {
                 const request = store.put({ key, value });
                 request.onsuccess = () => resolve(true);
                 request.onerror = () => reject(request.error);
-            } catch (e) {
+            } catch {
                 resolve(false);
             }
         });

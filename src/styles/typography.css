@@ -26,6 +26,17 @@
   --letter-spacing-wide: 0.05em;
   --letter-spacing-wider: 0.1em;
   --letter-spacing-widest: 0.15em;
+
+  /* Uniform cube/icon sizes (w & h) */
+  --cube-xs: 1.5rem;   /* 24px */
+  --cube-sm: 2rem;     /* 32px */
+  --cube-md: 2.5rem;   /* 40px */
+  --cube-lg: 3rem;     /* 48px */
+  --cube-xl: 3.5rem;   /* 56px */
+
+  /* Uniform label typography */
+  --label-xs: 0.5625rem;  /* 9px - section labels */
+  --label-sm: 0.625rem;   /* 10px - card labels */
 }
 
 /* Typography utility classes */
@@ -93,3 +104,60 @@
 
 /* Standard web font sizes - consistent across all devices */
 /* Mobile, Tablet, Desktop all use same base sizes for consistency */
+
+/* ========================================
+   PAGE LAYOUT TOKENS - Uniform across all tabs
+   ======================================== */
+.page-badge {
+  font-size: var(--label-sm);
+  font-weight: 900;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.page-title {
+  font-size: var(--font-size-xl);
+  line-height: var(--line-height-tight);
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  color: var(--text-main);
+  text-transform: uppercase;
+  margin: 0;
+}
+
+@media (min-width: 768px) {
+  .page-title {
+    font-size: var(--font-size-2xl);
+  }
+}
+
+.page-subtitle {
+  font-size: var(--label-sm);
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  opacity: 0.8;
+  margin: 0.25rem 0 0;
+}
+
+/* Section label - for content blocks within pages */
+.section-label {
+  font-size: var(--label-sm);
+  font-weight: 900;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Uniform card radius for all tabs */
+.page-card {
+  border-radius: 1.25rem;
+}
+
+@media (min-width: 768px) {
+  .page-card {
+    border-radius: 1.5rem;
+  }
+}

@@ -146,7 +146,7 @@ class GoogleSheetsService {
                 }
 
                 await withRetry(async () => {
-                    const { spreadsheetId, sheetName, operation, payload } = request;
+                    const { spreadsheetId, sheetName: _sheetName, operation, payload } = request;
 
                     // Android Fallback OR GAPI Missing: Use REST API directly
                     if (this.isAndroidWebView() || !window.gapi?.client?.sheets) {
@@ -266,14 +266,14 @@ class GoogleSheetsService {
         let bc;
         try {
             bc = new BroadcastChannel('laksh-oauth');
-        } catch { }
+        } catch { /* BroadcastChannel not supported */ }
 
         // Show message to user and resolve when token available
         return new Promise((resolve, reject) => {
             if (bc) {
                 const onMsg = (evt) => {
                     if (evt?.data?.type === 'oauth_token' && evt.data.access_token) {
-                        try { bc.close(); } catch { }
+                        try { bc.close(); } catch { /* bc close may fail */ }
                         this.accessToken = evt.data.access_token;
                         const expiryMs = Date.now() + (parseInt(evt.data.expires_in || '3600', 10) * 1000);
                         try {
@@ -281,7 +281,7 @@ class GoogleSheetsService {
                             sessionStorage.setItem('google_token_expiry', String(expiryMs));
                             localStorage.setItem('google_access_token', evt.data.access_token);
                             localStorage.setItem('google_token_expiry', String(expiryMs));
-                        } catch { }
+                        } catch { /* BroadcastChannel not supported */ }
                         this.isInitialized = true;
                         resolve(true);
                     }
@@ -295,7 +295,7 @@ class GoogleSheetsService {
 
                 if (token && expiry && new Date() < new Date(parseInt(expiry))) {
                     clearInterval(checkInterval);
-                    try { bc && bc.close(); } catch { }
+                    try { bc && bc.close(); } catch { /* bc close may fail */ }
                     this.accessToken = token;
                     this.isInitialized = true;
                     console.log('[LAKSH] OAuth completed successfully');
@@ -306,7 +306,7 @@ class GoogleSheetsService {
             // Timeout after 5 minutes
             setTimeout(() => {
                 clearInterval(checkInterval);
-                try { bc && bc.close(); } catch { }
+                try { bc && bc.close(); } catch { /* bc close may fail */ }
                 reject(new Error('OAuth timeout - please try again'));
             }, 300000);
         });
@@ -465,7 +465,7 @@ class GoogleSheetsService {
             const isAndroid = this.isAndroidWebView();
             // Critical: Reduce timeout for Android to avoid hang
             const maxAttempts = isAndroid ? 5 : 100;
-            const checkInterval = isAndroid ? 200 : 200;
+            const _checkInterval = isAndroid ? 200 : 200;
 
             if (isAndroid) {
                 console.log('[LAKSH] Android WebView detected');
@@ -631,7 +631,7 @@ class GoogleSheetsService {
         throw new Error('Google Sheets API client not ready. Please ensure internet connection and refresh.');
     }
 
-    async init(clientId = null) {
+    async init(_clientId = null) {
         // 1. Initial check: Do we already have a token in localStorage?
         if (!this.accessToken) {
             const storedToken = localStorage.getItem('google_access_token');
@@ -813,12 +813,12 @@ class GoogleSheetsService {
                 let bc;
                 try {
                     bc = new BroadcastChannel('laksh-oauth');
-                } catch { }
+                } catch { /* BroadcastChannel not supported */ }
 
                 if (bc) {
                     const onMsg = (evt) => {
                         if (evt?.data?.type === 'oauth_token' && evt.data.access_token) {
-                            try { bc.close(); } catch { }
+                            try { bc.close(); } catch { /* bc close may fail */ }
                             this.accessToken = evt.data.access_token;
                             const expiryMs = Date.now() + (parseInt(evt.data.expires_in || '3600', 10) * 1000);
                             try {
@@ -826,7 +826,7 @@ class GoogleSheetsService {
                                 sessionStorage.setItem('google_token_expiry', String(expiryMs));
                                 localStorage.setItem('google_access_token', evt.data.access_token);
                                 localStorage.setItem('google_token_expiry', String(expiryMs));
-                            } catch { }
+                            } catch { /* BroadcastChannel not supported */ }
                             this.isInitialized = true;
                             resolve(true);
                         }
@@ -841,7 +841,7 @@ class GoogleSheetsService {
 
                     if (token && expiry && Date.now() < parseInt(expiry)) {
                         clearInterval(checkInterval);
-                        try { bc && bc.close(); } catch { }
+                        try { bc && bc.close(); } catch { /* bc close may fail */ }
                         this.accessToken = token;
                         this.isInitialized = true;
                         console.log('[LAKSH] OAuth completed successfully');
@@ -852,7 +852,7 @@ class GoogleSheetsService {
                 // Timeout after 5 minutes
                 setTimeout(() => {
                     clearInterval(checkInterval);
-                    try { bc && bc.close(); } catch { }
+                    try { bc && bc.close(); } catch { /* bc close may fail */ }
                     reject(new Error('OAuth timeout - please try again'));
                 }, 300000);
             });
@@ -890,7 +890,7 @@ class GoogleSheetsService {
                 if (refreshToken) {
                     try {
                         await cloudBackup.refreshAccessToken();
-                    } catch (e) {
+                    } catch {
                         console.warn('[LAKSH] Silent refresh failed, user needs to sign in again');
                         return false;
                     }
@@ -939,7 +939,7 @@ class GoogleSheetsService {
             // Attempt to ensure GAPI is ready, but don't crash if it's not (we'll fallback to fetch)
             try {
                 await this.ensureClientReady();
-            } catch (e) {
+            } catch {
                 console.warn('[LAKSH] GAPI not ready for listSpreadsheets, trying fetch fallback');
             }
 
@@ -1001,7 +1001,7 @@ class GoogleSheetsService {
                 sheetNames.includes('Transactions') ||
                 sheetNames.includes('_Accounts') ||
                 sheetNames.some(name => /^[A-Z][a-z]{2} \d{4}$/.test(name)); // Monthly sheets like "Jan 2026"
-        } catch (error) {
+        } catch {
             return false;
         }
     }
@@ -1974,15 +1974,15 @@ class GoogleSheetsService {
             const curr = rows[rowIndex];
             const updated = [
                 paymentId,
-                updates.hasOwnProperty('billId') ? updates.billId : (curr[1] || ''),
-                updates.hasOwnProperty('name') ? updates.name : (curr[2] || ''),
-                updates.hasOwnProperty('cycle') ? updates.cycle : (curr[3] || ''),
-                updates.hasOwnProperty('amount') ? updates.amount : (curr[4] || '0'),
-                updates.hasOwnProperty('dueDate') ? updates.dueDate : (curr[5] || ''),
-                updates.hasOwnProperty('status') ? updates.status : (curr[6] || 'pending'),
-                updates.hasOwnProperty('paidDate') ? updates.paidDate : (curr[7] || ''),
-                updates.hasOwnProperty('transactionId') ? updates.transactionId : (curr[8] || ''),
-                updates.hasOwnProperty('accountId') ? updates.accountId : (curr[9] || '')
+                Object.hasOwn(updates, 'billId') ? updates.billId : (curr[1] || ''),
+                Object.hasOwn(updates, 'name') ? updates.name : (curr[2] || ''),
+                Object.hasOwn(updates, 'cycle') ? updates.cycle : (curr[3] || ''),
+                Object.hasOwn(updates, 'amount') ? updates.amount : (curr[4] || '0'),
+                Object.hasOwn(updates, 'dueDate') ? updates.dueDate : (curr[5] || ''),
+                Object.hasOwn(updates, 'status') ? updates.status : (curr[6] || 'pending'),
+                Object.hasOwn(updates, 'paidDate') ? updates.paidDate : (curr[7] || ''),
+                Object.hasOwn(updates, 'transactionId') ? updates.transactionId : (curr[8] || ''),
+                Object.hasOwn(updates, 'accountId') ? updates.accountId : (curr[9] || '')
             ];
 
             return this.enqueueWrite(spreadsheetId, '_BillPayments', 'update', {
@@ -2124,7 +2124,7 @@ class GoogleSheetsService {
         const queryLower = query.toLowerCase();
         let transactions = [];
         let period = 'month';
-        const year = new Date().getFullYear();
+        const _year = new Date().getFullYear();
 
         // Detect time period
         if (queryLower.includes('year') || queryLower.includes('annual')) {
@@ -2250,7 +2250,7 @@ class GoogleSheetsService {
     /**
      * Force refresh all data
      */
-    async forceRefresh(spreadsheetId) {
+    async forceRefresh(_spreadsheetId) {
         this.clearCache();
         // The actual data fetch will happen in FinanceContext.refreshData()
         console.log('[LAKSH] Force refresh triggered');

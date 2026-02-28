@@ -12,13 +12,30 @@ data class ParsedTransaction(
     val category: String,
     val date: String,
     val rawText: String,
-    val confidence: Int,
+    val confidence: Int = 0,
     val status: String = "pending",
+    val bank: String? = null,
     val createdAt: String = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
 )
 
 object SmsParser {
-    
+
+    /** Categories for dropdown selection (category + bank) */
+    val CATEGORIES = listOf(
+        "Food & Dining", "Tea/Snacks", "Home Needs", "Transport/Petrol",
+        "Online Shopping", "Offline Shopping", "Utilities/Bills", "CC Bill Payment",
+        "Rent", "Friend Expenses", "DAD Transaction", "Grooming", "Misc Fees",
+        "Cashback/Rewards", "Income", "Travel", "Entertainment", "Health",
+        "Transfer", "ATM Withdrawal", "Subscription", "Education", "Other"
+    )
+
+    val BANKS = listOf(
+        "HDFC Bank", "ICICI Bank", "SBI", "Axis Bank", "Kotak Mahindra",
+        "Yes Bank", "IndusInd Bank", "Federal Bank", "PNB", "BOB",
+        "Canara Bank", "Union Bank", "Paytm", "PhonePe", "GPay",
+        "Other", "Unknown"
+    )
+
     // Enhanced debit patterns for Indian banks
     private val DEBIT_PATTERNS = listOf(
         // HDFC, ICICI, SBI format

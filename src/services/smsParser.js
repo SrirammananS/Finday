@@ -78,7 +78,7 @@ export const detectBank = (smsText) => {
                 try {
                     const regex = new RegExp(rule.pattern, 'i');
                     if (regex.test(smsText)) isMatch = true;
-                } catch (e) { }
+                } catch { /* invalid regex */ }
             } else {
                 if (text.includes(rule.pattern.toLowerCase())) isMatch = true;
             }
@@ -158,11 +158,11 @@ const BANK_PATTERNS = [
 ];
 
 const MERCHANT_PATTERNS = [
-    /(?:at|to|from|@)\s+([A-Za-z0-9\s&\-\.]+?)(?:\s+on|\s+ref|\s+upi|\s+thru|\.|$)/i,
-    /(?:paid to|sent to|received from)\s+([A-Za-z0-9\s&\-\.]+?)(?:\s+ref|\s+upi|\.|$)/i,
-    /upi[:\s]+([A-Za-z0-9\s@\-\.]+?)(?:\s+ref|\.|$)/i,
-    /(?:info|txn|transaction)[:\s]+([A-Za-z0-9\s&\-\.]+?)(?:\s+ref|\.|$)/i,
-    /(?:vpa)\s+([A-Za-z0-9\s@\-\.]+?)(?:\s+ref|\.|$)/i,
+    /(?:at|to|from|@)\s+([A-Za-z0-9\s&\-.]+?)(?:\s+on|\s+ref|\s+upi|\s+thru|\.|$)/i,
+    /(?:paid to|sent to|received from)\s+([A-Za-z0-9\s&\-.]+?)(?:\s+ref|\s+upi|\.|$)/i,
+    /upi[:\s]+([A-Za-z0-9\s@\-.]+?)(?:\s+ref|\.|$)/i,
+    /(?:info|txn|transaction)[:\s]+([A-Za-z0-9\s&\-.]+?)(?:\s+ref|\.|$)/i,
+    /(?:vpa)\s+([A-Za-z0-9\s@\-.]+?)(?:\s+ref|\.|$)/i,
 ];
 
 const ACCOUNT_PATTERNS = [
@@ -171,7 +171,7 @@ const ACCOUNT_PATTERNS = [
 ];
 
 const DATE_PATTERNS = [
-    /(\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4})/,
+    /(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})/,
     /(\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*\d{2,4})/i,
 ];
 
@@ -311,7 +311,7 @@ export function parseSMS(smsText) {
                     result.date = parsed.toISOString().split('T')[0];
                     result.confidence += 10;
                 }
-            } catch (e) { }
+            } catch { /* invalid date */ }
             break;
         }
     }
@@ -348,7 +348,7 @@ export function enrichTransaction(transaction) {
             try {
                 const regex = new RegExp(rule.pattern, 'i');
                 if (regex.test(transaction.rawText)) isMatch = true;
-            } catch (e) { }
+            } catch { /* invalid regex */ }
         } else {
             if (transaction.rawText.toLowerCase().includes(rule.pattern.toLowerCase())) isMatch = true;
         }
@@ -403,7 +403,7 @@ export function formatParsedTransaction(parsed, accounts = []) {
                 category = aiPrediction.category;
                 categoryConfidence = aiPrediction.confidence;
             }
-        } catch (e) {
+        } catch {
             // Fall back to parsed category
         }
     }

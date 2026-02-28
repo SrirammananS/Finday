@@ -55,7 +55,7 @@ const LockScreen = ({ onUnlock }) => {
                 setError('Incorrect PIN');
                 setPin('');
             }
-        } catch (err) {
+        } catch {
             if (isMountedRef.current) {
                 setError('Verification failed');
                 setPin('');

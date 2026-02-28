@@ -3,8 +3,12 @@ package com.laksh.finance
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Telephony
 import android.util.Log
+import androidx.core.content.ContextCompat
+import android.Manifest
 import java.util.concurrent.Executors
 
 class SmsReceiver : BroadcastReceiver() {
@@ -18,15 +22,27 @@ class SmsReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
+        Log.d(TAG, "onReceive: action=$action")
+
         if (action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) {
             Log.d(TAG, "Ignoring action: $action")
             return
+        }
+
+        // Verify we have SMS permission (system only delivers if granted, but double-check for edge cases)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) {
+                Log.w(TAG, "RECEIVE_SMS permission not granted - cannot process SMS")
+                return
+            }
         }
 
         val pendingResult = goAsync()
         bg.execute {
             try {
                 processSms(context, intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error processing SMS", e)
             } finally {
                 pendingResult.finish()
             }
@@ -41,23 +57,32 @@ class SmsReceiver : BroadcastReceiver() {
         }
         lastProcessedTime = now
 
-        val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
+        val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
+        if (messages == null || messages.isEmpty()) {
+            Log.w(TAG, "No SMS messages in intent")
+            return
+        }
+
+        Log.d(TAG, "Processing ${messages.size} SMS message(s)")
         for (sms in messages) {
             val sender = sms.displayOriginatingAddress ?: ""
-            val body = sms.messageBody
-            if (body.isNullOrBlank()) {
+            val body = sms.messageBody ?: ""
+            if (body.isBlank()) {
                 Log.d(TAG, "SMS from $sender: empty body, skip")
                 continue
             }
 
-            Log.d(TAG, "SMS from: $sender, len=${body.length}")
+            Log.d(TAG, "SMS from: $sender, len=${body.length}, preview: ${body.take(60)}...")
 
             // Only try to parse if SMS looks transaction-related (reduces false positives)
-            if (!isTransactionSms(body) && !looksLikeAmount(body)) continue
+            if (!isTransactionSms(body) && !looksLikeAmount(body)) {
+                Log.d(TAG, "SMS does not look transaction-related, skip")
+                continue
+            }
 
             val transaction = SmsParser.parse(body)
             if (transaction != null) {
-                Log.d(TAG, "Transaction SMS detected: ${transaction.description} ${transaction.amount}")
+                Log.d(TAG, "Transaction SMS detected: ${transaction.description} ₹${transaction.amount}")
                 TransactionStore.addPending(context, transaction)
                 NotificationHelper.showTransactionNotification(context, transaction)
             } else if (isTransactionSms(body)) {

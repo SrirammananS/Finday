@@ -16,7 +16,7 @@ const SyncIndicator = () => {
         const finance = useFinance();
         isConnected = finance?.isConnected ?? false;
         isSyncing = finance?.isSyncing ?? false;
-    } catch (e) {
+    } catch {
         // Context not available yet
     }
 

@@ -1,19 +1,18 @@
-/* eslint-disable react/no-unknown-property */
 import React, { useEffect, useRef, useState } from 'react';
 
 /**
  * TypeGPUBackground
  * A background component using WebGPU via TypeGPU (Software Mansion).
  * Falls back to GSAP animations if WebGPU is unavailable.
- * 
+ *
  * Features:
  * - Responsive canvas resizing
  * - Gen Z vibrant gradient shader
  * - Smooth animation loop
  */
-const TypeGPUBackground = ({ intensity = 'medium' }) => {
+const TypeGPUBackground = ({ intensity: _intensity = 'medium' }) => {
     const canvasRef = useRef(null);
-    const [status, setStatus] = useState('initializing');
+    const [_status, setStatus] = useState('initializing');
     const [gpuSupported, setGpuSupported] = useState(true);
 
     useEffect(() => {

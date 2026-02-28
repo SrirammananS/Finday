@@ -20,7 +20,7 @@ const CATEGORIES = [
 ];
 
 export default function BillManager({ transactions = [], onAddTransaction }) {
-    const [bills, setBills] = useState([]);
+    const [bills, setBills] = useState(() => billManager.getAllBills());
     const [showAddModal, setShowAddModal] = useState(false);
     const [showDetected, setShowDetected] = useState(false);
     const [editingBill, setEditingBill] = useState(null);
@@ -28,7 +28,6 @@ export default function BillManager({ transactions = [], onAddTransaction }) {
     const [activeTab, setActiveTab] = useState('upcoming');
 
     useEffect(() => {
-        setBills(billManager.getAllBills());
         const unsub = billManager.subscribe(setBills);
         return unsub;
     }, []);
@@ -37,13 +36,12 @@ export default function BillManager({ transactions = [], onAddTransaction }) {
     useEffect(() => {
         if (transactions.length > 0) {
             const detected = billManager.detectBillsFromTransactions(transactions, smartAI);
-            setDetectedBills(detected);
+            queueMicrotask(() => setDetectedBills(detected));
         }
     }, [transactions]);
 
     const upcomingBills = useMemo(() => billManager.getUpcomingBills(14), [bills]);
     const overdueBills = useMemo(() => billManager.getOverdueBills(), [bills]);
-    const dueTodayBills = useMemo(() => billManager.getDueTodayBills(), [bills]);
     const monthlyTotal = useMemo(() => billManager.getMonthlyBillsTotal(), [bills]);
 
     const handleAddBill = (billData) => {
@@ -72,21 +70,6 @@ export default function BillManager({ transactions = [], onAddTransaction }) {
     const handleImportDetected = (detected) => {
         billManager.importDetectedBill(detected);
         setDetectedBills(prev => prev.filter(d => d.name !== detected.name));
-    };
-
-    const getDaysUntilDue = (dueDate) => {
-        const today = new Date();
-        const due = new Date(dueDate);
-        const diff = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
-        return diff;
-    };
-
-    const getDueStatus = (dueDate) => {
-        const days = getDaysUntilDue(dueDate);
-        if (days < 0) return { color: 'text-red-400', bg: 'bg-red-500/20', label: 'Overdue' };
-        if (days === 0) return { color: 'text-orange-400', bg: 'bg-orange-500/20', label: 'Due Today' };
-        if (days <= 3) return { color: 'text-yellow-400', bg: 'bg-yellow-500/20', label: `${days}d left` };
-        return { color: 'text-slate-400', bg: 'bg-slate-500/20', label: `${days}d left` };
     };
 
     return (
@@ -206,7 +189,6 @@ export default function BillManager({ transactions = [], onAddTransaction }) {
                         onPay={handleMarkPaid}
                         onEdit={() => { setEditingBill(bill); setShowAddModal(true); }}
                         onDelete={() => billManager.deleteBill(bill.id)}
-                        isOverdue
                     />
                 ))}
 
@@ -243,7 +225,7 @@ export default function BillManager({ transactions = [], onAddTransaction }) {
     );
 }
 
-function BillCard({ bill, onPay, onEdit, onDelete, isOverdue }) {
+function BillCard({ bill, onPay, onEdit, onDelete }) {
     const getDaysUntilDue = (dueDate) => {
         const today = new Date();
         const due = new Date(dueDate);

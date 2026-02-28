@@ -61,7 +61,7 @@ export default function OAuthCallback() {
                         state: state
                     });
                     setTimeout(() => bc.close(), 1000);
-                } catch (e) {
+                } catch {
                     console.warn('[LAKSH OAuth] BroadcastChannel not supported');
                 }
 
@@ -116,7 +116,7 @@ export default function OAuthCallback() {
             await navigator.clipboard.writeText(window.location.href);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
-        } catch (e) {
+        } catch {
             // Fallback
             const textArea = document.createElement('textarea');
             textArea.value = window.location.href;

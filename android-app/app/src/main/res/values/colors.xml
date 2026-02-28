@@ -1,9 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- LAKSH app theme - indigo/slate to match PWA (finma-ea199.web.app) -->
     <color name="primary">#6366f1</color>
     <color name="primary_dark">#4f46e5</color>
     <color name="background">#0f172a</color>
     <color name="surface">#1e293b</color>
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
+
+    <!-- Shared references - aliased to app theme -->
+    <color name="app_bg">#0f172a</color>
+    <color name="app_card">#1e293b</color>
+    <color name="app_accent">#6366f1</color>
+    <color name="app_text_primary">#f8fafc</color>
+    <color name="app_text_secondary">#94a3b8</color>
+
+    <!-- Legacy aliases - same values as app theme (for layout refs) -->
+    <color name="luxury_bg">#0f172a</color>
+    <color name="luxury_card">#1e293b</color>
+    <color name="luxury_gold">#6366f1</color>
+    <color name="luxury_white">#f8fafc</color>
+    <color name="luxury_muted">#94a3b8</color>
 </resources>

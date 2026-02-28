@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, X, Trash2, Tag, Fingerprint, Layers, Sparkles, TrendingUp, TrendingDown, PieChart } from 'lucide-react';
+import PageLayout from '../components/PageLayout';
+import PageHeader from '../components/PageHeader';
+import StatCard from '../components/ui/StatCard';
+import { Plus, X, Trash2, Layers, Sparkles, TrendingUp, TrendingDown, PieChart } from 'lucide-react';
 
 const Categories = () => {
     const { categories = [], transactions = [], addCategory, deleteCategory, isLoading } = useFinance();
@@ -42,74 +45,36 @@ const Categories = () => {
 
     return (
         <div className="min-h-screen text-text-main selection:bg-primary selection:text-black">
-            {/* Background handled by Layout */}
+            <PageLayout>
+                <PageHeader
+                    badge="Classification"
+                    title="Categories"
+                    subtitle="Classification framework"
+                    icon={Layers}
+                />
 
-            <motion.main
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="relative px-5 py-12 md:px-8 md:py-24 max-w-5xl mx-auto pb-40"
-            >
-                {/* Header Section */}
-                <header className="mb-16 md:mb-24">
-                    <div className="grid grid-cols-3 gap-2 mb-10 items-stretch">
-                        <div className="p-4 rounded-2xl bg-emerald-500/[0.03] border border-emerald-500/10 flex flex-col justify-between group transition-all hover:bg-emerald-500/[0.05]">
-                            <div className="flex justify-between items-start">
-                                <span className="text-[8px] font-bold uppercase tracking-[0.2em] text-emerald-500/60">INFLOW</span>
-                                <TrendingUp size={14} className="text-emerald-500 group-hover:scale-125 transition-transform" />
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-extrabold text-emerald-400 tabular-nums tracking-tight leading-none">{formatCurrency(totalIncome)}</h3>
-                                <p className="text-[7px] font-bold uppercase tracking-widest text-emerald-500/30 mt-1">{incomeList.length} STREAMS</p>
-                            </div>
-                        </div>
-                        <div className="p-4 rounded-2xl bg-rose-500/[0.03] border border-rose-500/10 flex flex-col justify-between group transition-all hover:bg-rose-500/[0.05]">
-                            <div className="flex justify-between items-start">
-                                <span className="text-[8px] font-bold uppercase tracking-[0.2em] text-rose-500/60">OUTFLOW</span>
-                                <TrendingDown size={14} className="text-rose-500 group-hover:scale-125 transition-transform" />
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-extrabold text-rose-400 tabular-nums tracking-tight leading-none">{formatCurrency(totalExpenses)}</h3>
-                                <p className="text-[7px] font-bold uppercase tracking-widest text-rose-500/30 mt-1">{expenses.length} STREAMS</p>
-                            </div>
-                        </div>
-                        <div className="p-4 rounded-2xl bg-primary/[0.03] border border-primary/10 flex flex-col justify-between group transition-all hover:bg-primary/[0.05]">
-                            <div className="flex justify-between items-start">
-                                <span className="text-[8px] font-bold uppercase tracking-[0.2em] text-primary/60">NET</span>
-                                <PieChart size={14} className="text-primary group-hover:scale-125 transition-transform" />
-                            </div>
-                            <div>
-                                <h3 className={`text-lg font-extrabold tabular-nums tracking-tight leading-none ${totalIncome >= totalExpenses ? 'text-primary' : 'text-rose-400'}`}>
-                                    {totalIncome >= totalExpenses ? '+' : '-'}{formatCurrency(Math.abs(totalIncome - totalExpenses))}
-                                </h3>
-                                <p className="text-[7px] font-bold uppercase tracking-widest text-primary/30 mt-1">TOTAL</p>
-                            </div>
-                        </div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6 md:mb-8">
+                        <StatCard label="Inflow" value={formatCurrency(totalIncome)} subtext={`${incomeList.length} txns`} icon={TrendingUp} variant="income" />
+                        <StatCard label="Outflow" value={formatCurrency(totalExpenses)} subtext={`${expenses.length} txns`} icon={TrendingDown} variant="expense" />
+                        <StatCard
+                            label="Net"
+                            value={`${totalIncome >= totalExpenses ? '+' : '-'}${formatCurrency(Math.abs(totalIncome - totalExpenses))}`}
+                            icon={PieChart}
+                            variant={totalIncome >= totalExpenses ? 'primary' : 'expense'}
+                        />
                     </div>
-
-                    <div className="flex items-center gap-3 mb-6">
-                        <div className="p-3 rounded-2xl bg-primary/10 border border-primary/20 text-primary">
-                            <Layers size={24} />
-                        </div>
-                        <span className="text-[10px] font-black uppercase tracking-[0.4em] text-text-muted">Classification</span>
-                    </div>
-                    <h1 className="text-xl font-black tracking-[-0.04em] leading-none mb-1 transition-all text-text-main uppercase">
-                        Categories
-                    </h1>
-                    <p className="text-[8px] font-semibold text-text-muted uppercase tracking-[0.4em] opacity-60">Classification Framework</p>
-                </header>
 
                 {/* Categories Grid */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {categories.map((cat, idx) => (
                         <motion.div
                             key={String(cat.name)}
-                            initial={{ scale: 0.9, opacity: 0 }}
+                            initial={{ scale: 0.98, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
-                            transition={{ delay: 0.05 * idx }}
-                            className="group relative"
+                            transition={{ delay: 0.03 * idx }}
+                            className="group"
                         >
-                            <div className="absolute -inset-[1px] rounded-[2rem] bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-500" />
-                            <div className="relative aspect-square p-4 rounded-2xl bg-card border border-card-border flex flex-col items-center justify-center gap-2 transition-all group-hover:bg-canvas-elevated group-hover:-translate-y-1">
+                            <div className="relative aspect-square p-4 md:p-6 rounded-2xl bg-card border border-card-border flex flex-col items-center justify-center gap-2 transition-all hover:border-primary/20">
                                 <span className="text-3xl group-hover:scale-125 transition-transform duration-500">{cat.icon}</span>
                                 <div className="text-center">
                                     <h3 className="text-sm font-black uppercase tracking-tighter text-text-main group-hover:text-primary transition-colors">{cat.name}</h3>
@@ -131,7 +96,7 @@ const Categories = () => {
 
                     <motion.button
                         onClick={() => setShowModal(true)}
-                        className="group relative aspect-square p-4 rounded-2xl border-2 border-dashed border-card-border flex flex-col items-center justify-center gap-2 transition-all hover:border-primary/50 hover:bg-primary/[0.02]"
+                        className="group relative aspect-square p-4 md:p-6 rounded-2xl border-2 border-dashed border-card-border flex flex-col items-center justify-center gap-2 transition-all hover:border-primary/50 hover:bg-primary/[0.02]"
                     >
                         <div className="w-10 h-10 rounded-full bg-canvas-subtle border border-card-border flex items-center justify-center text-text-muted group-hover:bg-primary group-hover:text-black transition-all">
                             <Plus size={20} />
@@ -142,7 +107,7 @@ const Categories = () => {
                         </div>
                     </motion.button>
                 </div>
-            </motion.main>
+            </PageLayout>
 
             {/* Modal Layer */}
             <AnimatePresence>

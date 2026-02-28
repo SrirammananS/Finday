@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import ReactDOM from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, X, Clipboard, Send } from 'lucide-react';
 import SMSDetector from './SMSDetector';
@@ -13,7 +14,7 @@ const SMSInput = ({ isOpen, onClose }) => {
             if (text) {
                 setSmsText(text);
             }
-        } catch (err) {
+        } catch {
             console.log('Clipboard access denied');
         }
     };
@@ -32,26 +33,27 @@ const SMSInput = ({ isOpen, onClose }) => {
 
     if (!isOpen) return null;
 
-    return (
+    const content = (
         <>
             <AnimatePresence>
                 {!showDetector && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-md"
-                        onClick={onClose}
-                    >
+                    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 overflow-hidden">
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="absolute inset-0 bg-black/70 backdrop-blur-md"
+                            onClick={onClose}
+                        />
                         <motion.div
                             initial={{ y: 100, opacity: 0 }}
                             animate={{ y: 0, opacity: 1 }}
                             exit={{ y: 100, opacity: 0 }}
                             onClick={e => e.stopPropagation()}
-                            className="fixed bottom-0 left-0 right-0 w-full max-w-lg mx-auto bg-card border border-card-border rounded-t-3xl md:rounded-2xl overflow-hidden md:bottom-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2"
+                            className="relative w-full max-w-lg max-h-[90dvh] bg-card border border-card-border rounded-t-3xl md:rounded-2xl overflow-hidden flex flex-col"
                         >
                             {/* Header - Enhanced */}
-                            <div className="p-6 border-b border-card-border flex justify-between items-center bg-gradient-to-r from-primary/10 to-transparent">
+                            <div className="flex-shrink-0 p-6 border-b border-card-border flex justify-between items-center bg-gradient-to-r from-primary/10 to-transparent">
                                 <div className="flex items-center gap-3">
                                     <div className="w-12 h-12 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center">
                                         <MessageSquare size={22} className="text-primary" />
@@ -69,8 +71,8 @@ const SMSInput = ({ isOpen, onClose }) => {
                                 </button>
                             </div>
 
-                            {/* Body - Enhanced */}
-                            <div className="p-6 space-y-4">
+                            {/* Body - Enhanced (scrollable if needed) */}
+                            <div className="p-6 space-y-4 flex-1 overflow-y-auto min-h-0">
                                 <div className="relative">
                                     <textarea
                                         value={smsText}
@@ -98,7 +100,7 @@ const SMSInput = ({ isOpen, onClose }) => {
                             </div>
 
                             {/* Footer - Enhanced */}
-                            <div className="p-6 pt-0 flex gap-3">
+                            <div className="flex-shrink-0 p-6 pt-0 flex gap-3">
                                 <button
                                     onClick={onClose}
                                     className="px-6 py-4 rounded-xl border border-card-border text-text-muted hover:text-text-main hover:border-primary/30 transition-all text-sm font-bold uppercase"
@@ -114,7 +116,7 @@ const SMSInput = ({ isOpen, onClose }) => {
                                 </button>
                             </div>
                         </motion.div>
-                    </motion.div>
+                    </div>
                 )}
             </AnimatePresence>
 
@@ -131,6 +133,8 @@ const SMSInput = ({ isOpen, onClose }) => {
             </AnimatePresence>
         </>
     );
+
+    return ReactDOM.createPortal(content, document.body);
 };
 
 export default SMSInput;

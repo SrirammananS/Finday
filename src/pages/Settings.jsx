@@ -4,7 +4,9 @@ import { usePWA } from '../hooks/usePWA';
 import { useTheme } from '../context/ThemeContext';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sun, Moon, Cloud, WifiOff, Save, Trash2, Database, Lock as LockIcon, Fingerprint, KeyRound, Download, Smartphone, FileSpreadsheet, RefreshCw, Loader2, Plus, Check, Shield, Bell, Cpu, Zap, ChevronRight, X, User } from 'lucide-react';
+import PageLayout from '../components/PageLayout';
+import PageHeader from '../components/PageHeader';
+import { Sun, Moon, Cloud, WifiOff, Save, Trash2, Database, Lock as LockIcon, Fingerprint, KeyRound, Download, Smartphone, FileSpreadsheet, RefreshCw, Loader2, Plus, Check, Shield, Bell, Cpu, Zap, ChevronRight, X, User, Settings as SettingsIcon, Users, CalendarClock, Tag, PieChart } from 'lucide-react';
 import { biometricAuth } from '../services/biometricAuth';
 import { storage, STORAGE_KEYS } from '../services/storage';
 import { sheetsService } from '../services/sheets';
@@ -48,7 +50,7 @@ const SecuritySection = () => {
             setShowPinSetup(false);
             setPin('');
             setConfirmPin('');
-        } catch (err) {
+        } catch {
             setPinError('Failed to set PIN');
         } finally {
             setIsSettingPin(false);
@@ -133,12 +135,12 @@ const SecuritySection = () => {
 
 const Settings = () => {
     const navigate = useNavigate();
-    const { config, isConnected, disconnect, lastSyncTime, isLoading, forceRefresh, transactions = [], accounts = [], categories = [], bills = [], restoreFromBackup, createFinanceSheet, exportData, importData, isGuest } = useFinance();
-    const { supportsPWA, installPWA, isInstalled } = usePWA();
+    const { config, isConnected, disconnect, lastSyncTime, isLoading, forceRefresh, transactions: _transactions = [], accounts: _accounts = [], categories: _categories = [], bills: _bills = [], restoreFromBackup: _restoreFromBackup, createFinanceSheet, exportData, importData, isGuest } = useFinance();
+    const { supportsPWA: _supportsPWA, installPWA: _installPWA, isInstalled: _isInstalled } = usePWA();
     const { theme, toggleTheme } = useTheme();
     const [notifyEnabled, setNotifyEnabled] = useState(storage.getBool(STORAGE_KEYS.NOTIFY_ENABLED));
     const [notifyDays, setNotifyDays] = useState(storage.getNumber(STORAGE_KEYS.NOTIFY_DAYS, 5));
-    const [currentSheetName, setCurrentSheetName] = useState(storage.get(STORAGE_KEYS.SPREADSHEET_NAME) || 'Primary Wallet');
+    const [currentSheetName, _setCurrentSheetName] = useState(storage.get(STORAGE_KEYS.SPREADSHEET_NAME) || 'Primary Wallet');
     const [spreadsheets, setSpreadsheets] = useState([]);
     const [loadingSheets, setLoadingSheets] = useState(false);
     const [showSheetList, setShowSheetList] = useState(false);
@@ -181,31 +183,67 @@ const Settings = () => {
 
     return (
         <div className="min-h-screen text-text-main selection:bg-primary selection:text-black">
-            {/* Background handled by Layout */}
-
-            <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative px-5 py-12 md:px-8 md:py-24 max-w-7xl mx-auto pb-40">
-                {/* Header Section */}
-                <header className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-20">
-                    <div>
-                        <div className="flex items-center gap-3 mb-6">
-                            <div className="w-12 h-12 rounded-2xl bg-card border border-card-border overflow-hidden p-0.5">
-                                <img src="/mascot.png" alt="Laksh AI" className="w-full h-full object-cover" />
-                            </div>
-                            <span className="text-[10px] font-black uppercase tracking-[0.5em] text-text-muted">Settings</span>
-                        </div>
-                        <h1 className="text-xl font-black tracking-[-0.04em] leading-none mb-1 transition-all text-text-main uppercase">
-                            Settings
-                        </h1>
-                        <p className="text-[8px] font-semibold text-text-muted uppercase tracking-[0.4em] opacity-60">System Preferences</p>
-                    </div>
-
+            <PageLayout maxWidth="max-w-6xl">
+                <PageHeader
+                    badge="System"
+                    title="Settings"
+                    subtitle="System preferences"
+                    icon={SettingsIcon}
+                    actions={
                     <button
                         onClick={toggleTheme}
-                        className="w-16 h-16 rounded-[1.8rem] bg-canvas-subtle border border-card-border flex items-center justify-center text-text-main hover:border-primary hover:text-primary transition-all group"
+                        className="w-12 h-12 rounded-xl bg-canvas-subtle border border-card-border flex items-center justify-center text-text-main hover:border-primary hover:text-primary transition-all group"
                     >
-                        {theme === 'dark' ? <Sun size={24} className="group-hover:rotate-90 transition-transform duration-500" /> : <Moon size={24} />}
+                        {theme === 'dark' ? <Sun size={20} className="group-hover:rotate-90 transition-transform duration-500" /> : <Moon size={20} />}
                     </button>
-                </header>
+                    }
+                />
+
+                {/* Quick Links - More Sections */}
+                <section className="mb-12">
+                    <div className="flex items-center gap-3 mb-6 px-4">
+                        <Zap size={16} className="text-primary" />
+                        <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted">Quick Links</h3>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <Link
+                            to="/friends"
+                            className="p-5 rounded-2xl bg-card border border-card-border hover:border-primary/40 transition-all flex items-center gap-4 group no-underline"
+                        >
+                            <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary group-hover:bg-primary/20 transition-colors">
+                                <Users size={18} />
+                            </div>
+                            <span className="text-sm font-black uppercase tracking-tight text-text-main">Friends</span>
+                        </Link>
+                        <Link
+                            to="/bills"
+                            className="p-5 rounded-2xl bg-card border border-card-border hover:border-primary/40 transition-all flex items-center gap-4 group no-underline"
+                        >
+                            <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary group-hover:bg-primary/20 transition-colors">
+                                <CalendarClock size={18} />
+                            </div>
+                            <span className="text-sm font-black uppercase tracking-tight text-text-main">Bills</span>
+                        </Link>
+                        <Link
+                            to="/categories"
+                            className="p-5 rounded-2xl bg-card border border-card-border hover:border-primary/40 transition-all flex items-center gap-4 group no-underline"
+                        >
+                            <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary group-hover:bg-primary/20 transition-colors">
+                                <Tag size={18} />
+                            </div>
+                            <span className="text-sm font-black uppercase tracking-tight text-text-main">Categories</span>
+                        </Link>
+                        <Link
+                            to="/insights"
+                            className="p-5 rounded-2xl bg-card border border-card-border hover:border-primary/40 transition-all flex items-center gap-4 group no-underline"
+                        >
+                            <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary group-hover:bg-primary/20 transition-colors">
+                                <PieChart size={18} />
+                            </div>
+                            <span className="text-sm font-black uppercase tracking-tight text-text-main">Insights</span>
+                        </Link>
+                    </div>
+                </section>
 
                 {/* Active Wallet / Identity Hub */}
                 <section className="mb-12">
@@ -220,7 +258,7 @@ const Settings = () => {
                             <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-8">
                                 <div className="flex items-center gap-6">
                                     <div className="w-20 h-20 rounded-[2rem] bg-card border border-card-border overflow-hidden p-1">
-                                        <img src="/mascot.png" alt="Laksh AI" className="w-full h-full object-cover" />
+                                        <img src="/logo192.png" alt="Laksh AI" className="w-full h-full object-cover" />
                                     </div>
                                     <div>
                                         <h3 className="text-2xl font-black uppercase tracking-tighter text-text-main">Guest Identity</h3>
@@ -327,8 +365,8 @@ const Settings = () => {
                                 </div>
                             </div>
                             <JellySwitch
-                                checked={localStorage.getItem('laksh_auto_add_sms') !== 'false'}
-                                onChange={(checked) => {
+                                isOn={localStorage.getItem('laksh_auto_add_sms') !== 'false'}
+                                onToggle={(checked) => {
                                     localStorage.setItem('laksh_auto_add_sms', checked ? 'true' : 'false');
                                     window.location.reload(); // Reload to apply setting
                                 }}
@@ -420,7 +458,7 @@ const Settings = () => {
                                                     storage.set(STORAGE_KEYS.NOTIFY_ENABLED, 'true');
                                                     setNotifyEnabled(true);
                                                     window.dispatchEvent(new Event('storage'));
-                                                    new Notification('LAKSH Ready', { body: 'Notifications activated successfully!', icon: '/mascot.png' });
+                                                    new Notification('LAKSH Ready', { body: 'Notifications activated successfully!', icon: '/logo192.png' });
                                                 } else {
                                                     alert('Please enable notifications in your browser settings to use this feature.');
                                                     setNotifyEnabled(false);
@@ -495,10 +533,10 @@ const Settings = () => {
                 </div>
 
                 {/* Footer Trace */}
-                <div className="text-center pt-20">
-                    <p className="text-[9px] font-black uppercase tracking-[1em] text-text-muted/20">LAKSH_OS_CORE_V{import.meta.env.VITE_APP_VERSION || '2.5.0'}</p>
+                <div className="text-center pt-12">
+                    <p className="text-[9px] font-black uppercase tracking-[1em] text-text-muted/20">LAKSH v{import.meta.env.VITE_APP_VERSION || '2.5.0'}</p>
                 </div>
-            </motion.main>
+            </PageLayout>
 
             <SMSRulesManager isOpen={showSMSRules} onClose={() => setShowSMSRules(false)} />
         </div>

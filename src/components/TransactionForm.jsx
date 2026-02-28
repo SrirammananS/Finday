@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { useFinance } from '../context/FinanceContext';
+import { useFeedback } from '../context/FeedbackContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { animations, genZEffects } from '../utils/gsapAnimations';
 import { X, Calendar, Wallet, Mic, Users, Plus, Sparkles, TrendingUp, Check } from 'lucide-react';
-import { friendsService } from '../services/friendsService';
 import { smartAI } from '../services/smartAI';
 
 const TransactionForm = ({ onClose, editTransaction }) => {
-    const { addTransaction, updateTransaction, accounts, categories, bills, transactions, friends, addFriend } = useFinance();
+    const { addTransaction, updateTransaction, accounts, categories, categoriesByUsage, bills, transactions, friends, addFriend } = useFinance();
+    const { toast } = useFeedback();
     const [form, setForm] = useState({
         date: new Date().toISOString().split('T')[0],
         description: '',
@@ -17,6 +19,7 @@ const TransactionForm = ({ onClose, editTransaction }) => {
         type: 'expense',
         isBillPayment: false,
         billId: '',
+        paymentType: 'recurring',
         linkedAccountId: '',
         friend: ''
     });
@@ -29,6 +32,20 @@ const TransactionForm = ({ onClose, editTransaction }) => {
     const [newFriendName, setNewFriendName] = useState('');
     const amountRef = useRef(null);
     const submitBtnRef = useRef(null);
+    const modalRef = useRef(null);
+
+    // Focus trap and Escape handler
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                if (!isSubmitting) onClose();
+            }
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        amountRef.current?.focus();
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [onClose, isSubmitting]);
 
     // Apply GSAP button press effect
     useEffect(() => {
@@ -80,12 +97,13 @@ const TransactionForm = ({ onClose, editTransaction }) => {
         }
     }, [editTransaction]);
 
-    // Update category when categories load from sheet
+    // Update category when categories load from sheet (use first from usage-ordered list)
     useEffect(() => {
-        if (categories.length > 0 && !form.category) {
-            setForm(f => ({ ...f, category: categories[0].name }));
+        const ordered = categoriesByUsage?.length ? categoriesByUsage : categories;
+        if (ordered.length > 0 && !form.category) {
+            setForm(f => ({ ...f, category: ordered[0].name }));
         }
-    }, [categories]);
+    }, [categories, categoriesByUsage]);
 
     // AI Suggestions & Insights
     useEffect(() => {
@@ -121,31 +139,37 @@ const TransactionForm = ({ onClose, editTransaction }) => {
         const finalAmount = form.type === 'expense' ? -Math.abs(amountNum) : Math.abs(amountNum);
 
         setIsSubmitting(true);
-        setIsSubmitting(true);
-        // Framer Motion handles exit animation via AnimatePresence in parent
-        onClose();
-
         try {
             if (editTransaction) {
                 await updateTransaction({ ...form, id: editTransaction.id, amount: finalAmount });
             } else {
                 await addTransaction({ ...form, amount: finalAmount });
             }
+            onClose();
         } catch (err) {
             console.error('Transaction save failed:', err);
+            toast('Failed to save transaction', 'error');
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
     const creditCards = accounts.filter(a => a.type === 'credit');
 
-    return (
-        <div className="fixed inset-0 z-[10000] flex items-start md:items-center justify-center p-4 pt-16 md:p-6 overflow-y-auto">
+    const modalContent = (
+        <div
+            ref={modalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="transaction-form-title"
+            className="fixed inset-0 z-[10000] flex items-center justify-center p-4 md:p-6 overflow-hidden"
+        >
             <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={onClose}
-                className="fixed inset-0 bg-black/70 backdrop-blur-md"
+                className="absolute inset-0 bg-black/70 backdrop-blur-md"
             />
 
             <motion.div
@@ -154,7 +178,7 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.9, opacity: 0, y: 20 }}
                 transition={{ type: "spring", damping: 30, stiffness: 300 }}
-                className="form-sheet relative w-full max-w-lg bg-card border border-card-border rounded-2xl shadow-2xl flex flex-col max-h-[85vh] md:max-h-[80vh] overflow-hidden my-auto"
+                className="form-sheet relative w-full max-w-lg bg-card border border-card-border rounded-2xl shadow-2xl flex flex-col max-h-[90dvh] overflow-hidden"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header - Enhanced */}
@@ -164,7 +188,7 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                             <Plus size={20} className="text-primary" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-black tracking-tight text-text-main">
+                            <h2 id="transaction-form-title" className="text-xl font-black tracking-tight text-text-main">
                                 {editTransaction ? 'Edit Transaction' : 'New Entry'}
                             </h2>
                             <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-0.5">
@@ -173,8 +197,10 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                         </div>
                     </div>
                     <button 
-                        onClick={onClose} 
-                        className="w-10 h-10 rounded-full border border-card-border flex items-center justify-center text-text-muted hover:text-text-main hover:bg-canvas-subtle transition-all hover:scale-110"
+                        onClick={onClose}
+                        aria-label="Close"
+                        disabled={isSubmitting}
+                        className="w-10 h-10 rounded-full border border-card-border flex items-center justify-center text-text-muted hover:text-text-main hover:bg-canvas-subtle transition-all hover:scale-110 disabled:opacity-50"
                     >
                         <X size={20} />
                     </button>
@@ -391,7 +417,9 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                             )}
                         </div>
                         <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
-                            {categories.length > 0 ? categories.map(c => (
+                            {(() => {
+                                const displayCats = categoriesByUsage?.length ? categoriesByUsage : categories;
+                                return displayCats.length > 0 ? displayCats.map(c => (
                                 <button
                                     key={c.name}
                                     type="button"
@@ -408,7 +436,8 @@ const TransactionForm = ({ onClose, editTransaction }) => {
                                 </button>
                             )) : (
                                 <p className="text-xs text-text-muted">Loading categories...</p>
-                            )}
+                            );
+                            })()}
                         </div>
                     </div>
 
@@ -559,6 +588,8 @@ const TransactionForm = ({ onClose, editTransaction }) => {
             </motion.div>
         </div>
     );
+
+    return ReactDOM.createPortal(modalContent, document.body);
 };
 
 export default TransactionForm;
