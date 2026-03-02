@@ -49,8 +49,8 @@ const PendingTransactionsFeed = () => {
             }
         }
 
-        // Set only non-approved pending for display
-        setPending(allPending.filter(t => t.status !== 'approved'));
+        // Set only non-approved pending for display (deferred to avoid set-state-in-effect)
+        queueMicrotask(() => setPending(allPending.filter(t => t.status !== 'approved')));
 
         const unsubscribe = pendingTransactionsService.subscribe((newPending) => {
             setPending(newPending.filter(t => t.status !== 'approved'));

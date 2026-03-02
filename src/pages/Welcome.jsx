@@ -117,6 +117,7 @@ const Welcome = () => {
             }
         };
         preInit();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/redirect only; adding config/refreshData/step would cause unwanted re-runs
     }, [navigate, redirectAttempted, isLoading]);
 
     const handleSignIn = async () => {
@@ -149,27 +150,28 @@ const Welcome = () => {
         setIsLoading(true);
         setError('');
         try {
-            // Save credentials first
+            // Save credentials first (both keys for AuthContext compatibility)
             storage.set(STORAGE_KEYS.SPREADSHEET_ID, sheet.id);
             storage.set(STORAGE_KEYS.SPREADSHEET_NAME, sheet.name);
             localStorage.setItem('laksh_spreadsheet_id', sheet.id);
             localStorage.setItem('laksh_ever_connected', 'true');
 
-            // Update context
+            // Update context - sets isConnected(true) synchronously
             updateConfig({ spreadsheetId: sheet.id });
             if (setGuestMode) setGuestMode(false);
             storage.remove(STORAGE_KEYS.GUEST_MODE);
             localStorage.removeItem('laksh_guest_mode');
 
-            // Trigger data refresh before navigating
+            // Trigger data refresh in background (don't block navigation)
             console.log('[Welcome] Sheet selected, triggering refresh...');
             if (forceRefresh) {
-                // Don't await - let it load in background
                 forceRefresh().catch(e => console.log('[Welcome] Background refresh error:', e));
             }
 
-            // Navigate immediately - ProtectedRoute will show content
-            navigate('/', { replace: true });
+            // Defer navigate to next tick so React can apply isConnected before ProtectedRoute renders
+            setTimeout(() => {
+                if (isMountedRef.current) navigate('/', { replace: true });
+            }, 0);
         } catch {
             if (isMountedRef.current) setError('Failed to connect.');
         } finally {

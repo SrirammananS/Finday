@@ -15,17 +15,19 @@ const formatCurrency = (value) => {
     }).format(value);
 };
 
-const WalletCard = React.memo(({ account, transactions }) => {
+const WalletCard = React.memo(({ account, transactions, compact = false }) => {
     const chartData = useWalletChartData(transactions, account.id, 14);
     const isCredit = account.type === 'credit';
     const limit = account.limit || 100000;
     const utilization = isCredit ? (Math.abs(account.balance) / limit) * 100 : 0;
 
     return (
-        <motion.div whileHover={{ y: -4, transition: { duration: 0.2 } }} className="flex-none">
+        <motion.div whileHover={{ y: -4, transition: { duration: 0.2 } }} className={compact ? 'min-w-0' : 'flex-none'}>
         <Link
             to={`/accounts/${account.id}`}
-            className="relative block w-40 h-52 p-5 bg-card border-2 border-dashed border-card-border rounded-[2rem] no-underline hover:bg-canvas-elevated hover:border-primary/40 transition-all group flex flex-col justify-between overflow-hidden"
+            className={`relative block p-5 bg-card border-2 border-dashed border-card-border rounded-[2rem] no-underline hover:bg-canvas-elevated hover:border-primary/40 transition-all group flex flex-col justify-between overflow-hidden ${
+                compact ? 'min-h-[13rem] w-full' : 'w-40 h-52'
+            }`}
         >
             <div className="absolute top-0 right-0 p-3 opacity-[0.03] -rotate-12 translate-x-2 translate-y-[-10%] group-hover:scale-110 transition-transform pointer-events-none">
                 <Activity size={80} />

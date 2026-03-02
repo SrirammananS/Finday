@@ -796,7 +796,8 @@ class GoogleSheetsService {
             localStorage.setItem('oauth_state', state);
             localStorage.setItem('oauth_pending', 'true');
 
-            const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&state=${state}`;
+            // Use Authorization Code flow to get refresh_token (fixes sync loop after 1hr)
+            const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&access_type=offline&prompt=consent&scope=${scope}&state=${state}`;
 
             console.log('[LAKSH] Opening external browser for OAuth:', authUrl);
 
@@ -1186,7 +1187,7 @@ class GoogleSheetsService {
         if (cleanTitle === '_Bills') return ['ID', 'Name', 'Amount', 'DueDay', 'BillingDay', 'Category', 'Status', 'BillType', 'Cycle', 'CreatedAt', 'AccountID'];
         if (cleanTitle === '_BillPayments') return ['ID', 'BillID', 'Name', 'Cycle', 'Amount', 'DueDate', 'Status', 'PaidDate', 'TransactionID', 'AccountID'];
         // Monthly sheets
-        return ['ID', 'Date', 'Description', 'Amount', 'Category', 'AccountID', 'Type', 'CreatedAt', 'Friend'];
+        return ['ID', 'Date', 'Description', 'Amount', 'Category', 'AccountID', 'Type', 'CreatedAt', 'Friend', 'Source'];
     }
 
     async setHeaders(spreadsheetId, sheetTitle, headers) {
@@ -1478,11 +1479,12 @@ class GoogleSheetsService {
             transaction.accountId,
             transaction.type,
             new Date().toISOString(),
-            transaction.friend || ''
+            transaction.friend || '',
+            transaction.source || ''
         ];
 
         return this.enqueueWrite(spreadsheetId, sheetName, 'append', {
-            range: `'${sheetName}'!A:I`,
+            range: `'${sheetName}'!A:J`,
             values: [row]
         });
     }
@@ -1491,7 +1493,7 @@ class GoogleSheetsService {
         await this.ensureClientReady();
         const sheetName = this.getMonthSheetName(new Date(transaction.date));
 
-        const range = `'${sheetName}'!A:I`;
+        const range = `'${sheetName}'!A:J`;
         let rows = [];
 
         if (window.gapi?.client?.sheets) {
@@ -1513,11 +1515,12 @@ class GoogleSheetsService {
                 transaction.accountId,
                 transaction.type,
                 rows[rowIndex][7], // Keep original createdAt
-                transaction.friend || ''
+                transaction.friend || '',
+                transaction.source || ''
             ];
 
             return this.enqueueWrite(spreadsheetId, sheetName, 'update', {
-                range: `'${sheetName}'!A${rowIndex + 1}:I${rowIndex + 1}`,
+                range: `'${sheetName}'!A${rowIndex + 1}:J${rowIndex + 1}`,
                 values: [updatedRow]
             });
         }
@@ -1600,7 +1603,7 @@ class GoogleSheetsService {
         const genericName = await this.resolveSheetName(spreadsheetId, 'Transactions');
         if (await this.doesSheetExist(spreadsheetId, genericName)) {
             try {
-                const genericRows = await this.getSpreadsheetValues(spreadsheetId, `'${genericName}'!A:I`);
+                const genericRows = await this.getSpreadsheetValues(spreadsheetId, `'${genericName}'!A:J`);
                 if (genericRows.length > 1) {
                     genericRows.slice(1).forEach(row => {
                         if (row[0]) {
@@ -1622,7 +1625,7 @@ class GoogleSheetsService {
 
             if (await this.doesSheetExist(spreadsheetId, actualName)) {
                 try {
-                    const rows = await this.getSpreadsheetValues(spreadsheetId, `'${actualName}'!A:I`);
+                    const rows = await this.getSpreadsheetValues(spreadsheetId, `'${actualName}'!A:J`);
                     rows.slice(1).forEach(row => {
                         if (row[0] && !seenIds.has(row[0])) {
                             transactions.push(this.parseTransactionRow(row));
@@ -1649,6 +1652,7 @@ class GoogleSheetsService {
             type: row[6],
             createdAt: row[7],
             friend: row[8] || '',
+            source: row[9] || '',
             synced: true
         };
     }

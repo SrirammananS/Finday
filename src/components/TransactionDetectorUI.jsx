@@ -23,7 +23,7 @@ const TransactionDetectorUI = () => {
 
     // Load pending transactions
     useEffect(() => {
-        setPendingTransactions(transactionDetector.getPending());
+        queueMicrotask(() => setPendingTransactions(transactionDetector.getPending()));
 
         // Subscribe to new detections
         const unsubscribe = transactionDetector.subscribe((_transaction) => {

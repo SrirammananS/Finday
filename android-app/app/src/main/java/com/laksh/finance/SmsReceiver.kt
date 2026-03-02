@@ -99,7 +99,13 @@ class SmsReceiver : BroadcastReceiver() {
             "payment", "transaction", "txn", "upi", "gpay", "phonepe", "paytm",
             "a/c", "ac ", "account", "rs.", "rs ", "inr", "₹", "rupees",
             "purchase", "payment", "paid", "refund", "cashback",
-            "neft", "imps", "rtgs", "transfer", "withdrawal", "atm"
+            "neft", "imps", "rtgs", "transfer", "withdrawal", "atm",
+            // Additional Indian bank patterns
+            "avail bal", "avl bal", "available balance", "balance",
+            "hdfc", "icici", "sbi", "axis", "kotak", "yes bank",
+            "debit", "credit", "dr.", "cr.", "withdrawn from",
+            "credited to", "debited from", "purchase of", "payment of",
+            "vpa", "merchant", "info:", "ref no", "ref:", "upi ref"
         )
         return keywords.any { lowerBody.contains(it) }
     }
@@ -108,6 +114,10 @@ class SmsReceiver : BroadcastReceiver() {
     private fun looksLikeAmount(body: String): Boolean {
         val lower = body.lowercase()
         if (!lower.contains("rs") && !lower.contains("inr") && !body.contains("₹")) return false
-        return body.any { it.isDigit() }
+        // Must have digits (amount)
+        if (!body.any { it.isDigit() }) return false
+        // Avoid OTP, verification codes
+        if (lower.contains("otp") || lower.contains("verification") || lower.contains("one time")) return false
+        return true
     }
 }

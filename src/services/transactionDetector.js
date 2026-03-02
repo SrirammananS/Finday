@@ -7,6 +7,8 @@
 import { parseSMS } from './smsParser';
 import { smartAI } from './smartAI';
 import pendingService from './pendingTransactions';
+import { generateShortId } from '../utils/generateId';
+import { detectTransactionSource } from '../utils/detectSource';
 
 // Common bank SMS patterns (Indian banks)
 const SMS_PATTERNS = [
@@ -124,22 +126,14 @@ class TransactionDetectorService {
         const parsed = parseSMS(text);
 
         if (parsed && parsed.amount) {
-            // Create transaction object matching the app's structure
-            // Use fallback ID generation for Android WebView compatibility
-            const generateId = () => {
-                if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-                    return crypto.randomUUID();
-                }
-                return Date.now().toString(36) + Math.random().toString(36).substring(2);
-            };
-
             const transaction = {
-                id: generateId(),
+                id: generateShortId(),
                 amount: parsed.amount,
                 type: parsed.type || 'expense',
                 description: parsed.description || parsed.merchant || 'Unknown',
                 rawText: text.substring(0, 200),
-                source,
+                detectionMethod: source,
+                source: detectTransactionSource(),
                 detectedAt: new Date().toISOString(),
                 status: 'pending',
                 category: parsed.category && parsed.category !== 'Other' ? parsed.category : smartAI.predictCategory(parsed.description || parsed.merchant, parsed.amount).category,

@@ -40,9 +40,9 @@ export default function BillManager({ transactions = [], onAddTransaction }) {
         }
     }, [transactions]);
 
-    const upcomingBills = useMemo(() => billManager.getUpcomingBills(14), [bills]);
-    const overdueBills = useMemo(() => billManager.getOverdueBills(), [bills]);
-    const monthlyTotal = useMemo(() => billManager.getMonthlyBillsTotal(), [bills]);
+    const upcomingBills = useMemo(() => billManager.getUpcomingBills(14), []);
+    const overdueBills = useMemo(() => billManager.getOverdueBills(), []);
+    const monthlyTotal = useMemo(() => billManager.getMonthlyBillsTotal(), []);
 
     const handleAddBill = (billData) => {
         if (editingBill) {
@@ -332,6 +332,7 @@ function BillFormModal({ bill, onSave, onClose }) {
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center"
             onClick={onClose}
+            data-modal-overlay
         >
             <motion.div
                 initial={{ y: 100 }}

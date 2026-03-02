@@ -80,12 +80,18 @@ object NotificationHelper {
         )
 
         // Inline reply - user types description in notification
+        // FLAG_MUTABLE required for RemoteInput on Android 12+ (system fills in reply)
         val replyRemoteInput = RemoteInput.Builder(KEY_REPLY_DESCRIPTION)
             .setLabel("Type description or note...")
             .build()
         val replyIntent = Intent(context, NotificationActionReceiver::class.java).apply {
             action = ACTION_REPLY
             putExtra(EXTRA_TRANSACTION_ID, transaction.id)
+        }
+        val replyPendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         }
         val replyAction = NotificationCompat.Action.Builder(
             android.R.drawable.ic_menu_edit,
@@ -94,7 +100,7 @@ object NotificationHelper {
                 context,
                 transaction.id.hashCode() + 4,
                 replyIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                replyPendingFlags
             )
         ).addRemoteInput(replyRemoteInput).build()
 
@@ -139,7 +145,7 @@ object NotificationHelper {
                 append("\n\n")
                 append(smsPreview.replace("\n", " "))
             }
-            append("\n\n• Save = quick add · Type & Save = add description · Categorize = category & bank")
+            append("\n\n• Add = quick save · Edit = category & bank · Ignore = dismiss")
         }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -153,9 +159,9 @@ object NotificationHelper {
             .setContentIntent(openPendingIntent)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .addAction(android.R.drawable.ic_menu_send, "✓ Save", approvePendingIntent)
+            .addAction(android.R.drawable.ic_menu_send, "✓ Add", approvePendingIntent)
+            .addAction(android.R.drawable.ic_menu_edit, "✏ Edit", categorizePendingIntent)
             .addAction(replyAction)
-            .addAction(android.R.drawable.ic_menu_edit, "📋 Categorize", categorizePendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "✗ Ignore", dismissPendingIntent)
             .build()
 
@@ -181,14 +187,34 @@ class NotificationActionReceiver : BroadcastReceiver() {
 
         when (intent.action) {
             NotificationHelper.ACTION_APPROVE -> {
-                TransactionStore.saveAndPersist(context, transactionId)
+                // Mark as approved and persist to Room, but KEEP in pending so app can inject
+                // and add to Sheets. PWA will call removePendingTransaction after saving.
+                val pending = TransactionStore.getPendingById(context, transactionId)
+                if (pending != null) {
+                    TransactionStore.markApproved(context, transactionId)
+                    TransactionStore.persistToDatabase(context, pending)
+                    // Launch app so injectPendingTransactions runs and PWA can add to Sheets
+                    val openIntent = Intent(context, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    }
+                    context.startActivity(openIntent)
+                }
                 NotificationHelper.cancelNotification(context, transactionId)
             }
             NotificationHelper.ACTION_REPLY -> {
                 val reply = RemoteInput.getResultsFromIntent(intent)
                     ?.getCharSequence(NotificationHelper.KEY_REPLY_DESCRIPTION)
                     ?.toString()
-                TransactionStore.saveAndPersist(context, transactionId, descriptionOverride = reply)
+                val pending = TransactionStore.getPendingById(context, transactionId)
+                if (pending != null) {
+                    val updated = if (reply?.isNotBlank() == true) pending.copy(description = reply.trim()) else pending
+                    TransactionStore.markApproved(context, transactionId, descriptionOverride = reply)
+                    TransactionStore.persistToDatabase(context, updated)
+                    val openIntent = Intent(context, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    }
+                    context.startActivity(openIntent)
+                }
                 NotificationHelper.cancelNotification(context, transactionId)
             }
             NotificationHelper.ACTION_DISMISS -> {

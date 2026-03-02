@@ -3,11 +3,16 @@ import { sheetsService } from '../services/sheets';
 import { transactionDetector } from '../services/transactionDetector';
 import { localDB } from '../services/localDB';
 import { storage, STORAGE_KEYS } from '../services/storage';
+import { generateBillInstances as generateBillInstancesService } from '../services/billInstanceGenerator';
 import { importWithRetry } from '../utils/lazyRetry';
 import { logger } from '../utils/logger';
 import { enrichTransaction } from '../services/smsParser';
 import { friendsService } from '../services/friendsService';
-import { format, subMonths, parseISO, subDays, addDays } from 'date-fns';
+import { useFriendsWithBalance } from '../hooks/useFriendsWithBalance';
+import { useTransactionActions } from '../hooks/useTransactionActions';
+import { useBillActions } from '../hooks/useBillActions';
+import { AuthProvider, useAuth } from './AuthContext';
+import { generateShortId } from '../utils/generateId';
 
 const FinanceContext = createContext();
 
@@ -19,12 +24,7 @@ export const useFinance = () => {
     return context;
 };
 
-const generateId = () => {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-        return crypto.randomUUID();
-    }
-    return Date.now().toString(36) + Math.random().toString(36).substring(2);
-};
+const generateId = () => generateShortId();
 
 // Detect if running in Android WebView
 const isAndroidWebView = () => {
@@ -32,15 +32,13 @@ const isAndroidWebView = () => {
     return /Android/i.test(userAgent) && /wv/i.test(userAgent);
 };
 
-export const FinanceProvider = ({ children }) => {
+function FinanceProviderInner({ children, isLoading, setIsLoading }) {
+    const auth = useAuth();
+    const { config, setConfig, isConnected, setIsConnected, isGuest, setIsGuest, createFinanceSheet: authCreateFinanceSheet, setGuestMode } = auth;
+
     const isMountedRef = useRef(true);
+    const mountTimeRef = useRef(Date.now());
     const generatedBuffer = useRef(new Set());
-    const [isGuest, setIsGuest] = useState(() => {
-        const hasSheet = !!(storage.get(STORAGE_KEYS.SPREADSHEET_ID) || localStorage.getItem('finday_spreadsheet_id'));
-        return storage.getBool(STORAGE_KEYS.GUEST_MODE) && !hasSheet;
-    });
-    const [isConnected, setIsConnected] = useState(!!(storage.get(STORAGE_KEYS.SPREADSHEET_ID) || localStorage.getItem('finday_spreadsheet_id')) || storage.getBool(STORAGE_KEYS.GUEST_MODE));
-    const [isLoading, setIsLoading] = useState(true);
     const [loadingStage, setLoadingStage] = useState('init'); // init | auth | fetch | ready | error
     const [loadingStatus, setLoadingStatus] = useState({ step: 0, message: 'Initializing...', error: null });
     const [isSyncing, setIsSyncing] = useState(false);
@@ -60,12 +58,6 @@ export const FinanceProvider = ({ children }) => {
     const [billPayments, setBillPayments] = useState([]);
     const [closedPeriods, setClosedPeriods] = useState(storage.getJSON(STORAGE_KEYS.CLOSED_PERIODS) || []);
     const [secretUnlocked, setSecretUnlocked] = useState(false);
-    const [config, setConfig] = useState({
-        spreadsheetId: storage.get(STORAGE_KEYS.SPREADSHEET_ID) || localStorage.getItem('finday_spreadsheet_id') || '',
-        clientId: storage.get(STORAGE_KEYS.CLIENT_ID) || '',
-        currency: 'INR',
-        isGuest: storage.getBool(STORAGE_KEYS.GUEST_MODE) && !(storage.get(STORAGE_KEYS.SPREADSHEET_ID) || localStorage.getItem('finday_spreadsheet_id'))
-    });
 
     // Valid friends state initialized from local service
     const [friends, setFriends] = useState(friendsService.getAll());
@@ -79,24 +71,7 @@ export const FinanceProvider = ({ children }) => {
     }, [transactions]);
 
     // Calculate dynamic balances for friends based on transactions
-    const friendsWithBalance = useMemo(() => {
-        const balances = {};
-        friends.forEach(f => balances[f.name] = 0);
-
-        transactions.filter(t => !t.hidden && t.friend).forEach(t => {
-            const name = t.friend.trim();
-            if (balances[name] === undefined) balances[name] = 0;
-            // Formula: Expense (negative amount) means I paid -> Friend owes me (+).
-            // Income (positive amount) means Friend paid me -> Friend owes me less (-).
-            // Therefore: Balance -= Amount
-            balances[name] -= t.amount;
-        });
-
-        return friends.map(f => ({
-            ...f,
-            balance: balances[f.name] || 0
-        }));
-    }, [friends, transactions]);
+    const friendsWithBalance = useFriendsWithBalance(friends, transactions);
 
     const toggleSecretUnlock = useCallback(() => {
         setSecretUnlocked(prev => !prev);
@@ -121,153 +96,52 @@ export const FinanceProvider = ({ children }) => {
         };
     }, []);
 
-    // Helper function to ensure sheets service is ready
+    // Helper function to ensure sheets service is ready (with token refresh for mobile)
     const ensureSheetsReady = async () => {
         const { cloudBackup } = await importWithRetry(() => import('../services/cloudBackup'));
         await cloudBackup.init();
         if (!sheetsService.isInitialized || !cloudBackup.isSignedIn()) {
             await sheetsService.init();
         }
-    };
-    const generateBillInstances = async (billsList, paymentsList, txnsList, spreadsheetId) => {
-        if (!spreadsheetId || billsList.length === 0) return;
-
-        const today = new Date();
-        const currentMonthKey = format(today, 'yyyy-MM');
-        const newPayments = [];
-
-        // Load persistent flags to avoid re-generating for the same cycle
-        const existingCycles = new Set(paymentsList.map(p => `${p.billId}:${p.cycle}`));
-
-        logger.info(`Running Smart Bill Audit (Cycle: ${currentMonthKey})...`);
-
-        // Phase 1: Status Sync (Auto-detect payments for EXISTING bills)
-        // Use working copy to avoid stale closure when updateBillPayment runs
-        let workingPayments = [...paymentsList];
-        for (const payment of paymentsList.filter(p => p.status === 'pending')) {
-            const bill = billsList.find(b => b.id === payment.billId);
-            if (!bill) continue;
-
-            const pDate = parseISO(payment.dueDate);
-            const searchStart = subDays(pDate, 15);
-            const searchEnd = addDays(pDate, 20);
-
-            const match = txnsList.find(t => {
-                const txDate = parseISO(t.date);
-                const isExpense = parseFloat(t.amount) < 0;
-                const txAmt = Math.abs(parseFloat(t.amount));
-                const pAmt = parseFloat(payment.amount);
-
-                // Allow 10% variance or exact name match
-                const amtMatch = Math.abs(txAmt - pAmt) <= (pAmt || 1) * 0.1;
-                const nameMatch = t.description?.toLowerCase().includes(bill.name?.toLowerCase().split(' ')[0]);
-
-                return txDate >= searchStart && txDate <= searchEnd && isExpense && (amtMatch || nameMatch);
-            });
-
-            if (match) {
-                logger.info(`Auto-detected payment for ${payment.name}! Linking TxID: ${match.id}`);
-                const updates = { status: 'paid', paidDate: match.date, transactionId: match.id };
-                await updateBillPayment(payment.id, updates, workingPayments);
-                workingPayments = workingPayments.map(p => p.id === payment.id ? { ...p, ...updates } : p);
-            }
-        }
-
-        // Phase 2: Signal Generation (Create new cycles)
-        for (const bill of billsList) {
+        // Proactively refresh token if expired (SMS add, etc. often fails when app was backgrounded)
+        const tokenExpiry = localStorage.getItem('google_token_expiry');
+        const refreshToken = localStorage.getItem('google_refresh_token');
+        if (refreshToken && (!tokenExpiry || Date.now() >= parseInt(tokenExpiry))) {
             try {
-                let cycleKey;
-                let dueDate;
-                let calculationStart;
-                let calculationEnd;
-
-                if (bill.billType === 'credit_card') {
-                    const billingDay = parseInt(bill.billingDay) || 1;
-                    const dueDay = parseInt(bill.dueDay) || 1;
-                    const todayDay = today.getDate();
-
-                    if (todayDay >= billingDay) {
-                        cycleKey = format(new Date(today.getFullYear(), today.getMonth(), billingDay), 'yyyy-MM');
-                        const dueMonth = (dueDay < billingDay) ? today.getMonth() + 1 : today.getMonth();
-                        dueDate = format(new Date(today.getFullYear(), dueMonth, dueDay), 'yyyy-MM-dd');
-
-                        calculationEnd = new Date(today.getFullYear(), today.getMonth(), billingDay);
-                        calculationStart = subMonths(calculationEnd, 1);
-                    } else {
-                        const lastMonth = subMonths(today, 1);
-                        cycleKey = format(new Date(lastMonth.getFullYear(), lastMonth.getMonth(), billingDay), 'yyyy-MM');
-                        const dueMonth = (dueDay < billingDay) ? lastMonth.getMonth() + 1 : lastMonth.getMonth();
-                        dueDate = format(new Date(lastMonth.getFullYear(), dueMonth, dueDay), 'yyyy-MM-dd');
-
-                        calculationEnd = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), billingDay);
-                        calculationStart = subMonths(calculationEnd, 1);
-                    }
-                } else {
-                    cycleKey = currentMonthKey;
-                    const dueDay = parseInt(bill.dueDay) || 1;
-                    dueDate = format(new Date(today.getFullYear(), today.getMonth(), dueDay), 'yyyy-MM-dd');
-                }
-
-                const uniqueKey = `${bill.id}:${cycleKey}`;
-                if (existingCycles.has(uniqueKey) || generatedBuffer.current.has(uniqueKey)) {
-                    continue;
-                }
-
-                // Smart CC Amount Logic
-                let amount = parseFloat(bill.amount) || 0;
-                if (bill.billType === 'credit_card' && calculationStart && calculationEnd) {
-                    const cardTag = bill.name.toLowerCase().split(' ')[0];
-                    const cardTxns = txnsList.filter(t => {
-                        const amt = parseFloat(t.amount);
-                        if (amt >= 0) return false;
-                        const dt = parseISO(t.date);
-                        return dt >= calculationStart && dt < calculationEnd &&
-                            t.description?.toLowerCase().includes(cardTag);
-                    });
-
-                    amount = Math.abs(cardTxns.reduce((sum, t) => sum + parseFloat(t.amount), 0));
-                    // Skip if no spending detected for CC unless it's a fixed bill
-                    if (amount === 0 && bill.billType === 'credit_card') continue;
-                }
-
-                const meshDate = parseISO(dueDate);
-                const instanceName = `${bill.name} - ${format(meshDate, 'MMM yy')}`;
-
-                const newPayment = {
-                    id: generateId(),
-                    billId: bill.id,
-                    name: instanceName,
-                    cycle: cycleKey,
-                    amount: amount,
-                    dueDate: dueDate,
-                    status: 'pending',
-                    accountId: bill.accountId || '' // Maintain link to primary account
-                };
-
-                try {
-                    await sheetsService.addBillPayment(spreadsheetId, newPayment);
-                    newPayments.push(newPayment);
-                    generatedBuffer.current.add(uniqueKey);
-                } catch (sheetsErr) {
-                    logger.error(`Smart generate fail for ${bill.name}:`, sheetsErr);
-                }
-            } catch (err) {
-                logger.error(`Generation error for ${bill.name}:`, err);
+                await sheetsService.refreshToken();
+            } catch (e) {
+                logger.warn('ensureSheetsReady refresh:', e?.message);
             }
         }
-
-        if (newPayments.length > 0) {
-            setBillPayments(prev => [...prev, ...newPayments]);
-            toast(`Smart Brain: Detected ${newPayments.length} new bill signals`);
-        }
-
-        // Store flag in _Config to mark this check as complete
-        try {
-            await sheetsService.setConfig(spreadsheetId, 'last_bill_audit', new Date().toISOString());
-        } catch {
-            logger.warn('Failed to update bill audit flag in cloud');
-        }
     };
+    // Bill actions (needed by generateBillInstances)
+    const billActions = useBillActions({
+        bills,
+        billPayments,
+        transactions,
+        accounts,
+        categories,
+        config,
+        setBills,
+        setBillPayments,
+        setIsSyncing,
+        setLastSyncTime
+    });
+    const { addBill, updateBill, updateBillPayment, deleteBill } = billActions;
+
+    const generateBillInstances = useCallback(async (billsList, paymentsList, txnsList, spreadsheetId) => {
+        await generateBillInstancesService({
+            billsList,
+            paymentsList,
+            txnsList,
+            spreadsheetId,
+            updateBillPayment,
+            setBillPayments,
+            toast,
+            generatedBuffer,
+            sheetsService,
+        });
+    }, [updateBillPayment, toast]);
 
     // Deprecated: connect function using clientId/spreadsheetId
     // All authentication/session restoration is now handled by OAuth (cloudBackup)
@@ -301,6 +175,23 @@ export const FinanceProvider = ({ children }) => {
             logger.info('Ensuring sheets service is initialized...');
             if (!sheetsService.isInitialized) {
                 await sheetsService.init();
+            }
+
+            // Proactively refresh token if expired (mobile/PWA often has stale token after background)
+            const tokenExpiry = localStorage.getItem('google_token_expiry');
+            const refreshToken = localStorage.getItem('google_refresh_token');
+            const isTokenExpired = !tokenExpiry || Date.now() >= parseInt(tokenExpiry);
+            if (!isGuest && isTokenExpired && refreshToken) {
+                logger.info('Token expired, attempting refresh before sync...');
+                try {
+                    const refreshed = await sheetsService.refreshToken();
+                    if (refreshed) {
+                        logger.info('Token refreshed successfully');
+                        localStorage.removeItem('laksh_connection_failed');
+                    }
+                } catch (refreshErr) {
+                    logger.warn('Pre-sync token refresh failed:', refreshErr?.message);
+                }
             }
 
             // Double-check token is loaded
@@ -350,6 +241,7 @@ export const FinanceProvider = ({ children }) => {
 
             setLastSyncTime(new Date());
             setLoadingStatus({ step: 4, message: 'Ready!', error: null });
+            localStorage.removeItem('laksh_connection_failed');
 
             // Background: Flush any pending offline writes
             sheetsService.flushQueue().catch(e => logger.info('Post-refresh flush background:', e));
@@ -366,8 +258,8 @@ export const FinanceProvider = ({ children }) => {
                 const detailedError = 'Authentication failed. Your session may have expired. Please sign in again from Settings.';
                 setError(detailedError);
                 toast('Session expired. Please sign in again.', 'error');
-                // FIXED: Clear connection state on auth failure
                 setIsConnected(false);
+                localStorage.setItem('laksh_connection_failed', 'true');
             } else if (err.message?.includes('network') || err.message?.includes('fetch')) {
                 const detailedError = 'Network error. Please check your internet connection and try again.';
                 setError(detailedError);
@@ -390,94 +282,16 @@ export const FinanceProvider = ({ children }) => {
                 setIsLoading(false);
             }
         }
-    }, [config.spreadsheetId, isGuest, toast]);
+    }, [config.spreadsheetId, isGuest, toast, generateBillInstances, setIsConnected, setIsLoading]);
 
-    // --- One-Click Setup Logic ---
-    const createFinanceSheet = async () => {
-        setIsLoading(true);
-        try {
-            if (!gapi.client.sheets) throw new Error("Google Sheets API not loaded");
-
-            // 1. Create Spreadsheet
-            const createResponse = await gapi.client.sheets.spreadsheets.create({
-                resource: {
-                    properties: { title: "Finday Ledger" },
-                    sheets: [
-                        { properties: { title: "Transactions" } }, // Keep Transactions generic
-                        { properties: { title: "_Accounts" } },
-                        { properties: { title: "_Categories" } },
-                        { properties: { title: "_Bills" } },
-                        { properties: { title: "_Config" } }
-                    ]
-                }
-            });
-
-            const newSpreadsheetId = createResponse.result.spreadsheetId;
-            setConfig(prev => ({ ...prev, spreadsheetId: newSpreadsheetId }));
-            storage.set(STORAGE_KEYS.SPREADSHEET_ID, newSpreadsheetId);
-            storage.set(STORAGE_KEYS.SPREADSHEET_NAME, 'LAKSH Finance');
-            storage.set(STORAGE_KEYS.EVER_CONNECTED, 'true');
-
-            // 2. Populate Headers & Defaults
-            await gapi.client.sheets.spreadsheets.values.batchUpdate({
-                spreadsheetId: newSpreadsheetId,
-                resource: {
-                    valueInputOption: "USER_ENTERED",
-                    data: [
-                        {
-                            range: "Transactions!A1:I1",
-                            values: [["ID", "Date", "Description", "Amount", "Category", "AccountID", "Type", "CreatedAt", "Friend"]]
-                        },
-                        {
-                            range: "_Accounts!A1:H1",
-                            values: [
-                                ["ID", "Name", "Type", "Balance", "BillingDay", "DueDay", "CreatedAt", "IsSecret"]
-                            ]
-                        },
-                        {
-                            range: "_Categories!A1:D11",
-                            values: [
-                                ["Name", "Keywords", "Color", "Icon"],
-                                ["Groceries", "walmart,kroger,grocery,supermarket", "#22c55e", "🛒"],
-                                ["Dining", "restaurant,cafe,mcdonalds,starbucks,pizza", "#f59e0b", "🍕"],
-                                ["Transportation", "uber,lyft,gas,petrol,shell,parking", "#3b82f6", "🚗"],
-                                ["Entertainment", "netflix,spotify,movie,cinema,game", "#8b5cf6", "🎬"],
-                                ["Utilities", "electric,water,internet,phone,bill", "#64748b", "💡"],
-                                ["Healthcare", "pharmacy,doctor,hospital,medical", "#ef4444", "🏥"],
-                                ["Shopping", "amazon,target,mall,store", "#ec4899", "🛍️"],
-                                ["Subscriptions", "subscription,monthly,annual", "#06b6d4", "📱"],
-                                ["Income", "salary,payment,deposit,transfer in", "#10b981", "💰"],
-                                ["Other", "", "#94a3b8", "📦"]
-                            ]
-                        },
-                        {
-                            range: "_Bills!A1:K1",
-                            values: [["ID", "Name", "Amount", "DueDay", "BillingDay", "Category", "Status", "BillType", "Cycle", "CreatedAt", "AccountID"]]
-                        },
-                        {
-                            range: "_BillPayments!A1:J1",
-                            values: [["ID", "BillID", "Name", "Cycle", "Amount", "DueDate", "Status", "PaidDate", "TransactionID", "AccountID"]]
-                        }
-                    ]
-                }
-            });
-
-            // Reload to fetch fresh data
-            window.location.reload();
-
-        } catch (error) {
-            console.error("Error creating sheet:", error);
-            alert("Failed to create spreadsheet. See console.");
-        } finally {
-            setIsLoading(false);
-        }
-    };
+    // createFinanceSheet comes from AuthContext (useAuth)
 
     // New: Auto-connect using OAuth session (cloudBackup)
     useEffect(() => {
         const autoConnect = async () => {
             if (!isMountedRef.current) return;
 
+            localStorage.removeItem('laksh_connection_failed');
             setLoadingStatus({ step: 0, message: 'Checking credentials...', error: null });
 
             // Skip auto-connect if already connected - prevents blinking on navigation
@@ -888,21 +702,25 @@ export const FinanceProvider = ({ children }) => {
                 setError('Failed to initialize app');
             }
         });
-
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only init; full deps would cause re-runs on every state change
     }, []);
 
     // ===== POLL FOR TOKEN (WebView Fix) =====
     useEffect(() => {
+        const POLL_INITIAL_GRACE_MS = 6000; // Let autoConnect handle oauth_refresh first
+        const CONNECTION_FAILED_KEY = 'laksh_connection_failed';
+
         const interval = setInterval(() => {
             const token = localStorage.getItem('google_access_token');
             const refreshRequired = localStorage.getItem('oauth_refresh_required');
-            
-            // Check if OAuth callback set refresh flag - FIXED: Remove isConnected check
-            if (refreshRequired === 'true' && config.spreadsheetId && !isSyncing && !isLoading) {
-                logger.info('OAuth refresh required, triggering data refresh...');
+            const connectionFailed = localStorage.getItem(CONNECTION_FAILED_KEY) === 'true';
+            const sinceMount = Date.now() - mountTimeRef.current;
+
+            // OAuth refresh: only handle if autoConnect has had time (prevents double refresh)
+            if (refreshRequired === 'true' && config.spreadsheetId && !isSyncing && !isLoading && sinceMount > POLL_INITIAL_GRACE_MS) {
+                logger.info('OAuth refresh required (poll), triggering data refresh...');
                 localStorage.removeItem('oauth_refresh_required');
-                
-                // Ensure sheets service is ready before refresh
+
                 ensureSheetsReady()
                     .then(() => refreshData(config.spreadsheetId, true))
                     .catch(err => {
@@ -910,9 +728,9 @@ export const FinanceProvider = ({ children }) => {
                         setError('Failed to load data after sign-in. Please try refreshing.');
                     });
             }
-            
-            // Ensure we don't reload if we are already in the process of connecting
-            if (token && !isConnected && !isLoading && !refreshRequired) {
+
+            // Reload only when token arrived from another tab - NOT when we failed to connect (prevents loop)
+            if (token && !isConnected && !isLoading && !refreshRequired && !connectionFailed) {
                 logger.info('Token detected via polling, reloading to initialize...');
                 window.location.reload();
             }
@@ -934,7 +752,7 @@ export const FinanceProvider = ({ children }) => {
             }
 
             if (Notification.permission === 'granted') {
-                const notifyDays = parseInt(localStorage.getItem('finday_notify_days') || '5');
+                const notifyDays = parseInt(storage.get(STORAGE_KEYS.NOTIFY_DAYS) || '5');
                 const today = new Date().getDate();
                 const upcoming = bills.filter(b => {
                     const due = parseInt(b.dueDay);
@@ -942,7 +760,7 @@ export const FinanceProvider = ({ children }) => {
                 });
 
                 if (upcoming.length > 0) {
-                    const lastNotified = localStorage.getItem('finday_last_notification');
+                    const lastNotified = storage.get(STORAGE_KEYS.LAST_NOTIFICATION);
                     const todayStr = new Date().toDateString();
 
                     // Notify max once per day
@@ -964,7 +782,7 @@ export const FinanceProvider = ({ children }) => {
                         } catch (e) {
                             console.log('[LAKSH] Notification failed:', e);
                         }
-                        localStorage.setItem('finday_last_notification', todayStr);
+                        storage.set(STORAGE_KEYS.LAST_NOTIFICATION, todayStr);
                     }
                 }
             }
@@ -986,30 +804,30 @@ export const FinanceProvider = ({ children }) => {
 
     useEffect(() => {
         const generateCCBills = async () => {
-            logger.info('[Finday CC] generateCCBills triggered. Checking conditions...');
+            logger.info('[LAKSH CC] generateCCBills triggered. Checking conditions...');
             // Only run if we have data and not currently syncing
             if (accounts.length === 0 && transactions.length === 0) {
-                logger.info('[Finday CC] Skipping: No accounts/transactions loaded yet.');
+                logger.info('[LAKSH CC] Skipping: No accounts/transactions loaded yet.');
                 return;
             }
             if (isSyncing) {
-                logger.info('[Finday CC] Skipping: Currently syncing.');
+                logger.info('[LAKSH CC] Skipping: Currently syncing.');
                 return;
             }
             // Relaxing lastSyncTime check since cached data is enough to generate bills
             // if (!lastSyncTime) ...
 
             // Lock to prevent concurrent execution
-            const lockKey = 'finday_cc_bill_lock';
+            const lockKey = 'laksh_cc_bill_lock';
             const lock = localStorage.getItem(lockKey);
             if (lock && Date.now() - parseInt(lock) < 30000) {
-                logger.info('[Finday CC] Skipping: Locked (ran recently).');
+                logger.info('[LAKSH CC] Skipping: Locked (ran recently).');
                 return;
             }
             localStorage.setItem(lockKey, Date.now().toString());
 
             const creditAccounts = accounts.filter(a => a.type === 'credit');
-            logger.info(`[Finday CC] Found ${creditAccounts.length} credit accounts.`);
+            logger.info(`[LAKSH CC] Found ${creditAccounts.length} credit accounts.`);
 
             const today = new Date();
             const currentDay = today.getDate();
@@ -1024,7 +842,7 @@ export const FinanceProvider = ({ children }) => {
                 const billingDay = parseInt(acc.billingDay);
                 const dueDay = parseInt(acc.dueDay) || billingDay + 20;
 
-                logger.info(`[Finday CC] Checking ${acc.name}. BillingDay: ${billingDay}, CurrentDay: ${currentDay}`);
+                logger.info(`[LAKSH CC] Checking ${acc.name}. BillingDay: ${billingDay}, CurrentDay: ${currentDay}`);
 
                 // Check if we are past the billing day for this month
                 if (currentDay >= billingDay) {
@@ -1069,15 +887,15 @@ export const FinanceProvider = ({ children }) => {
 
                     const existingBill = existingBillByCycle || existingBillByName;
                     if (existingBill) {
-                        logger.info(`[Finday CC] Skipping ${acc.name}: Bill already exists (${existingBill.name})`);
+                        logger.info(`[LAKSH CC] Skipping ${acc.name}: Bill already exists (${existingBill.name})`);
                     }
 
                     // Check ephemeral lock for this specific bill (session scope)
-                    const billLockKey = `finday_bill_created_${acc.id}_${currentMonth}_${currentYear}`;
+                    const billLockKey = `laksh_bill_created_${acc.id}_${currentMonth}_${currentYear}`;
                     const inMemoryLock = createdBillsRef.current.has(billLockKey);
 
                     if (inMemoryLock) {
-                        logger.info(`[Finday CC] Skipping ${acc.name}: In-memory lock active.`);
+                        logger.info(`[LAKSH CC] Skipping ${acc.name}: In-memory lock active.`);
                     }
 
                     if (!existingBill && !inMemoryLock) {
@@ -1100,7 +918,7 @@ export const FinanceProvider = ({ children }) => {
                         const debt = acc.balance < 0 ? Math.abs(acc.balance) : 0;
                         const totalSpent = totalFromTx > 0 ? totalFromTx : debt;
 
-                        logger.info(`[Finday CC] ${acc.name}: Cycle ${cycleStartStr} to ${cycleEndStr}. TxTotal: ${totalFromTx}, Debt: ${debt}, TotalSpent: ${totalSpent}`);
+                        logger.info(`[LAKSH CC] ${acc.name}: Cycle ${cycleStartStr} to ${cycleEndStr}. TxTotal: ${totalFromTx}, Debt: ${debt}, TotalSpent: ${totalSpent}`);
 
                         if (totalSpent > 0 || totalFromTx > 0) {
                             createdBillsRef.current.add(billLockKey);
@@ -1118,7 +936,7 @@ export const FinanceProvider = ({ children }) => {
                                 cycleEnd: cycleEndStr
                             };
 
-                            logger.info(`[Finday CC] GENERATING BILL: ${billName} - ${totalSpent}`);
+                            logger.info(`[LAKSH CC] GENERATING BILL: ${billName} - ${totalSpent}`);
                             await addBill(newBill);
 
                             if (Notification.permission === 'granted') {
@@ -1138,6 +956,7 @@ export const FinanceProvider = ({ children }) => {
 
         const timer = setTimeout(generateCCBills, 5000);
         return () => clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- addBill/isSyncing would cause unnecessary re-schedules
     }, [accounts, transactions, lastSyncTime, bills]);
 
     // ===== MOBILE APP INITIALIZATION =====
@@ -1191,298 +1010,23 @@ export const FinanceProvider = ({ children }) => {
         }
     };
 
-    // ===== TRANSACTIONS CRUD =====
-
-    const addTransaction = async (data) => {
-        // Check if period is closed
-        const periodKey = data.date.substring(0, 7); // YYYY-MM
-        if (closedPeriods.includes(periodKey)) {
-            toast('This period is closed. Further modifications are not allowed.', 'error');
-            return null;
-        }
-
-        const transaction = {
-            id: generateId(),
-            ...data,
-            amount: data.type === 'income' ? Math.abs(data.amount) : -Math.abs(data.amount)
-        };
-
-        // Optimistic update for Transaction
-        const newTransactions = [{ ...transaction, synced: false }, ...transactions];
-        setTransactions(newTransactions);
-
-        // Optimistic update for Account Balance
-        let newAccounts = [...accounts];
-        if (data.accountId) {
-            newAccounts = newAccounts.map(a => {
-                if (a.id === data.accountId) {
-                    return { ...a, balance: a.balance + transaction.amount };
-                }
-                return a;
-            });
-            setAccounts(newAccounts);
-        }
-
-        // Save immediately to localDB
-        localDB.saveData({
-            transactions: newTransactions,
-            accounts: newAccounts,
-            categories,
-            bills
-        }).catch(e => console.warn('[LAKSH] Local save failed:', e));
-
-        if (!config.spreadsheetId) {
-            toast('Transaction saved locally. Connect Sheet to sync.', 'info');
-            return transaction;
-        }
-
-        setIsSyncing(true);
-        try {
-            // Ensure sheets service is ready
-            await ensureSheetsReady();
-
-            await sheetsService.addTransaction(config.spreadsheetId, transaction);
-            setTransactions(prev => prev.map(t => t.id === transaction.id ? { ...t, synced: true } : t));
-            setLastSyncTime(new Date());
-
-            // Sync account balance to cloud
-            if (data.accountId) {
-                const account = accounts.find(a => a.id === data.accountId);
-                if (account) {
-                    const newBalance = account.balance + transaction.amount;
-                    try {
-                        await sheetsService.updateAccount(config.spreadsheetId, data.accountId, { balance: newBalance });
-                    } catch (accError) {
-                        logger.warn('Failed to sync account balance, will retry on next sync', accError);
-                    }
-                    // State already updated optimistically above
-                    // State already updated optimistically above
-
-
-                    // --- EXPLICIT PAYMENT LOGIC ---
-
-                    // 1. Explicit Bill Payment (from Form)
-                    if (data.billId) {
-                        const matchedBill = bills.find(b => b.id === data.billId);
-                        if (matchedBill) {
-                            // Mark bill as paid in sheets and local state
-                            await sheetsService.updateBill(config.spreadsheetId, data.billId, { status: 'paid' });
-                            setBills(prev => prev.map(b => b.id === data.billId ? { ...b, status: 'paid' } : b));
-                            toast(`Bill "${matchedBill.name}" marked as paid ✓`);
-                        }
-                    }
-
-                    // 2. Explicit Credit Card Payment (from Form)
-                    if (data.linkedAccountId) {
-                        const ccAccount = accounts.find(a => a.id === data.linkedAccountId);
-                        if (ccAccount && ccAccount.type === 'credit') {
-                            // Paying a CC increases its balance (reduces negative debt)
-                            // e.g. Balance -5000 + Paid 1000 = -4000
-                            const newCCBalance = ccAccount.balance + Math.abs(transaction.amount);
-                            await sheetsService.updateAccount(config.spreadsheetId, ccAccount.id, { balance: newCCBalance });
-                            setAccounts(prev => prev.map(a => a.id === ccAccount.id ? { ...a, balance: newCCBalance } : a));
-                            toast(`Updated ${ccAccount.name} balance`);
-
-                            // Auto-Mark CC Bill as Paid
-                            // Find an outstanding bill for this CC account
-                            const ccBill = bills.find(b =>
-                                (b.accountId === ccAccount.id || b.billAccountId === ccAccount.id) &&
-                                b.status !== 'paid' &&
-                                // Optional: Match amount loosely (within 10 rupees) to ensure we pay the right bill
-                                // If user pays partial, maybe we shouldn't mark as full paid? 
-                                // For now, let's assume if they select the card pay, they intend to settle the statement.
-                                Math.abs(parseFloat(b.amount) - Math.abs(transaction.amount)) < 100
-                            );
-
-                            if (ccBill) {
-                                await sheetsService.updateBill(config.spreadsheetId, ccBill.id, { status: 'paid' });
-                                setBills(prev => prev.map(b => b.id === ccBill.id ? { ...b, status: 'paid' } : b));
-                                toast(`Linked Bill "${ccBill.name}" marked as paid ✓`);
-                            }
-                        }
-                    }
-
-                    // --- FALLBACK SMART LOGIC (for imports/legacy) ---
-                    // Only run if NO explicit data was provided
-                    if (!data.billId && !data.linkedAccountId) {
-                        // 1. Auto-Match Utility/Regular Bills
-                        if (transaction.type === 'expense') {
-                            const txAmount = Math.abs(transaction.amount);
-                            const txDesc = transaction.description.toLowerCase();
-
-                            // Find a due bill that matches amount and description keywords
-                            const matchedBill = bills.find(b => {
-                                if (b.status === 'paid') return false;
-                                const billAmount = parseFloat(b.amount);
-                                // Amount match (exact for bills usually, but allow tiny variance)
-                                const amountMatch = Math.abs(billAmount - txAmount) < 2;
-
-                                // Name match: check if bill name is in transaction description
-                                const nameMatch = txDesc.includes(b.name.toLowerCase());
-
-                                return amountMatch && nameMatch;
-                            });
-
-                            if (matchedBill) {
-                                try {
-                                    await sheetsService.updateBill(config.spreadsheetId, matchedBill.id, { status: 'paid' });
-                                    setBills(prev => prev.map(b => b.id === matchedBill.id ? { ...b, status: 'paid' } : b));
-                                    toast(`Auto-marked Bill "${matchedBill.name}" as paid ✓`);
-                                } catch (e) {
-                                    logger.warn('Failed to auto-mark bill', e);
-                                }
-                            }
-                        }
-
-                        // 2. Auto-Match CC Payments (Existing Logic)
-                        const isCCPayment =
-                            (transaction.type === 'expense' || transaction.type === 'transfer') &&
-                            (transaction.description.toLowerCase().includes('card') || transaction.description.toLowerCase().includes('bill'));
-
-                        if (isCCPayment) {
-                            // Try to find a CC account mentioned
-                            const ccAccount = accounts.find(a => a.type === 'credit' && transaction.description.toLowerCase().includes(a.name.toLowerCase()));
-                            if (ccAccount && ccAccount.id !== data.accountId) {
-                                // Auto-Apply payment to CC
-                                const newCCBalance = ccAccount.balance + Math.abs(transaction.amount);
-                                await sheetsService.updateAccount(config.spreadsheetId, ccAccount.id, { balance: newCCBalance });
-                                setAccounts(prev => prev.map(a => a.id === ccAccount.id ? { ...a, balance: newCCBalance } : a));
-                                toast(`Auto-detected CC Payment: Updated ${ccAccount.name}`);
-                            }
-                        }
-                    }
-                }
-            }
-
-            setLastSyncTime(new Date());
-            toast('Record posted to cloud');
-            return { ...transaction, synced: true };
-        } catch (err) {
-            logger.error('Add transaction failed:', err);
-            setError(err.message);
-            toast('Connection timeout. Retrying...', 'error');
-            throw err;
-        } finally {
-            setIsSyncing(false);
-        }
-    };
-
-    const updateTransaction = async (transaction) => {
-        // Find the original transaction
-        const originalTransaction = transactions.find(t => t.id === transaction.id);
-
-        if (!originalTransaction) {
-            logger.error('Original transaction not found');
-            return transaction;
-        }
-
-        const accountChanged = originalTransaction.accountId !== transaction.accountId;
-        const amountChanged = originalTransaction.amount !== transaction.amount;
-
-        // Optimistic UI update
-        const updatedTransactions = transactions.map(t => t.id === transaction.id ? { ...transaction, synced: false } : t);
-        setTransactions(updatedTransactions);
-
-        // Save immediately to localDB
-        localDB.saveData({
-            transactions: updatedTransactions,
-            accounts,
-            categories,
-            bills
-        }).catch(e => console.warn('[LAKSH] Local save failed:', e));
-
-        if (!config.spreadsheetId) return transaction;
-
-        setIsSyncing(true);
-        try {
-            // Ensure sheets service is properly initialized
-            await ensureSheetsReady();
-
-            // 1. Update the transaction in the sheet
-            await sheetsService.updateTransaction(config.spreadsheetId, transaction);
-
-            // 2. Handle balance updates
-            if (accountChanged) {
-                // Account changed: revert from old account, apply to new account
-                const oldAccount = accounts.find(a => a.id === originalTransaction.accountId);
-                const newAccount = accounts.find(a => a.id === transaction.accountId);
-
-                if (oldAccount) {
-                    // Remove original amount from old account
-                    const oldNewBalance = oldAccount.balance - originalTransaction.amount;
-                    await sheetsService.updateAccount(config.spreadsheetId, oldAccount.id, { balance: oldNewBalance });
-                    setAccounts(prev => prev.map(a => a.id === oldAccount.id ? { ...a, balance: oldNewBalance } : a));
-                    logger.info(`[Finday] Old account ${oldAccount.name}: ${oldAccount.balance} -> ${oldNewBalance}`);
-                }
-
-                if (newAccount) {
-                    // Add new amount to new account
-                    const newNewBalance = newAccount.balance + transaction.amount;
-                    await sheetsService.updateAccount(config.spreadsheetId, newAccount.id, { balance: newNewBalance });
-                    setAccounts(prev => prev.map(a => a.id === newAccount.id ? { ...a, balance: newNewBalance } : a));
-                    logger.info(`[Finday] New account ${newAccount.name}: ${newAccount.balance} -> ${newNewBalance}`);
-                }
-            } else if (amountChanged) {
-                // Same account, amount changed: just apply the difference
-                const account = accounts.find(a => a.id === transaction.accountId);
-                if (account) {
-                    const amountDiff = transaction.amount - originalTransaction.amount;
-                    const newBalance = account.balance + amountDiff;
-                    await sheetsService.updateAccount(config.spreadsheetId, account.id, { balance: newBalance });
-                    setAccounts(prev => prev.map(a => a.id === account.id ? { ...a, balance: newBalance } : a));
-                    logger.info(`[Finday] Account ${account.name}: ${account.balance} -> ${newBalance} (diff: ${amountDiff})`);
-                }
-            }
-
-            // 3. Mark bill as paid if billId is provided
-            if (transaction.billId) {
-                const matchedBill = bills.find(b => b.id === transaction.billId);
-                if (matchedBill && matchedBill.status !== 'paid') {
-                    await sheetsService.updateBill(config.spreadsheetId, transaction.billId, { status: 'paid' });
-                    setBills(prev => prev.map(b => b.id === transaction.billId ? { ...b, status: 'paid' } : b));
-                    toast(`Bill "${matchedBill.name}" marked as paid ✓`);
-                }
-            }
-
-            setTransactions(prev => prev.map(t => t.id === transaction.id ? { ...t, synced: true } : t));
-            setLastSyncTime(new Date());
-            toast('Record modified successfully');
-            return { ...transaction, synced: true };
-        } catch (err) {
-            logger.error('Update transaction failed:', err);
-            toast('Failed to update record', 'error');
-            throw err;
-        } finally {
-            setIsSyncing(false);
-        }
-    };
-
-    const deleteTransaction = async (transaction) => {
-        const newTransactions = transactions.filter(t => t.id !== transaction.id);
-        setTransactions(newTransactions);
-        localDB.saveData({ transactions: newTransactions, accounts, categories, bills });
-
-        if (!config.spreadsheetId) return;
-
-        setIsSyncing(true);
-        try {
-            await ensureSheetsReady();
-            await sheetsService.deleteTransaction(config.spreadsheetId, transaction.id, transaction.date);
-            setLastSyncTime(new Date());
-            toast('Entry removed from ledger');
-        } catch (err) {
-            logger.error('Delete transaction failed:', err);
-            // Revert
-            const reverted = [...transactions, transaction];
-            setTransactions(reverted);
-            localDB.saveData({ transactions: reverted, accounts, categories, bills });
-
-            toast('Removal failed. Please sync.', 'error');
-            throw err;
-        } finally {
-            setIsSyncing(false);
-        }
-    };
+    // ===== TRANSACTIONS CRUD (extracted to useTransactionActions) =====
+    const { addTransaction, updateTransaction, deleteTransaction } = useTransactionActions({
+        transactions,
+        accounts,
+        categories,
+        bills,
+        closedPeriods,
+        config,
+        setTransactions,
+        setAccounts,
+        setBills,
+        setIsSyncing,
+        setLastSyncTime,
+        setError,
+        toast,
+        ensureSheetsReady
+    });
 
     // ===== ACCOUNTS CRUD =====
 
@@ -1606,123 +1150,8 @@ export const FinanceProvider = ({ children }) => {
         }
     };
 
-    // ===== BILLS CRUD =====
-
-    const addBill = async (data) => {
-        const bill = { id: generateId(), ...data };
-        const newBills = [bill, ...bills];
-        setBills(newBills);
-        localDB.saveData({ transactions, accounts, categories, bills: newBills });
-
-        if (!config.spreadsheetId) return bill;
-
-        setIsSyncing(true);
-        try {
-            await sheetsService.addBill(config.spreadsheetId, bill);
-            setLastSyncTime(new Date());
-            return bill;
-        } catch (err) {
-            setBills(prev => prev.filter(b => b.id !== bill.id));
-            throw err;
-        } finally {
-            setIsSyncing(false);
-        }
-    };
-
-    const updateBill = async (billId, updates) => {
-        const newBills = bills.map(b => b.id === billId ? { ...b, ...updates } : b);
-
-        // Smart Propagation: If bill details change, update all PENDING payments for this bill
-        const newPayments = billPayments.map(p => {
-            if (p.billId === billId && p.status === 'pending') {
-                const meshDate = parseISO(p.dueDate);
-                return {
-                    ...p,
-                    amount: updates.amount !== undefined ? parseFloat(updates.amount) : p.amount,
-                    name: updates.name !== undefined ? `${updates.name} - ${format(meshDate, 'MMM yy')}` : p.name
-                };
-            }
-            return p;
-        });
-
-        setBills(newBills);
-        setBillPayments(newPayments);
-        localDB.saveData({ transactions, accounts, categories, bills: newBills, billPayments: newPayments });
-
-        if (!config.spreadsheetId) return;
-
-        setIsSyncing(true);
-        try {
-            await sheetsService.updateBill(config.spreadsheetId, billId, updates);
-
-            // Push payment updates to cloud too
-            for (const p of newPayments.filter(p => p.billId === billId && p.status === 'pending')) {
-                await sheetsService.updateBillPayment(config.spreadsheetId, p.id, {
-                    amount: p.amount,
-                    name: p.name
-                });
-            }
-
-            setLastSyncTime(new Date());
-        } catch (err) {
-            logger.error('updateBill failed:', err);
-        } finally {
-            setIsSyncing(false);
-        }
-    };
-
-    const updateBillPayment = async (paymentId, updates, paymentsOverride) => {
-        const base = paymentsOverride ?? billPayments;
-        const newPayments = base.map(p => p.id === paymentId ? { ...p, ...updates } : p);
-        setBillPayments(newPayments);
-        localDB.saveData({ transactions, accounts, categories, bills, billPayments: newPayments });
-
-        if (!config.spreadsheetId) return;
-
-        setIsSyncing(true);
-        try {
-            await sheetsService.updateBillPayment(config.spreadsheetId, paymentId, updates);
-            setLastSyncTime(new Date());
-        } catch (err) {
-            logger.error('updateBillPayment failed:', err);
-            throw err;
-        } finally {
-            setIsSyncing(false);
-        }
-    };
-
-    const deleteBill = async (billId) => {
-        const bill = bills.find(b => b.id === billId);
-        const newBills = bills.filter(b => b.id !== billId);
-
-        // Smart Cleanup: Delete all PENDING payments associated with this bill
-        const paymentsToDelete = billPayments.filter(p => p.billId === billId && p.status === 'pending');
-        const newPayments = billPayments.filter(p => !(p.billId === billId && p.status === 'pending'));
-
-        setBills(newBills);
-        setBillPayments(newPayments);
-        localDB.saveData({ transactions, accounts, categories, bills: newBills, billPayments: newPayments });
-
-        if (!config.spreadsheetId) return;
-
-        setIsSyncing(true);
-        try {
-            await sheetsService.deleteBill(config.spreadsheetId, billId);
-
-            // Clean up cloud payments
-            for (const p of paymentsToDelete) {
-                await sheetsService.deleteBillPayment(config.spreadsheetId, p.id);
-            }
-
-            setLastSyncTime(new Date());
-        } catch (err) {
-            logger.error('deleteBill failed:', err);
-            // Restore local state on failure
-            setBills(prev => [...prev, bill]);
-        } finally {
-            setIsSyncing(false);
-        }
-    };
+    // ===== BILLS CRUD (extracted to useBillActions) =====
+    // addBill, updateBill, updateBillPayment, deleteBill from billActions above
 
     // ===== SMART QUERY =====
 
@@ -1830,7 +1259,7 @@ export const FinanceProvider = ({ children }) => {
         } catch (err) {
             logger.error('Config update failed:', err);
         }
-    }, [config.spreadsheetId]);
+    }, [config.spreadsheetId, setConfig, refreshData, setIsConnected, setIsGuest]);
 
     const disconnect = useCallback(async () => {
         // Special handling for Android WebView
@@ -1840,6 +1269,7 @@ export const FinanceProvider = ({ children }) => {
             // Clear all local data including "ever connected" flag
             await localDB.clearAll();
             localStorage.removeItem('laksh_ever_connected');
+            localStorage.removeItem('laksh_connection_failed');
             localStorage.removeItem('finday_spreadsheet_id');
 
             // Reset state
@@ -1865,6 +1295,7 @@ export const FinanceProvider = ({ children }) => {
         // Clear cached data and ever connected flag
         await localDB.clearAll();
         localStorage.removeItem('laksh_ever_connected');
+        localStorage.removeItem('laksh_connection_failed');
         localStorage.removeItem('finday_spreadsheet_id');
 
         setIsConnected(false);
@@ -1873,14 +1304,26 @@ export const FinanceProvider = ({ children }) => {
         setCategories([]);
         setBills([]);
         setConfig({ spreadsheetId: '', clientId: '', currency: 'INR' });
-    }, []);
+    }, [setConfig, toast, setIsConnected]);
 
-    // Force refresh - clears cache and re-syncs
+    // Force refresh - refreshes token first (for mobile), clears cache, then re-syncs
     const forceRefresh = useCallback(async () => {
+        setError(null);
+        const refreshToken = localStorage.getItem('google_refresh_token');
+        if (refreshToken) {
+            try {
+                const refreshed = await sheetsService.refreshToken();
+                if (refreshed) {
+                    localStorage.removeItem('laksh_connection_failed');
+                }
+            } catch (e) {
+                logger.warn('Force refresh token attempt:', e?.message);
+            }
+        }
         await localDB.clearAll();
         toast('Cache cleared');
         await refreshData();
-    }, [refreshData]);
+    }, [refreshData, toast]);
 
     // Get cached time for display
     const getCacheInfo = useCallback(async () => {
@@ -2023,12 +1466,7 @@ export const FinanceProvider = ({ children }) => {
                 return false;
             }
         },
-        setGuestMode: (enabled) => {
-            setIsGuest(enabled);
-            setIsConnected(enabled || !!config.spreadsheetId);
-            storage.set(STORAGE_KEYS.GUEST_MODE, enabled);
-            setConfig(prev => ({ ...prev, isGuest: enabled }));
-        },
+        setGuestMode,
         closePeriod: (periodKey) => {
             if (!closedPeriods.includes(periodKey)) {
                 const newPeriods = [...closedPeriods, periodKey];
@@ -2037,7 +1475,7 @@ export const FinanceProvider = ({ children }) => {
                 toast(`Period ${periodKey} closed successfully.`);
             }
         },
-        createFinanceSheet,
+        createFinanceSheet: authCreateFinanceSheet,
         addFriend: (name) => {
             const result = friendsService.add(name);
             if (result) {
@@ -2051,5 +1489,16 @@ export const FinanceProvider = ({ children }) => {
         <FinanceContext.Provider value={value}>
             {children}
         </FinanceContext.Provider>
+    );
+}
+
+export const FinanceProvider = ({ children }) => {
+    const [isLoading, setIsLoading] = useState(true);
+    return (
+        <AuthProvider setIsLoading={setIsLoading}>
+            <FinanceProviderInner isLoading={isLoading} setIsLoading={setIsLoading}>
+                {children}
+            </FinanceProviderInner>
+        </AuthProvider>
     );
 };

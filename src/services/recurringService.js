@@ -4,6 +4,7 @@
  */
 
 import { storage, STORAGE_KEYS } from './storage';
+import { generateShortId } from '../utils/generateId';
 
 // Frequency options
 export const FREQUENCIES = {
@@ -43,7 +44,7 @@ class RecurringService {
      */
     add(template) {
         const recurring = {
-            id: crypto.randomUUID(),
+            id: generateShortId(),
             description: template.description,
             amount: template.amount,
             type: template.type,

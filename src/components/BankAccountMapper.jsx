@@ -32,6 +32,7 @@ const BankAccountMapper = ({ isOpen, onClose, detectedBank, accounts, onMappingC
                 exit={{ opacity: 0 }}
                 className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999]"
                 onClick={(e) => e.target === e.currentTarget && onClose()}
+                data-modal-overlay
             >
                 <motion.div
                     initial={{ scale: 0.9, opacity: 0, y: 20 }}

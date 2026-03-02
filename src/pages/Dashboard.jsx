@@ -4,7 +4,8 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
 import { RefreshCw, ArrowRight, TrendingUp, TrendingDown, Zap, Wallet, PieChart as PieChartIcon } from 'lucide-react';
-import { ResponsiveContainer, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid, BarChart, Bar, Cell, LabelList } from 'recharts';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { ResponsiveContainer, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid, LineChart, Line } from 'recharts';
 import PullToRefresh from '../components/PullToRefresh';
 import SkeletonDashboard from '../components/skeletons/SkeletonDashboard';
 import WalletCard from '../components/WalletCard';
@@ -55,6 +56,12 @@ const Dashboard = () => {
   } = useFinance();
 
   const [chartRangeDays, setChartRangeDays] = useState(30);
+  const isMobile = useIsMobile();
+  const [heroExpanded, setHeroExpanded] = useState(false);
+  const [statsExpanded, setStatsExpanded] = useState(false);
+  const [nodesExpanded, setNodesExpanded] = useState(false);
+  const [spendingExpanded, setSpendingExpanded] = useState(false);
+  const [cashFlowExpanded, setCashFlowExpanded] = useState(false);
 
   const formatCurrency = (value) => {
     if (typeof value !== 'number') return '₹0';
@@ -68,6 +75,22 @@ const Dashboard = () => {
 
   const visibleTransactions = useMemo(() => transactions.filter((t) => !t.hidden), [transactions]);
   const visibleAccounts = useMemo(() => accounts.filter((a) => !a.isSecret || secretUnlocked), [accounts, secretUnlocked]);
+
+  /** Accounts sorted by latest transaction (most recent first) for horizontal scroll */
+  const sortedAccounts = useMemo(() => {
+    const accLatest = {};
+    visibleTransactions.forEach((t) => {
+      const aid = t.accountId;
+      if (!aid) return;
+      const d = t.date;
+      if (!accLatest[aid] || d > accLatest[aid]) accLatest[aid] = d;
+    });
+    return [...visibleAccounts].sort((a, b) => {
+      const da = accLatest[a.id] || '';
+      const db = accLatest[b.id] || '';
+      return db.localeCompare(da);
+    });
+  }, [visibleAccounts, visibleTransactions]);
 
   const metrics = useMemo(() => {
     const now = new Date();
@@ -122,6 +145,18 @@ const Dashboard = () => {
       .slice(0, 6)
       .map(([name, amount]) => ({ name, value: amount }));
 
+    /** Multi-line: category spend by date for Spending by Category chart */
+    const catSpendByDate = dateRange.map((date) => {
+      const dayTxs = visibleTransactions.filter((t) => t.date === date && t.amount < 0);
+      const row = { name: new Date(date).toLocaleDateString('en-IN', { day: 'numeric' }), date };
+      dayTxs.forEach((t) => {
+        const cat = t.category || 'Other';
+        row[cat] = (row[cat] || 0) + Math.abs(t.amount);
+      });
+      return row;
+    });
+    const categoryKeys = [...new Set(catSpendByDate.flatMap((r) => Object.keys(r).filter((k) => k !== 'name' && k !== 'date')))].slice(0, 6);
+
     return {
       incomeThisMonth,
       expenseThisMonth,
@@ -137,6 +172,8 @@ const Dashboard = () => {
       topCategory,
       dailyBurn,
       catSpendSorted,
+      catSpendByDate,
+      categoryKeys,
     };
   }, [visibleTransactions, visibleAccounts, friends, chartRangeDays]);
 
@@ -148,7 +185,7 @@ const Dashboard = () => {
     <>
       <PullToRefresh onRefresh={refreshData} disabled={isSyncing}>
         <PageLayout maxWidth="max-w-[1600px]" className="!px-4 !py-6 md:!px-6 md:!py-8">
-          {/* Hero - Net worth + sync controls */}
+          {/* Control Center - Net worth + aggregate + quick actions */}
           <header className="mb-6 relative">
             <div className="absolute inset-0 rounded-2xl overflow-hidden opacity-40">
               <ParticleField count={50} intensity={0.25} />
@@ -161,7 +198,13 @@ const Dashboard = () => {
                     <span className="text-primary">₹</span>
                     {formatCurrency(metrics.total).replace('₹', '')}
                   </h1>
-                  {/* Key insight */}
+                  {/* Aggregate drill-down: Assets | Debt - hidden on mobile when collapsed */}
+                  {(!isMobile || heroExpanded) && (
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs font-bold">
+                      <span className="text-primary">Assets {formatCurrency(metrics.totalAssets)}</span>
+                      <span className="text-rose-500">Debt {formatCurrency(metrics.totalDebt)}</span>
+                    </div>
+                  )}
                   <p className="text-sm font-bold text-text-muted mt-1">
                     {parseFloat(metrics.savingsRate) >= 20
                       ? "You're on track"
@@ -169,17 +212,29 @@ const Dashboard = () => {
                         ? `Spend is ${Math.round((metrics.expenseThisMonth / metrics.incomeThisMonth) * 100)}% of income this month`
                         : 'Add transactions to see insights'}
                   </p>
+                  {isMobile && (
+                    <button
+                      type="button"
+                      onClick={() => setHeroExpanded((e) => !e)}
+                      className="flex items-center gap-1 mt-2 text-xs font-bold text-primary"
+                    >
+                      {heroExpanded ? 'Details ▲' : 'Details ▼'}
+                    </button>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <ConnectionButton />
-                  <motion.button
-                    whileTap={{ scale: 0.9 }}
-                    onClick={forceSync}
-                    className="w-10 h-10 rounded-xl bg-canvas-subtle border border-card-border flex items-center justify-center hover:border-primary/40 transition-all group"
-                  >
-                    <RefreshCw size={18} className={`text-text-muted group-hover:text-primary ${isSyncing ? 'animate-spin' : ''}`} />
-                  </motion.button>
-                </div>
+                {/* Quick actions - Connection + Sync only (Add/Accounts removed from hero) */}
+                {(!isMobile || heroExpanded) && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <ConnectionButton />
+                    <motion.button
+                      whileTap={{ scale: 0.9 }}
+                      onClick={forceSync}
+                      className="w-10 h-10 rounded-xl bg-canvas-subtle border border-card-border flex items-center justify-center hover:border-primary/40 transition-all group"
+                    >
+                      <RefreshCw size={18} className={`text-text-muted group-hover:text-primary ${isSyncing ? 'animate-spin' : ''}`} />
+                    </motion.button>
+                  </div>
+                )}
               </div>
             </div>
           </header>
@@ -199,25 +254,38 @@ const Dashboard = () => {
               icon={TrendingDown}
               variant="expense"
             />
-            <StatCard
-              label="Net Flow"
-              value={`${metrics.netThisMonth >= 0 ? '+' : ''}${formatCurrency(metrics.netThisMonth)}`}
-              subtext="This month"
-              icon={Wallet}
-              variant={metrics.netThisMonth >= 0 ? 'primary' : 'expense'}
-            />
-            <StatCard
-              label="Savings Rate"
-              value={`${metrics.savingsRate}%`}
-              subtext={parseFloat(metrics.savingsRate) >= 20 ? 'On track' : 'Below target'}
-              icon={PieChartIcon}
-              variant={parseFloat(metrics.savingsRate) >= 20 ? 'primary' : 'neutral'}
-            />
+            {(!isMobile || statsExpanded) && (
+              <>
+                <StatCard
+                  label="Net Flow"
+                  value={`${metrics.netThisMonth >= 0 ? '+' : ''}${formatCurrency(metrics.netThisMonth)}`}
+                  subtext="This month"
+                  icon={Wallet}
+                  variant={metrics.netThisMonth >= 0 ? 'primary' : 'expense'}
+                />
+                <StatCard
+                  label="High Expense Categories"
+                  value={metrics.catSpendSorted[0]?.name || '—'}
+                  subtext={metrics.catSpendSorted[0] ? `${formatCurrency(metrics.catSpendSorted[0].value)}` : 'Add transactions'}
+                  icon={PieChartIcon}
+                  variant="neutral"
+                />
+              </>
+            )}
             </div>
+            {isMobile && (
+              <button
+                type="button"
+                onClick={() => setStatsExpanded((e) => !e)}
+                className="text-xs font-bold text-primary mb-6"
+              >
+                {statsExpanded ? 'Show less' : 'Show more'}
+              </button>
+            )}
           </ScrollReveal>
 
           <div className="space-y-6">
-            {/* Financial Nodes */}
+            {/* Financial Nodes - Mobile: summary + expand. Desktop: grid or scroll */}
             <ScrollReveal as="section">
               <div className="flex justify-between items-center mb-3 px-1">
                 <h3 className="section-label">Financial Nodes</h3>
@@ -225,103 +293,135 @@ const Dashboard = () => {
                   Manage
                 </Link>
               </div>
-              <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 scroll-snap-x px-1">
-                <Link
-                  to="/friends"
-                  className={`relative flex-none w-36 h-48 p-4 rounded-2xl border bg-card no-underline transition-all group flex flex-col justify-between ${
-                    metrics.totalOwedToYou - metrics.totalYouOwe >= 0
-                      ? 'border-primary/20 hover:border-primary/40'
-                      : 'border-rose-500/20 hover:border-rose-500/40'
-                  }`}
+              {isMobile && !nodesExpanded ? (
+                <button
+                  type="button"
+                  onClick={() => setNodesExpanded(true)}
+                  className="w-full p-4 rounded-2xl border border-card-border bg-card/80 flex justify-between items-center text-left hover:border-primary/40 transition-all"
                 >
-                  <div className="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center text-lg">👥</div>
-                  <div>
-                    <span className="text-[10px] font-bold uppercase text-text-muted block">Social Capital</span>
-                    <p
-                      className={`text-lg font-black tabular-nums ${
-                        metrics.totalOwedToYou - metrics.totalYouOwe >= 0 ? 'text-primary' : 'text-rose-400'
+                  <span className="text-sm font-bold">
+                    <span className="text-primary">{visibleAccounts.length + 1} accounts</span>
+                    {' · '}
+                    <span className="text-text-main">{formatCurrency(metrics.total)} net</span>
+                  </span>
+                  <span className="text-text-muted">›</span>
+                </button>
+              ) : (
+                <>
+                  {isMobile && nodesExpanded && (
+                    <button
+                      type="button"
+                      onClick={() => setNodesExpanded(false)}
+                      className="flex items-center gap-1 mb-2 text-xs font-bold text-primary"
+                    >
+                      ▲ Collapse
+                    </button>
+                  )}
+                  {/* Always horizontal scroll for 15+ wallets — sorted by latest transaction */}
+                  <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 scroll-snap-x px-1">
+                    <Link
+                      to="/friends"
+                      className={`relative flex-none w-36 h-48 p-4 rounded-2xl border bg-card no-underline transition-all group flex flex-col justify-between scroll-snap-start ${
+                        metrics.totalOwedToYou - metrics.totalYouOwe >= 0
+                          ? 'border-primary/20 hover:border-primary/40'
+                          : 'border-rose-500/20 hover:border-rose-500/40'
                       }`}
                     >
-                      {formatCurrency(Math.abs(metrics.totalOwedToYou - metrics.totalYouOwe))}
-                    </p>
+                      <div className="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center text-lg">👥</div>
+                      <div>
+                        <span className="text-[10px] font-bold uppercase text-text-muted block">Social Capital</span>
+                        <p
+                          className={`text-lg font-black tabular-nums ${
+                            metrics.totalOwedToYou - metrics.totalYouOwe >= 0 ? 'text-primary' : 'text-rose-400'
+                          }`}
+                        >
+                          {formatCurrency(Math.abs(metrics.totalOwedToYou - metrics.totalYouOwe))}
+                        </p>
+                      </div>
+                    </Link>
+                    {sortedAccounts.map((acc) => (
+                      <div key={acc.id} className="flex-none scroll-snap-start">
+                        <WalletCard account={acc} transactions={visibleTransactions} />
+                      </div>
+                    ))}
+                    <Link
+                      to="/accounts"
+                      className="flex-none w-36 h-48 p-4 border-2 border-dashed border-card-border rounded-2xl no-underline hover:border-primary/40 hover:bg-primary/5 flex flex-col items-center justify-center gap-2 transition-all scroll-snap-start"
+                    >
+                      <span className="w-9 h-9 rounded-full bg-canvas-subtle flex items-center justify-center text-text-muted text-lg">+</span>
+                      <span className="text-[10px] font-bold uppercase text-text-muted">Add Node</span>
+                    </Link>
                   </div>
-                </Link>
-                {visibleAccounts.map((acc) => (
-                  <WalletCard key={acc.id} account={acc} transactions={visibleTransactions} />
-                ))}
-                <Link
-                  to="/accounts"
-                  className="flex-none w-36 h-48 p-4 border-2 border-dashed border-card-border rounded-2xl no-underline hover:border-primary/40 hover:bg-primary/5 flex flex-col items-center justify-center gap-2 transition-all"
-                >
-                  <span className="w-9 h-9 rounded-full bg-canvas-subtle flex items-center justify-center text-text-muted text-lg">+</span>
-                  <span className="text-[10px] font-bold uppercase text-text-muted">Add Node</span>
-                </Link>
-              </div>
+                </>
+              )}
             </ScrollReveal>
 
-            {/* Spending by Category — horizontal bar chart for scannable comparison */}
+            {/* Spending by Category — horizontal bar chart. Mobile: collapsed by default */}
             <ScrollReveal>
-            <SectionCard title="Spending by Category" subtitle="Top categories this month">
-              {metrics.catSpendSorted.length > 0 ? (
+            {isMobile && !spendingExpanded ? (
+              <button
+                type="button"
+                onClick={() => setSpendingExpanded(true)}
+                className="w-full p-4 rounded-2xl border border-card-border bg-card/80 flex justify-between items-center text-left hover:border-primary/40 transition-all"
+              >
+                <span className="text-sm font-bold">Spending by Category</span>
+                <span className="text-xs text-text-muted">Tap to expand</span>
+              </button>
+            ) : (
+            <SectionCard
+              title="Spending by Category"
+              subtitle="Category spend over time"
+              action={isMobile ? <button type="button" onClick={() => setSpendingExpanded(false)} className="text-xs text-primary font-bold">▲ Collapse</button> : undefined}
+            >
+              {metrics.catSpendByDate?.length > 0 && metrics.categoryKeys?.length > 0 ? (
                 <div>
-                  {/* Total spend above chart */}
                   <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-3">
-                    Total: {formatCurrency(metrics.expenseThisMonth)} this month
+                    Category spend over last {chartRangeDays} days
                   </p>
-                  <div className="min-h-[280px]" aria-label="Spending breakdown by category">
+                  <div className="min-h-[280px]" aria-label="Spending by category over time">
                     <ResponsiveContainer width="100%" height={280}>
-                      <BarChart
-                        data={metrics.catSpendSorted.map((item) => {
-                          const pct = metrics.expenseThisMonth > 0
-                            ? ((item.value / metrics.expenseThisMonth) * 100).toFixed(0)
-                            : '0';
-                          return {
-                            ...item,
-                            pct,
-                            label: `${formatCurrency(item.value)} · ${pct}%`,
-                          };
-                        })}
-                        layout="vertical"
-                        margin={{ top: 4, right: 88, left: 4, bottom: 4 }}
-                      >
-                        <XAxis type="number" hide />
-                        <YAxis
-                          type="category"
+                      <LineChart data={metrics.catSpendByDate} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" opacity={0.5} />
+                        <XAxis
                           dataKey="name"
-                          width={110}
-                          tick={{ fontSize: 14, fontWeight: 700, fill: 'var(--text-main)' }}
+                          tick={{ fontSize: 12, fontWeight: 600, fill: 'var(--text-muted)' }}
                           tickLine={false}
                           axisLine={false}
                         />
+                        <YAxis
+                          tick={{ fontSize: 12, fontWeight: 600, fill: 'var(--text-muted)' }}
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)}
+                        />
                         <Tooltip
-                          content={({ active, payload }) => {
-                            if (!active || !payload?.[0]) return null;
-                            const d = payload[0].payload;
+                          content={({ active, payload, label }) => {
+                            if (!active || !payload?.length) return null;
                             return (
-                              <div
-                                className="px-4 py-3 rounded-xl bg-black/90 backdrop-blur-md border border-primary/20 shadow-xl"
-                                role="tooltip"
-                              >
-                                <p className="text-sm font-bold text-white">{d.name}</p>
-                                <p className="text-xs font-semibold tabular-nums text-white/90 mt-0.5">
-                                  {formatCurrency(d.value)} · {d.pct}%
-                                </p>
+                              <div className="px-4 py-3 rounded-xl bg-black/90 backdrop-blur-md border border-primary/20 shadow-xl" role="tooltip">
+                                <p className="text-xs font-bold text-white/80 mb-2">Day {label}</p>
+                                {payload.map((p, i) => (
+                                  <p key={p.dataKey} className="text-sm font-bold text-white flex gap-2">
+                                    <span style={{ color: p.color }}>●</span> {p.name}: {formatCurrency(p.value)}
+                                  </p>
+                                ))}
                               </div>
                             );
                           }}
                         />
-                        <Bar dataKey="value" barSize={44} radius={[0, 6, 6, 0]} minPointSize={8}>
-                          <LabelList
-                            dataKey="label"
-                            position="right"
-                            className="text-[12px] font-bold tabular-nums fill-[var(--text-main)]"
-                            style={{ fontSize: 12 }}
+                        {metrics.categoryKeys.map((key, idx) => (
+                          <Line
+                            key={key}
+                            type="monotone"
+                            dataKey={key}
+                            name={key}
+                            stroke={['#00E676', '#f43f5e', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899'][idx % 6]}
+                            strokeWidth={2}
+                            dot={false}
+                            connectNulls
                           />
-                          {metrics.catSpendSorted.map((_, idx) => (
-                            <Cell key={idx} fill={['#00E676', '#f43f5e', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899'][idx % 6]} />
-                          ))}
-                        </Bar>
-                      </BarChart>
+                        ))}
+                      </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
@@ -338,14 +438,27 @@ const Dashboard = () => {
                 </div>
               )}
             </SectionCard>
+            )}
             </ScrollReveal>
 
-            {/* Cash Flow Chart */}
+            {/* Cash Flow Chart - Mobile: collapsed by default */}
             <ScrollReveal>
+            {isMobile && !cashFlowExpanded ? (
+              <button
+                type="button"
+                onClick={() => setCashFlowExpanded(true)}
+                className="w-full p-4 rounded-2xl border border-card-border bg-card/80 flex justify-between items-center text-left hover:border-primary/40 transition-all"
+              >
+                <span className="text-sm font-bold">Cash Flow</span>
+                <span className="text-xs text-text-muted">Tap to expand</span>
+              </button>
+            ) : (
             <SectionCard
               title="Cash Flow"
               action={
                 <div className="flex items-center gap-2">
+                  {isMobile && <button type="button" onClick={() => setCashFlowExpanded(false)} className="text-xs text-primary font-bold mr-2">▲</button>}
+                  <div className="flex items-center gap-2">
                   {[7, 14, 30].map((d) => (
                     <button
                       key={d}
@@ -366,6 +479,7 @@ const Dashboard = () => {
                       <div className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                       Out
                     </div>
+                  </div>
                   </div>
                 </div>
               }
@@ -405,10 +519,11 @@ const Dashboard = () => {
                 </ResponsiveContainer>
               </div>
             </SectionCard>
+            )}
             </ScrollReveal>
 
-            {/* Insights Strip - Compact single row */}
-            {(metrics.topCategory || metrics.dailyBurn > 0) && (
+            {/* Insights Strip - Compact single row. Hidden on mobile for minimalism */}
+            {!isMobile && (metrics.topCategory || metrics.dailyBurn > 0) && (
               <ScrollReveal>
               <div className="p-4 md:p-6 rounded-2xl bg-card border border-card-border flex flex-wrap items-center gap-4 md:gap-6">
                 {metrics.topCategory && (
@@ -453,7 +568,7 @@ const Dashboard = () => {
               }
             >
               <div className="space-y-3">
-                {metrics.recent.map((t, idx) => {
+                {(isMobile ? metrics.recent.slice(0, 3) : metrics.recent).map((t, idx) => {
                   const cat = categories.find((c) => c.name === t.category);
                   return (
                     <motion.div

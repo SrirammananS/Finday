@@ -229,6 +229,24 @@ export const logger = {
 
 | Priority | Item |
 |----------|------|
-| **P1** | Address 22 lint warnings (set-state-in-effect, exhaustive-deps) |
-| **P2** | Split FinanceContext into smaller hooks |
+| **P1** | ~~Address 22 lint warnings (set-state-in-effect, exhaustive-deps)~~ ✓ Cycle 3 |
+| **P2** | ~~Split FinanceContext into smaller hooks~~ ✓ Phase 1: useTransactionActions extracted |
 | **P3** | Resolve `createFinanceSheet` gapi bypass |
+
+### 7.5 RITE Cycle 3 (2025-02-28)
+
+**P1: Lint warnings – resolved**
+
+| Fix | Approach |
+|-----|----------|
+| **set-state-in-effect** | `queueMicrotask()` deferral, `useMemo` for derived state, lazy `useState` initializers |
+| **exhaustive-deps** | Added deps where safe; `eslint-disable` with comments for mount-only/intentional effects |
+| **generateBillInstances** | Wrapped in `useCallback` |
+| **updateBillPayment** | Wrapped in `useCallback` |
+| **ProtectedRoute** | `queueMicrotask` for `checkStorage` |
+| **Bills** | `detectedBills` as `useMemo` (derived from transactions/bills) |
+
+| Test | Result |
+|------|--------|
+| `npm run lint` | ✓ 0 errors, 0 warnings |
+| `npm run build` | ✓ Pass |

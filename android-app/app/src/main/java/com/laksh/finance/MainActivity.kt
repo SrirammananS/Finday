@@ -70,8 +70,11 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         
+        setSupportActionBar(binding.toolbar)
         setupBackPress()
         setupWebView()
+        // Create notification channel early so transaction alerts work when SMS arrives
+        NotificationHelper.createNotificationChannel(this)
         checkPermissions()
         
         // Check if opened from SMS notification
@@ -92,6 +95,7 @@ class MainActivity : AppCompatActivity() {
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+            @Suppress("DEPRECATION")
             databaseEnabled = true
             cacheMode = WebSettings.LOAD_DEFAULT
             allowFileAccess = true
@@ -102,9 +106,10 @@ class MainActivity : AppCompatActivity() {
             useWideViewPort = true
             loadWithOverviewMode = true
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-            
-            // Additional settings for better compatibility
+
+            @Suppress("DEPRECATION")
             allowUniversalAccessFromFileURLs = true
+            @Suppress("DEPRECATION")
             allowFileAccessFromFileURLs = true
             loadsImagesAutomatically = true
             blockNetworkImage = false
@@ -164,8 +169,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         
                         val accessToken = params?.get("access_token")
-                        val expiresIn = params?.get("expires_in")
-                        
+
                         if (accessToken != null) {
                             Log.d("LAKSH", "Extracted access token from deep link. Injecting...")
                             // FIXED: Set expiry to 1 year (365 days) to prevent frequent logins
@@ -295,6 +299,14 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {
+        if (item.itemId == R.id.action_test_notification) {
+            WebAppInterface(this).testTransactionNotification()
+            return true
+        }
+        return super.onOptionsItemSelected(item)
+    }
+
     private fun checkPermissions() {
         val permissionsToRequest = REQUIRED_PERMISSIONS.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
@@ -341,6 +353,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             @Suppress("DEPRECATION")
             val networkInfo = connectivityManager.activeNetworkInfo
+            @Suppress("DEPRECATION")
             networkInfo?.isConnected == true
         }
     }
@@ -360,21 +373,26 @@ class MainActivity : AppCompatActivity() {
                 }
                 
                 val token = params["access_token"]
-                val expires = params["expires_in"] ?: "3600"
+                val refreshToken = params["refresh_token"]
                 
                 if (token != null) {
-                    // FIXED: Set expiry to 1 year (365 days) to prevent frequent logins
                     val ONE_YEAR_MS = 365L * 24 * 60 * 60 * 1000
                     val expiryMs = System.currentTimeMillis() + ONE_YEAR_MS
-                    Log.d("LAKSH", "Injecting OAuth token from deep link: $token (expires in 1 year)")
+                    val refreshJs = if (refreshToken != null) {
+                        Log.d("LAKSH", "Injecting OAuth token + refresh_token from deep link")
+                        "localStorage.setItem('google_refresh_token', '$refreshToken');"
+                    } else {
+                        Log.d("LAKSH", "Injecting OAuth token from deep link (no refresh_token)")
+                        ""
+                    }
                     
                     val script = """
                         try {
                             console.log('[LAKSH-NATIVE] Injecting token from Deep Link...');
                             localStorage.setItem('google_access_token', '$token');
                             localStorage.setItem('google_token_expiry', '$expiryMs');
+                            $refreshJs
                             
-                            // Unify for Laksh services
                             localStorage.setItem('laksh_access_token', '$token');
                             localStorage.setItem('laksh_gapi_token', '$token');
                             localStorage.setItem('laksh_token_expiry', '$expiryMs');
@@ -383,16 +401,11 @@ class MainActivity : AppCompatActivity() {
                             sessionStorage.setItem('google_access_token', '$token');
                             sessionStorage.setItem('google_token_expiry', '$expiryMs');
                             
-                            // FORCE CLEAR GUEST MODE
                             localStorage.removeItem('laksh_guest_mode');
                             localStorage.removeItem('guest_mode');
-                            
-                            // Set ever connected flag
                             localStorage.setItem('laksh_ever_connected', 'true');
 
                             console.log('[LAKSH-NATIVE] Token injected successfully');
-                            
-                            // Force a reload to pick up new state (go to root)
                             window.location.href = '/'; 
                             
                         } catch(e) {
@@ -615,6 +628,34 @@ class WebAppInterface(private val activity: MainActivity) {
             activity.startActivity(intent)
         } catch (e: Exception) {
             Log.e("LAKSH", "Failed to open external browser: ${e.message}")
+        }
+    }
+
+    /**
+     * Test transaction notification - shows Add, Edit, inline comment, Cancel without building.
+     * Call from Settings or console: AndroidBridge.testTransactionNotification()
+     */
+    @JavascriptInterface
+    fun testTransactionNotification() {
+        val sampleSms = "Rs 500 debited from A/c XX1234 on 28-Feb to Swiggy. Avl Bal Rs 15000. UPI ref 123456."
+        val transaction = SmsParser.parse(sampleSms)
+        if (transaction != null) {
+            TransactionStore.addPending(activity, transaction)
+            NotificationHelper.showTransactionNotification(activity, transaction)
+            Toast.makeText(activity, "Test notification shown", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(activity, "Parse failed - using fallback", Toast.LENGTH_SHORT).show()
+            val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+            val fallback = ParsedTransaction(
+                amount = -500.0,
+                type = "expense",
+                description = "Swiggy",
+                category = "Food & Dining",
+                date = dateStr,
+                rawText = sampleSms
+            )
+            TransactionStore.addPending(activity, fallback)
+            NotificationHelper.showTransactionNotification(activity, fallback)
         }
     }
 }

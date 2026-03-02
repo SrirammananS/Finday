@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.laksh.finance.SmsParserTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-03-02T16:20:27" hostname="FK1089-254410L" time="0.02">
+  <properties/>
+  <testcase name="parseIciciFormat" classname="com.laksh.finance.SmsParserTest" time="0.018"/>
+  <testcase name="parseEmptyReturnsNull" classname="com.laksh.finance.SmsParserTest" time="0.0"/>
+  <testcase name="parseCredit" classname="com.laksh.finance.SmsParserTest" time="0.0"/>
+  <testcase name="parseUpiSwiggy" classname="com.laksh.finance.SmsParserTest" time="0.0"/>
+  <testcase name="parseHdfcDebit" classname="com.laksh.finance.SmsParserTest" time="0.001"/>
+  <testcase name="parseOtpReturnsNull" classname="com.laksh.finance.SmsParserTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

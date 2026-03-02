@@ -10,18 +10,22 @@ export default function OAuthCallback() {
     const navigate = useNavigate();
     const [status, setStatus] = useState('processing'); // processing, success, error, manual
     const [copied, setCopied] = useState(false);
+    const [deepLinkFragment, setDeepLinkFragment] = useState(''); // for manual fallback (code flow has no hash)
 
     useEffect(() => {
         const handleCallback = async () => {
             try {
-                // Parse params from hash fragment (standard OAuth2 response)
-                const hash = window.location.hash.substring(1);
-                const params = new URLSearchParams(hash);
+                // CODE FLOW: ?code=xxx&state=yyy (Authorization Code - returns refresh_token)
+                const searchParams = new URLSearchParams(window.location.search);
+                const code = searchParams.get('code');
+                const state = searchParams.get('state');
+                const error = searchParams.get('error');
 
-                const accessToken = params.get('access_token');
-                const expiresIn = params.get('expires_in');
-                const state = params.get('state');
-                const error = params.get('error');
+                // TOKEN FLOW: #access_token=xxx (Implicit - legacy, no refresh_token)
+                const hash = window.location.hash.substring(1);
+                const hashParams = new URLSearchParams(hash);
+                const accessTokenFromHash = hashParams.get('access_token');
+                const expiresInFromHash = hashParams.get('expires_in');
 
                 if (error) {
                     console.error('[LAKSH OAuth] Callback error:', error);
@@ -31,22 +35,39 @@ export default function OAuthCallback() {
                     return;
                 }
 
-                if (!accessToken) {
-                    console.error('[LAKSH OAuth] No access token in callback');
+                let accessToken, expiresIn, refreshToken;
+
+                if (code) {
+                    // Authorization Code flow - exchange for tokens (includes refresh_token)
+                    console.log('[LAKSH OAuth] Code received, exchanging for tokens...');
+                    const { cloudBackup } = await import('../services/cloudBackup');
+                    const redirectUri = window.location.origin + '/oauth-callback';
+                    await cloudBackup.exchangeCodeForToken(code, redirectUri);
+                    accessToken = cloudBackup.accessToken;
+                    refreshToken = localStorage.getItem('google_refresh_token');
+                    expiresIn = '3600';
+                } else if (accessTokenFromHash) {
+                    // Implicit flow (legacy)
+                    accessToken = accessTokenFromHash;
+                    expiresIn = expiresInFromHash || '3600';
+                    refreshToken = null;
+                } else {
+                    console.error('[LAKSH OAuth] No code or access token in callback');
                     setStatus('error');
                     setTimeout(() => navigate('/welcome', { replace: true }), 2000);
                     return;
                 }
 
-                console.log('[LAKSH OAuth] Token received');
+                console.log('[LAKSH OAuth] Token received', refreshToken ? '(with refresh_token)' : '');
 
-                // Store token for session restoration - FIXED: 1 year expiry for Android
+                // Store token for session restoration
                 const isAndroid = /Android/i.test(navigator.userAgent) && /wv/i.test(navigator.userAgent);
-                const expiryMs = isAndroid 
-                    ? Date.now() + (365 * 24 * 60 * 60 * 1000) // 1 year for Android
-                    : Date.now() + (parseInt(expiresIn || '3600') * 1000); // Normal for web
+                const expiryMs = isAndroid
+                    ? Date.now() + (365 * 24 * 60 * 60 * 1000)
+                    : Date.now() + (parseInt(expiresIn || '3600') * 1000);
                 localStorage.setItem('google_access_token', accessToken);
                 localStorage.setItem('google_token_expiry', String(expiryMs));
+                if (refreshToken) localStorage.setItem('google_refresh_token', refreshToken);
                 localStorage.setItem('oauth_pending', 'false');
                 sessionStorage.setItem('google_access_token', accessToken);
                 sessionStorage.setItem('google_token_expiry', String(expiryMs));
@@ -58,6 +79,7 @@ export default function OAuthCallback() {
                         type: 'oauth_token',
                         access_token: accessToken,
                         expires_in: expiresIn,
+                        refresh_token: refreshToken,
                         state: state
                     });
                     setTimeout(() => bc.close(), 1000);
@@ -65,39 +87,32 @@ export default function OAuthCallback() {
                     console.warn('[LAKSH OAuth] BroadcastChannel not supported');
                 }
 
-                // Fallback for storage event listeners
                 localStorage.setItem('oauth_success_trigger', Date.now().toString());
-                
-                // Set flag to trigger data refresh after navigation
                 localStorage.setItem('oauth_refresh_required', 'true');
 
                 setStatus('success');
 
-                // Check if we're running INSIDE the WebView (same origin) vs external browser
                 const isInAppWebView = /wv/i.test(navigator.userAgent) && /Android/i.test(navigator.userAgent);
                 const isAndroidExternalBrowser = /Android/i.test(navigator.userAgent) && !/wv/i.test(navigator.userAgent);
 
                 if (isInAppWebView) {
-                    // We're IN the WebView, token is saved, redirect directly
-                    // Force a reload to ensure the app picks up the new token
-                    setTimeout(() => {
-                        window.location.href = '/welcome';
-                    }, 1500);
+                    setTimeout(() => { window.location.href = '/welcome'; }, 1500);
                 } else if (isAndroidExternalBrowser) {
-                    // We're in Chrome/external browser
-                    // Try to redirect to the app using deep link
-                    const deepLink = `laksh://oauth-callback#access_token=${accessToken}&expires_in=${expiresIn}&state=${state}`;
+                    // Deep link with access_token AND refresh_token for token refresh
+                    const fragment = new URLSearchParams({
+                        access_token: accessToken,
+                        expires_in: expiresIn,
+                        ...(refreshToken && { refresh_token: refreshToken }),
+                        ...(state && { state })
+                    }).toString();
+                    const deepLink = `laksh://oauth-callback#${fragment}`;
 
-                    // First try deep link redirect
-                    console.log('[LAKSH OAuth] Attempting deep link redirect');
+                    setDeepLinkFragment(fragment); // for manual fallback when deep link fails
+                    console.log('[LAKSH OAuth] Attempting deep link redirect (with refresh_token)');
                     window.location.href = deepLink;
 
-                    // If deep link doesn't work after 2 seconds, show manual instructions
-                    setTimeout(() => {
-                        setStatus('manual');
-                    }, 2000);
+                    setTimeout(() => setStatus('manual'), 2000);
                 } else {
-                    // Desktop/PWA - standard flow
                     setTimeout(() => navigate('/welcome', { replace: true }), 1500);
                 }
 
@@ -172,15 +187,10 @@ export default function OAuthCallback() {
                     </p>
 
                     <div className="w-full max-w-md space-y-4 px-4">
-                        {/* Primary action - Open App via deep link using anchor */}
+                        {/* Primary action - Open App via deep link (works for both code & token flow) */}
                         <a
                             id="deeplink-btn"
-                            href={(() => {
-                                const hash = window.location.hash.substring(1);
-                                // Try Intent URL format for better Android compatibility
-                                const intentUrl = `intent://oauth-callback#${hash}#Intent;scheme=laksh;package=com.laksh.finance;end`;
-                                return intentUrl;
-                            })()}
+                            href={deepLinkFragment ? `intent://oauth-callback#${deepLinkFragment}#Intent;scheme=laksh;package=com.laksh.finance;end` : `laksh://oauth-callback${window.location.hash}`}
                             className="block w-full py-5 bg-primary text-primary-foreground rounded-2xl font-bold text-xl text-center shadow-lg shadow-primary/30"
                         >
                             📱 Open LAKSH App
@@ -188,7 +198,7 @@ export default function OAuthCallback() {
 
                         {/* Alternative - direct deep link */}
                         <a
-                            href={`laksh://oauth-callback${window.location.hash}`}
+                            href={deepLinkFragment ? `laksh://oauth-callback#${deepLinkFragment}` : `laksh://oauth-callback${window.location.hash}`}
                             className="block w-full py-4 bg-canvas-subtle border border-card-border text-text-main rounded-xl font-medium text-center"
                         >
                             Alternative: Try Direct Link

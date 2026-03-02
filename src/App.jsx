@@ -7,6 +7,7 @@ import SmartAnalytics from './components/SmartAnalytics';
 import LockScreen from './components/LockScreen';
 import ErrorBoundary from './components/ErrorBoundary';
 import PendingTransactionsBadge from './components/PendingTransactionsBadge';
+import ModalOverlayTracker from './components/ModalOverlayTracker';
 import { biometricAuth } from './services/biometricAuth';
 import { parseSMS, formatParsedTransaction } from './services/smsParser';
 import { pendingTransactionsService } from './services/pendingTransactions';
@@ -227,6 +228,7 @@ function App() {
       ) : (
         <>
           <ScrollToTop />
+          <ModalOverlayTracker />
           <PendingTransactionsBadge />
           <SmartAnalytics />
           <Suspense fallback={<PageLoader />}>

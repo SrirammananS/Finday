@@ -372,6 +372,14 @@ const Settings = () => {
                                 }}
                             />
                         </div>
+                        {window.AndroidBridge && (
+                            <button
+                                onClick={() => window.AndroidBridge?.testTransactionNotification?.()}
+                                className="mt-6 w-full py-3 px-4 rounded-xl border border-primary/30 text-primary text-[10px] font-black uppercase tracking-widest hover:bg-primary/10 transition-all flex items-center justify-center gap-2"
+                            >
+                                Test SMS notification
+                            </button>
+                        )}
                     </div>
                 </section>
 

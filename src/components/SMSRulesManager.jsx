@@ -28,7 +28,7 @@ const SMSRulesManager = ({ isOpen, onClose, embedded = false }) => {
 
     useEffect(() => {
         if (isOpen || embedded) {
-            loadRules();
+            queueMicrotask(() => loadRules());
         }
     }, [isOpen, embedded, loadRules]);
 
@@ -294,7 +294,7 @@ const SMSRulesManager = ({ isOpen, onClose, embedded = false }) => {
     }
 
     return (
-        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" data-modal-overlay>
             <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}

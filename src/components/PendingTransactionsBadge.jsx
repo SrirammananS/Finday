@@ -56,7 +56,7 @@ const PendingTransactionsBadge = () => {
             });
             window.history.replaceState({}, '', window.location.pathname);
         }
-    }, [categories]);
+    }, [categories, toast]);
 
     const currentTransaction = pending[currentIndex];
 
@@ -140,7 +140,7 @@ const PendingTransactionsBadge = () => {
             {/* Bottom Sheet Modal */}
             <AnimatePresence>
                 {showSheet && currentTransaction && (
-                    <div className="fixed inset-0 z-50 flex flex-col justify-end sm:justify-center items-center bg-black/60 backdrop-blur-sm p-4">
+                    <div className="fixed inset-0 z-50 flex flex-col justify-end sm:justify-center items-center bg-black/60 backdrop-blur-sm p-4" data-modal-overlay>
                         <motion.div
                             initial={{ y: '100%' }}
                             animate={{ y: 0 }}

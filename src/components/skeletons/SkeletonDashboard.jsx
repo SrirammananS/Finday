@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Cloud, Database, RefreshCw, CheckCircle, AlertCircle, Wifi } from 'lucide-react';
 
@@ -104,9 +105,19 @@ const SkeletonDashboard = () => {
 
                 {/* Error details if any */}
                 {hasError && loadingStatus?.error && (
-                    <p className="text-xs text-red-400/60 mb-6 max-w-xs mx-auto">
-                        {loadingStatus.error}
-                    </p>
+                    <div className="mb-6 max-w-xs mx-auto">
+                        <p className="text-xs text-red-400/60 mb-3">
+                            {loadingStatus.error}
+                        </p>
+                        {loadingStatus.error && (String(loadingStatus.error).includes('Authentication') || String(loadingStatus.error).includes('expired') || String(loadingStatus.error).includes('sign in')) && (
+                            <Link
+                                to="/welcome"
+                                className="inline-block py-2.5 px-4 bg-primary text-primary-foreground text-sm font-bold rounded-xl hover:opacity-90"
+                            >
+                                Sign in again →
+                            </Link>
+                        )}
+                    </div>
                 )}
 
                 {/* Progress Bar */}

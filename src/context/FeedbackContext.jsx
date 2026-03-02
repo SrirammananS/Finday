@@ -13,10 +13,11 @@ export const FeedbackProvider = ({ children }) => {
 
     // Cleanup on unmount
     useEffect(() => {
+        const refs = timeoutRefs.current;
         return () => {
             isMountedRef.current = false;
-            timeoutRefs.current.forEach(clearTimeout);
-            timeoutRefs.current.clear();
+            refs.forEach(clearTimeout);
+            refs.clear();
         };
     }, []);
 

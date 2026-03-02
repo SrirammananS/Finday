@@ -8,6 +8,7 @@ export const STORAGE_KEYS = {
     // Auth & Session
     CLIENT_ID: `${PREFIX}client_id`,
     SPREADSHEET_ID: `${PREFIX}spreadsheet_id`,
+    SPREADSHEET_NAME: `${PREFIX}spreadsheet_name`,
     GAPI_TOKEN: `${PREFIX}gapi_token`,
     TOKEN_EXPIRY: `${PREFIX}token_expiry`,
     EVER_CONNECTED: `${PREFIX}ever_connected`,
@@ -26,6 +27,7 @@ export const STORAGE_KEYS = {
     THEME: `${PREFIX}theme`,
     NOTIFY_ENABLED: `${PREFIX}notify_enabled`,
     NOTIFY_DAYS: `${PREFIX}notify_days`,
+    LAST_NOTIFICATION: `${PREFIX}last_notification`,
 
     // Recurring
     RECURRING_DATA: `${PREFIX}recurring`,
@@ -49,6 +51,7 @@ const LEGACY_KEYS = {
     'finday_app_pin': null, // Will be handled separately (needs re-hash)
     'finday_notify_enabled': STORAGE_KEYS.NOTIFY_ENABLED,
     'finday_notify_days': STORAGE_KEYS.NOTIFY_DAYS,
+    'finday_last_notification': STORAGE_KEYS.LAST_NOTIFICATION,
     'finday_recurring': STORAGE_KEYS.RECURRING_DATA,
     'finday_recurring_last_run': STORAGE_KEYS.RECURRING_LAST_RUN,
 };

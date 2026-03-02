@@ -18,12 +18,13 @@ const LockScreen = ({ onUnlock }) => {
     }, []);
 
     useEffect(() => {
-        // Try biometric on mount if supported
+        // Try biometric on mount if supported (intentionally run once)
         if (biometricAuth.isSupported && !showPinInput) {
             handleBiometricAuth();
         } else {
             setShowPinInput(true);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: handleBiometricAuth/showPinInput would cause re-runs
     }, []);
 
     const handleBiometricAuth = async () => {

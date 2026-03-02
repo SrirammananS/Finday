@@ -16,6 +16,7 @@ color primary
 color primary_dark
 color surface
 color white
+id action_test_notification
 id amountText
 id bankDropdown
 id bankLayout
@@ -36,12 +37,14 @@ id quickDesc
 id quickDescLayout
 id saveButton
 id titleLabel
+id toolbar
 id transactionsRecycler
 id webView
 layout activity_main
 layout activity_transaction_edit
 layout bottom_sheet_transactions
 layout item_transaction
+menu menu_main
 mipmap ic_launcher
 mipmap ic_launcher_round
 string app_name

@@ -16,11 +16,6 @@ const DynamicIsland = () => {
     const [showForm, setShowForm] = useState(false);
     const [showSMS, setShowSMS] = useState(false);
 
-    React.useEffect(() => {
-        if (showForm || showSMS) document.body.classList.add('modal-open');
-        else document.body.classList.remove('modal-open');
-    }, [showForm, showSMS]);
-
     return (
         <>
             <div className="modern-island-wrapper">

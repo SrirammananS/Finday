@@ -27,7 +27,7 @@ const Friends = () => {
     // Load and sync friends
     useEffect(() => {
         friendsService.syncFromTransactions(transactions);
-        setFriends(friendsService.getAll());
+        queueMicrotask(() => setFriends(friendsService.getAll()));
     }, [transactions]);
 
     // Calculate friend balances from ALL transactions
@@ -259,7 +259,7 @@ const Friends = () => {
             {/* Manage Modal */}
             <AnimatePresence>
                 {showManage && (
-                    <div className="fixed inset-0 z-[10001] flex items-end md:items-center justify-center p-0 md:p-6">
+                    <div className="fixed inset-0 z-[10001] flex items-end md:items-center justify-center p-0 md:p-6" data-modal-overlay>
                         <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
@@ -337,7 +337,7 @@ const Friends = () => {
             {/* Settle Modal */}
             <AnimatePresence>
                 {showSettleModal && settlingFriend && (
-                    <div className="fixed inset-0 z-[10002] flex items-center justify-center p-6">
+                    <div className="fixed inset-0 z-[10002] flex items-center justify-center p-6" data-modal-overlay>
                         <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
@@ -417,7 +417,7 @@ const Friends = () => {
             {/* Activity Modal */}
             <AnimatePresence>
                 {showActivityModal && (
-                    <div className="fixed inset-0 z-[10002] flex items-end md:items-center justify-center p-0 md:p-6">
+                    <div className="fixed inset-0 z-[10002] flex items-end md:items-center justify-center p-0 md:p-6" data-modal-overlay>
                         <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}

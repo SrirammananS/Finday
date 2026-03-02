@@ -71,12 +71,17 @@ object TransactionStore {
         prefs.edit().putString(KEY_PENDING, gson.toJson(existing)).apply()
     }
 
-    fun markApproved(context: Context, id: String) {
+    fun markApproved(context: Context, id: String, descriptionOverride: String? = null) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val existing = getPendingList(context).toMutableList()
         val index = existing.indexOfFirst { it.id == id }
         if (index >= 0) {
-            existing[index] = existing[index].copy(status = "approved")
+            val item = existing[index]
+            val updated = item.copy(
+                status = "approved",
+                description = if (descriptionOverride?.isNotBlank() == true) descriptionOverride.trim() else item.description
+            )
+            existing[index] = updated
             prefs.edit().putString(KEY_PENDING, gson.toJson(existing)).apply()
         }
     }

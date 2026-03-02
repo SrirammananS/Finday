@@ -112,7 +112,7 @@ const Categories = () => {
             {/* Modal Layer */}
             <AnimatePresence>
                 {showModal && (
-                    <div className="fixed inset-0 z-[10001] flex items-end md:items-center justify-center p-0 md:p-6">
+                    <div className="fixed inset-0 z-[10001] flex items-end md:items-center justify-center p-0 md:p-6" data-modal-overlay>
                         <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}

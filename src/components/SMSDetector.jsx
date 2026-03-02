@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, Check, X, Edit2, Sparkles, AlertCircle } from 'lucide-react';
@@ -9,31 +9,28 @@ import BankAccountMapper from './BankAccountMapper';
 const SMSDetector = ({ smsText, onClose, onSuccess }) => {
     const { accounts, categories, categoriesByUsage, addTransaction } = useFinance();
     const displayCategories = categoriesByUsage?.length ? categoriesByUsage : categories;
-    const [parsed, setParsed] = useState(null);
+    const parsed = useMemo(() => (smsText ? parseSMS(smsText, accounts) : null), [smsText, accounts]);
     const [form, setForm] = useState(null);
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState(null);
     const [showBankMapper, setShowBankMapper] = useState(false);
-    const [detectedBank, setDetectedBank] = useState(null);
+    const detectedBank = parsed?.needsBankMapping ? parsed.detectedBank : null;
 
     useEffect(() => {
-        if (smsText) {
-            const result = parseSMS(smsText, accounts);
-            setParsed(result);
-
-            if (result) {
-                // Check if we need bank mapping
-                if (result.needsBankMapping) {
-                    setDetectedBank(result.detectedBank);
+        queueMicrotask(() => {
+            if (parsed) {
+                if (parsed.needsBankMapping) {
                     setShowBankMapper(true);
                 } else {
-                    const formatted = formatParsedTransaction(result, accounts);
-                    setForm(formatted);
+                    setForm(formatParsedTransaction(parsed, accounts));
                 }
+            } else {
+                setForm(null);
+                setShowBankMapper(false);
             }
-        }
-    }, [smsText, accounts]);
+        });
+    }, [parsed, accounts]);
 
     const handleBankMapping = (selectedAccount, _remembered) => {
         if (selectedAccount && parsed) {
@@ -81,6 +78,7 @@ const SMSDetector = ({ smsText, onClose, onSuccess }) => {
                 exit={{ opacity: 0 }}
                 className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-hidden"
                 onClick={onClose}
+                data-modal-overlay
             >
                 <motion.div
                     initial={{ scale: 0.9, opacity: 0 }}
@@ -107,7 +105,7 @@ const SMSDetector = ({ smsText, onClose, onSuccess }) => {
 
     const mainContent = (
         <>
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-hidden">
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-hidden" data-modal-overlay>
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}

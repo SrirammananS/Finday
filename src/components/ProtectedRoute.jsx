@@ -9,7 +9,7 @@ const ProtectedRoute = ({ children }) => {
     const [waitTimeout, setWaitTimeout] = useState(false);
     const [hasCheckedStorage, setHasCheckedStorage] = useState(false);
 
-    // Check localStorage for credentials immediately - FIXED: Better token validation
+    // Check localStorage for credentials - FIXED: Better token validation
     const checkStorage = () => {
         const hasSpreadsheetId = localStorage.getItem('laksh_spreadsheet_id') ||
             localStorage.getItem('finday_spreadsheet_id');
@@ -23,9 +23,9 @@ const ProtectedRoute = ({ children }) => {
         return (hasSpreadsheetId && isTokenValid) || isGuestMode || (everConnected && hasSpreadsheetId && isTokenValid);
     };
 
-    // Immediate check on mount
+    // Immediate check on mount (deferred to avoid set-state-in-effect)
     useEffect(() => {
-        setHasCheckedStorage(checkStorage());
+        queueMicrotask(() => setHasCheckedStorage(checkStorage()));
     }, []);
 
     // Add a timeout to prevent infinite loading

@@ -216,10 +216,10 @@ class CloudBackupService {
     }
 
     // Exchange Auth Code for Access & Refresh Tokens
-    async exchangeCodeForToken(code) {
+    async exchangeCodeForToken(code, redirectUri) {
         const client_id = import.meta.env.VITE_GOOGLE_CLIENT_ID;
         const client_secret = import.meta.env.VITE_GOOGLE_CLIENT_SECRET;
-        const redirect_uri = window.location.origin;
+        const redirect_uri = redirectUri ?? (window.location.origin + (window.location.pathname || ''));
 
         if (!client_secret) {
             throw new Error('Missing VITE_GOOGLE_CLIENT_SECRET in environment');

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
@@ -31,19 +31,16 @@ const Bills = () => {
         billType: 'recurring' // 'recurring' or 'credit_card'
     });
     const [selectedMonth, setSelectedMonth] = useState(new Date());
-    const [detectedBills, setDetectedBills] = useState([]);
     const [showDetected, setShowDetected] = useState(false);
     const [showMarkPaidModal, setShowMarkPaidModal] = useState(null); // Holds the payment instance being marked as paid
     const [selectedTransactionId, setSelectedTransactionId] = useState(null);
 
-    useEffect(() => {
-        if (transactions.length > 5) {
-            const detected = billManager.detectBillsFromTransactions(transactions, smartAI);
-            const newDetected = detected.filter(d =>
-                !bills.some(b => b.name?.toLowerCase() === d.name?.toLowerCase())
-            );
-            setDetectedBills(newDetected);
-        }
+    const detectedBills = useMemo(() => {
+        if (transactions.length <= 5) return [];
+        const detected = billManager.detectBillsFromTransactions(transactions, smartAI);
+        return detected.filter(d =>
+            !bills.some(b => b.name?.toLowerCase() === d.name?.toLowerCase())
+        );
     }, [transactions, bills]);
 
     React.useEffect(() => {
@@ -278,7 +275,6 @@ const Bills = () => {
                                                     <button
                                                         onClick={() => {
                                                             addBill({ ...detected, dueDay: detected.dueDay || '1' });
-                                                            setDetectedBills(prev => prev.filter((_, i) => i !== idx));
                                                         }}
                                                         className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:scale-110 transition-transform"
                                                     >
@@ -483,7 +479,7 @@ const Bills = () => {
             {/* Modal Overlay */}
             <AnimatePresence>
                 {showModal && (
-                    <div className="fixed inset-0 z-[10001] flex items-end md:items-center justify-center p-0 md:p-6">
+                    <div className="fixed inset-0 z-[10001] flex items-end md:items-center justify-center p-0 md:p-6" data-modal-overlay>
                         <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
@@ -606,7 +602,7 @@ const Bills = () => {
             {/* Mark as Paid Modal */}
             <AnimatePresence>
                 {showMarkPaidModal && (
-                    <div className="fixed inset-0 z-[10001] flex items-end md:items-center justify-center p-0 md:p-6">
+                    <div className="fixed inset-0 z-[10001] flex items-end md:items-center justify-center p-0 md:p-6" data-modal-overlay>
                         <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}

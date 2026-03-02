@@ -13,7 +13,8 @@ const ParticleField = ({ count = 60, intensity = 0.3, className = '' }) => {
   );
 
   useEffect(() => {
-    if (!containerRef.current || reducedMotion) return;
+    const container = containerRef.current;
+    if (!container || reducedMotion) return;
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
@@ -22,7 +23,7 @@ const ParticleField = ({ count = 60, intensity = 0.3, className = '' }) => {
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor(0x000000, 0);
-    containerRef.current.appendChild(renderer.domElement);
+    container.appendChild(renderer.domElement);
 
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(count * 3);
@@ -45,8 +46,8 @@ const ParticleField = ({ count = 60, intensity = 0.3, className = '' }) => {
     scene.add(particles);
 
     const handleResize = () => {
-      if (!containerRef.current) return;
-      const { width, height } = containerRef.current.getBoundingClientRect();
+      if (!container) return;
+      const { width, height } = container.getBoundingClientRect();
       renderer.setSize(width, height);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
@@ -70,8 +71,8 @@ const ParticleField = ({ count = 60, intensity = 0.3, className = '' }) => {
       geometry.dispose();
       material.dispose();
       renderer.dispose();
-      if (containerRef.current?.contains(renderer.domElement)) {
-        containerRef.current.removeChild(renderer.domElement);
+      if (container?.contains(renderer.domElement)) {
+        container.removeChild(renderer.domElement);
       }
     };
   }, [count, intensity, reducedMotion]);

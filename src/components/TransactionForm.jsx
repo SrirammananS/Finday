@@ -103,7 +103,7 @@ const TransactionForm = ({ onClose, editTransaction }) => {
         if (ordered.length > 0 && !form.category) {
             setForm(f => ({ ...f, category: ordered[0].name }));
         }
-    }, [categories, categoriesByUsage]);
+    }, [categories, categoriesByUsage, form.category]);
 
     // AI Suggestions & Insights
     useEffect(() => {
@@ -162,7 +162,7 @@ const TransactionForm = ({ onClose, editTransaction }) => {
             role="dialog"
             aria-modal="true"
             aria-labelledby="transaction-form-title"
-            className="fixed inset-0 z-[10000] flex items-center justify-center p-4 md:p-6 overflow-hidden"
+            className="fixed inset-0 z-[10000] flex items-center justify-center p-4 md:p-6 overflow-hidden" data-modal-overlay
         >
             <motion.div
                 initial={{ opacity: 0 }}

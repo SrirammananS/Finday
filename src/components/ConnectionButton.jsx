@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
+import { Link } from 'react-router-dom';
 import { useFinance } from '../context/FinanceContext';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -124,7 +125,7 @@ export default function ConnectionButton() {
             {ReactDOM.createPortal(
                 <AnimatePresence>
                     {showModal && (
-                        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={() => setShowModal(false)}>
+                        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={() => setShowModal(false)} data-modal-overlay>
                             <motion.div
                                 initial={{ scale: 0.9, opacity: 0 }}
                                 animate={{ scale: 1, opacity: 1 }}
@@ -204,9 +205,16 @@ export default function ConnectionButton() {
                                     </div>
 
                                     {error && (
-                                        <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400 font-medium flex gap-2 items-start">
-                                            <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                                            {error}
+                                        <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400 font-medium flex flex-col gap-2">
+                                            <div className="flex gap-2 items-start">
+                                                <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                                                <span>{error}</span>
+                                            </div>
+                                            {(error.includes('Authentication') || error.includes('expired') || error.includes('sign in')) && (
+                                                <Link to="/welcome" className="text-primary font-bold hover:underline text-[10px] uppercase tracking-wider">
+                                                    Sign in again →
+                                                </Link>
+                                            )}
                                         </div>
                                     )}
 
