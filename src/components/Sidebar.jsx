@@ -6,6 +6,7 @@ const links = [
     { to: '/', emoji: '🏠', label: 'Home' },
     { to: '/transactions', emoji: '📑', label: 'Ledger' },
     { to: '/accounts', emoji: '🏦', label: 'Wallets' },
+    { to: '/credit-cards', emoji: '💳', label: 'Cards' },
     { to: '/bills', emoji: '🔔', label: 'Recurring' },
     { to: '/categories', emoji: '🏷️', label: 'Tags' },
     { to: '/settings', emoji: '⚙️', label: 'Settings' },

@@ -169,9 +169,23 @@ The script will:
 
 See [iwa/README.md](iwa/README.md) for details.
 
-### Hosting
-- **Vercel/Netlify**: Deploy with zero configuration
-- **Custom domain + HTTPS**: Mandatory for PWA/IWA functionality
+### Hosting (Vercel)
+
+1. **Build** (already done; output in `dist/`):
+   ```bash
+   npm run build
+   # or: npx vite build
+   ```
+
+2. **Deploy** (first time: log in in the browser):
+   ```bash
+   npx vercel login
+   npx vercel --prod
+   ```
+   Add your production URL to the Google OAuth Client **Authorized JavaScript origins** in [Google Cloud Console](https://console.cloud.google.com/) (Credentials → your OAuth client).
+
+- **Netlify**: Drag-and-drop the `dist/` folder or connect the repo; set build command `vite build`, publish directory `dist`.
+- **Custom domain + HTTPS**: Required for PWA/IWA and Google OAuth.
 
 ---
 

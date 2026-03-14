@@ -2,12 +2,13 @@ import React, { useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useFinance } from '../context/FinanceContext';
-import { Activity, TrendingUp, TrendingDown, LayoutDashboard, FileText, Wallet, Users, CalendarClock, Tag, PieChart, Settings } from 'lucide-react';
+import { Activity, TrendingUp, TrendingDown, LayoutDashboard, FileText, Wallet, Users, CalendarClock, Tag, PieChart, Settings, CreditCard } from 'lucide-react';
 
 const links = [
     { to: '/', icon: LayoutDashboard, label: 'Home' },
     { to: '/transactions', icon: FileText, label: 'Ledger' },
     { to: '/accounts', icon: Wallet, label: 'Wallets' },
+    { to: '/credit-cards', icon: CreditCard, label: 'Cards' },
     { to: '/friends', icon: Users, label: 'Friends' },
     { to: '/bills', icon: CalendarClock, label: 'Recurring' },
     { to: '/categories', icon: Tag, label: 'Tags' },
@@ -78,9 +79,9 @@ const LeftSidebar = () => {
                 </div>
             </div>
 
-            {/* Navigation */}
+            {/* Navigation — Friends only when vault revealed (same as wallet hide) */}
             <nav className="flex flex-col gap-0.5 flex-1 overflow-y-auto p-3 min-h-0">
-                {links.map(link => (
+                {links.filter(link => link.to !== '/friends' || secretUnlocked).map(link => (
                     <NavLink
                         key={link.to}
                         to={link.to}

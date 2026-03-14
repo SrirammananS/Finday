@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { MapPin, X, Check, AlertCircle } from 'lucide-react';
 import smsParser from '../services/smsParser';
+import { formatCurrency } from '../utils/formatUtils';
 
 const BankAccountMapper = ({ isOpen, onClose, detectedBank, accounts, onMappingComplete }) => {
     const [selectedAccountId, setSelectedAccountId] = useState('');
@@ -108,7 +109,7 @@ const BankAccountMapper = ({ isOpen, onClose, detectedBank, accounts, onMappingC
                                             <div className="flex items-center justify-between">
                                                 <p className="font-semibold text-text-main">{account.name}</p>
                                                 <span className="text-sm font-bold text-text-muted">
-                                                    ₹{parseFloat(account.balance).toLocaleString()}
+                                                    {formatCurrency(parseFloat(account.balance))}
                                                 </span>
                                             </div>
                                             <p className="text-xs text-text-muted capitalize">{account.type} Account</p>

@@ -1,157 +1,213 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
 import PageHeader from '../components/PageHeader';
-import StatCard from '../components/ui/StatCard';
 import SectionCard from '../components/ui/SectionCard';
-import { Search, Sparkles, X, TrendingUp, TrendingDown, PieChart, Info, Lock as LockIcon, Calendar, Filter, Layers, ChevronLeft, ChevronRight, Check, Globe, BrainCircuit } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, isWithinInterval, addMonths, subMonths, parseISO, startOfDay, endOfDay } from 'date-fns';
+import { Search, Sparkles, X, TrendingUp, TrendingDown, PieChart, Info, Lock as LockIcon, Calendar, Filter, Layers, Globe, BrainCircuit, Wallet, CreditCard, BarChart3, LineChart, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isWithinInterval, subMonths, subDays, parseISO, startOfDay, endOfDay } from 'date-fns';
+import { expenseOnlyTransactions, getLinkedCCPaymentTransactionIds } from '../utils/transactionUtils';
+import { BarChart, Bar, LineChart as RechartsLine, Line, PieChart as RechartsPie, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-IN', {
-        style: 'currency',
-        currency: 'INR',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
-    }).format(Math.abs(amount) || 0);
-};
+import { formatCurrency } from '../utils/formatUtils';
+import { getAccountIcon } from '../utils/accountUtils';
+import { getLinkedCCPaymentDisplay } from '../utils/transactionUtils';
 
-// --- GLASS CALENDAR COMPONENT ---
-const GlassCalendar = ({ selection, onSelect, onClose }) => {
-    const [viewDate, setViewDate] = useState(selection.start || new Date());
-    const [mode, setMode] = useState(selection.mode || 'month'); // 'month' or 'range'
-    const [tempSelection, setTempSelection] = useState(selection);
+/** Valid view presets when opening Insights from Dashboard (e.g. /insights?view=income) */
+const VIEW_PRESETS = ['income', 'expense', 'net', 'assets', 'debt', 'categories'];
 
-    const daysInMonth = eachDayOfInterval({
-        start: startOfMonth(viewDate),
-        end: endOfMonth(viewDate)
-    });
+const TX_LIST_PAGE_SIZE = 20;
 
-    const handleDayClick = (day) => {
-        if (mode === 'month') {
-            const start = startOfMonth(day);
-            const end = endOfMonth(day);
-            setTempSelection({ start, end, mode: 'month' });
-        } else {
-            // Range logic: Set start, thence end
-            if (!tempSelection.start || (tempSelection.start && tempSelection.end) || isSameDay(day, tempSelection.start)) {
-                setTempSelection({ start: day, end: null, mode: 'range' });
-            } else {
-                let s = tempSelection.start;
-                let e = day;
-                if (e < s) [s, e] = [e, s]; // Swap if backwards
-                setTempSelection({ start: startOfDay(s), end: endOfDay(e), mode: 'range' });
-            }
-        }
-    };
 
-    const confirmSelection = () => {
-        onSelect(tempSelection);
-        onClose();
-    };
-
-    return (
-        <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="absolute top-14 left-0 z-50 p-4 md:p-6 bg-card/95 backdrop-blur-2xl border border-primary/20 rounded-[1.5rem] md:rounded-[2rem] shadow-2xl w-[300px] md:w-[340px]"
-        >
-            {/* Calendar Header */}
-            <div className="flex items-center justify-between mb-6">
-                <button onClick={() => setViewDate(subMonths(viewDate, 1))} className="p-2 hover:bg-text-main/10 rounded-full transition-colors text-text-main"><ChevronLeft size={16} /></button>
-                <div className="text-center">
-                    <h3 className="text-lg font-black uppercase tracking-widest text-text-main">{format(viewDate, 'MMMM')}</h3>
-                    <span className="text-xs font-bold text-primary">{format(viewDate, 'yyyy')}</span>
+/** Compact filter dropdown: multi-select via checkbox list. Use compact=true for inline strip style. */
+function MultiSelectFilterCard({ label, Icon, options, selectedSet, onChange, allLabel = 'All', countLabel, compact = false }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+    useEffect(() => {
+        if (!open) return;
+        const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+        document.addEventListener('click', close);
+        return () => document.removeEventListener('click', close);
+    }, [open]);
+    const isAll = selectedSet === null || selectedSet.size === 0 || selectedSet.size === options.length;
+    const summary = isAll ? allLabel : selectedSet.size === 1
+        ? (options.find(o => o.value === [...selectedSet][0])?.label ?? allLabel)
+        : (countLabel ? `${selectedSet.size} ${countLabel}` : `${selectedSet.size} selected`);
+    const dropdown = (
+        <>
+            {open && (
+                <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-lg border border-card-border bg-card shadow-xl overflow-hidden max-h-64 overflow-y-auto">
+                    <label className="flex items-center gap-2 cursor-pointer px-3 py-2 hover:bg-canvas-subtle border-b border-card-border">
+                        <input
+                            type="checkbox"
+                            checked={isAll}
+                            onChange={() => onChange(null)}
+                            className="w-3.5 h-3.5 rounded border-card-border bg-canvas text-primary focus:ring-primary"
+                        />
+                        <span className="text-xs font-medium text-text-main">{allLabel}</span>
+                    </label>
+                    {options.map((opt) => {
+                        const checked = isAll || (selectedSet && selectedSet.has(opt.value));
+                        return (
+                            <label key={opt.value} className="flex items-center gap-2 cursor-pointer px-3 py-2 hover:bg-canvas-subtle">
+                                <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => {
+                                        if (selectedSet === null) {
+                                            onChange(new Set(options.filter(o => o.value !== opt.value).map(o => o.value)));
+                                        } else {
+                                            const next = new Set(selectedSet);
+                                            if (next.has(opt.value)) {
+                                                next.delete(opt.value);
+                                                onChange(next.size === 0 ? null : next);
+                                            } else {
+                                                next.add(opt.value);
+                                                onChange(next.size === options.length ? null : next);
+                                            }
+                                        }
+                                    }}
+                                    className="w-3.5 h-3.5 rounded border-card-border bg-canvas text-primary focus:ring-primary"
+                                />
+                                {opt.icon != null && <span className="text-sm leading-none">{opt.icon}</span>}
+                                <span className="text-xs font-medium text-text-muted truncate">{opt.label}</span>
+                            </label>
+                        );
+                    })}
                 </div>
-                <button onClick={() => setViewDate(addMonths(viewDate, 1))} className="p-2 hover:bg-text-main/10 rounded-full transition-colors text-text-main"><ChevronRight size={16} /></button>
-            </div>
-
-            {/* Mode Toggle */}
-            <div className="flex bg-canvas-subtle rounded-xl p-1 mb-4 border border-card-border">
-                <button
-                    onClick={() => { setMode('month'); setTempSelection({ ...tempSelection, mode: 'month' }); }}
-                    className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${mode === 'month' ? 'bg-primary text-primary-foreground shadow-lg' : 'text-text-muted hover:text-text-main'}`}
-                >
-                    Month View
-                </button>
-                <button
-                    onClick={() => { setMode('range'); setTempSelection({ mode: 'range', start: null, end: null }); }}
-                    className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${mode === 'range' ? 'bg-primary text-primary-foreground shadow-lg' : 'text-text-muted hover:text-text-main'}`}
-                >
-                    Custom Range
-                </button>
-            </div>
-
-            {/* Grid */}
-            <div className="grid grid-cols-7 gap-1 mb-6">
-                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => (
-                    <span key={d} className="text-center text-[9px] font-black text-text-muted py-2">{d}</span>
-                ))}
-
-                {/* Empty slots for start of month */}
-                {Array.from({ length: startOfMonth(viewDate).getDay() }).map((_, i) => <div key={`empty-${i}`} />)}
-
-                {daysInMonth.map(day => {
-                    const isSelected = mode === 'month'
-                        ? isSameMonth(day, tempSelection.start)
-                        : (tempSelection.start && isSameDay(day, tempSelection.start)) || (tempSelection.end && isSameDay(day, tempSelection.end));
-
-                    const isInRange = mode === 'range' && tempSelection.start && tempSelection.end && isWithinInterval(day, { start: tempSelection.start, end: tempSelection.end });
-
-                    return (
-                        <button
-                            key={day.toString()}
-                            onClick={() => handleDayClick(day)}
-                            className={`
-                                relative h-9 w-9 rounded-full flex items-center justify-center text-xs font-bold transition-all
-                                ${isSelected ? 'bg-primary text-primary-foreground shadow-[0_0_10px_rgba(var(--primary-rgb),0.5)] z-10' : ''}
-                                ${isInRange && !isSelected ? 'bg-primary/20 text-text-main' : ''}
-                                ${!isSelected && !isInRange ? 'hover:bg-text-main/10 text-text-main' : ''}
-                            `}
-                        >
-                            {format(day, 'd')}
-                        </button>
-                    );
-                })}
-            </div>
-
-            <div className="flex justify-between items-center pt-4 border-t border-card-border">
-                <div className="flex flex-col">
-                    <span className="text-[8px] font-black uppercase text-text-muted tracking-widest">Selected</span>
-                    <span className="text-[10px] font-bold text-primary truncate max-w-[150px]">
-                        {tempSelection.start ? format(tempSelection.start, 'MMM d') : '...'}
-                        {tempSelection.end && ` - ${format(tempSelection.end, 'MMM d')}`}
-                    </span>
-                </div>
-                <button
-                    onClick={confirmSelection}
-                    className="h-10 px-6 bg-primary text-primary-foreground rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 flex items-center gap-2"
-                >
-                    Apply <Check size={14} />
-                </button>
-            </div>
-        </motion.div>
+            )}
+        </>
     );
-};
+    if (compact) {
+        return (
+            <div className="relative flex items-center gap-1.5 min-w-0" ref={ref}>
+                {Icon && <Icon size={12} className="text-text-muted shrink-0" />}
+                <button
+                    type="button"
+                    onClick={() => setOpen((o) => !o)}
+                    className="flex items-center gap-1.5 min-h-[28px] px-2 py-1 rounded-md text-left hover:bg-canvas-elevated/80 transition-colors touch-manipulation"
+                >
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-text-muted shrink-0">{label}</span>
+                    <span className="text-xs font-medium text-text-main truncate max-w-[120px] md:max-w-[140px]">{summary}</span>
+                    <ChevronDown size={12} className={`shrink-0 text-text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+                </button>
+                {dropdown}
+            </div>
+        );
+    }
+    return (
+        <div className="relative p-3 md:p-4 rounded-xl md:rounded-2xl bg-canvas-subtle border border-card-border flex items-center gap-2 md:gap-4 w-full md:min-w-0 md:flex-1" ref={ref}>
+            <div className="w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl bg-card flex items-center justify-center text-primary shrink-0">
+                <Icon size={14} className="md:w-[18px] md:h-[18px]" />
+            </div>
+            <div className="flex-1 min-w-0">
+                <span className="text-[7px] md:text-[8px] font-black uppercase tracking-widest text-text-muted block mb-0.5">{label}</span>
+                <button
+                    type="button"
+                    onClick={() => setOpen((o) => !o)}
+                    className="w-full min-h-[2.75rem] flex items-center justify-between gap-2 bg-transparent border-none p-0 text-sm font-bold uppercase text-text-main outline-none cursor-pointer tracking-tight text-left hover:opacity-80 touch-manipulation"
+                >
+                    <span className="truncate">{summary}</span>
+                    <ChevronDown size={14} className={`shrink-0 text-text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+                </button>
+            </div>
+            <Filter size={12} className="md:w-4 md:h-4 text-text-muted pointer-events-none shrink-0" />
+            {dropdown}
+        </div>
+    );
+}
+
+const DATE_PRESETS = [
+    { key: '7d', label: 'Last 7 days' },
+    { key: '30d', label: 'Last 30 days' },
+    { key: '90d', label: 'Last 90 days' },
+    { key: 'this_month', label: 'This month' },
+    { key: 'last_month', label: 'Last month' },
+    { key: 'custom', label: 'Custom' },
+];
+
+function getRangeFromPreset(presetKey, customStart, customEnd) {
+    const now = new Date();
+    if (presetKey === 'custom' && customStart && customEnd) {
+        return { start: startOfDay(parseISO(customStart)), end: endOfDay(parseISO(customEnd)) };
+    }
+    switch (presetKey) {
+        case '7d':
+            return { start: startOfDay(subDays(now, 6)), end: endOfDay(now) };
+        case '30d':
+            return { start: startOfDay(subDays(now, 29)), end: endOfDay(now) };
+        case '90d':
+            return { start: startOfDay(subDays(now, 89)), end: endOfDay(now) };
+        case 'this_month':
+            return { start: startOfMonth(now), end: endOfMonth(now) };
+        case 'last_month': {
+            const last = subMonths(now, 1);
+            return { start: startOfMonth(last), end: endOfMonth(last) };
+        }
+        default:
+            return { start: startOfDay(subDays(now, 29)), end: endOfDay(now) };
+    }
+}
 
 const Insights = () => {
-    const { transactions = [], categories = [], isLoading, closePeriod, closedPeriods = [], smartQuery } = useFinance();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const viewPreset = VIEW_PRESETS.includes(searchParams.get('view') || '') ? searchParams.get('view') : null;
+
+    const { transactions = [], categories = [], accounts = [], bills = [], billPayments = [], creditCards = [], creditCardPayments = [], isLoading, closePeriod, closedPeriods = [], smartQuery } = useFinance();
+    const linkedCCPaymentTxnIds = useMemo(() => getLinkedCCPaymentTransactionIds(billPayments, bills, creditCardPayments), [billPayments, bills, creditCardPayments]);
 
     // Search & Filter State
     const [searchQuery, setSearchQuery] = useState(''); // Text search
     const [searchResultAI, setSearchResultAI] = useState(null); // AI results
     const [isThinking, setIsThinking] = useState(false);
 
-    // Date Selection State: Default to current month
-    const [dateSelection, setDateSelection] = useState({
-        start: startOfMonth(new Date()),
-        end: endOfMonth(new Date()),
-        mode: 'month'
-    });
-    const [showCalendar, setShowCalendar] = useState(false);
-    const [selectedCategory, setSelectedCategory] = useState('All');
+    const now = new Date();
+    const [datePreset, setDatePreset] = useState('30d');
+    const [customStart, setCustomStart] = useState('');
+    const [customEnd, setCustomEnd] = useState('');
+    const dateSelection = useMemo(
+        () => getRangeFromPreset(datePreset, customStart, customEnd),
+        [datePreset, customStart, customEnd]
+    );
+
+    useEffect(() => {
+        if (datePreset === 'custom' && !customStart && !customEnd) {
+            setCustomStart(format(subDays(now, 29), 'yyyy-MM-dd'));
+            setCustomEnd(format(now, 'yyyy-MM-dd'));
+        }
+    }, [datePreset]);
+    /** Category filter: null = All; Set of category names = only those */
+    const [selectedCategoryNames, setSelectedCategoryNames] = useState(null);
+    /** Account filter: null = All; Set of account ids = only those */
+    const [selectedAccountIds, setSelectedAccountIds] = useState(null);
     const [showSealInfo, setShowSealInfo] = useState(false);
+    /** Multi-option graph view for current filter: list | bar | line | pie */
+    const [graphView, setGraphView] = useState('list');
+    /** Transaction list pagination (1-based) */
+    const [txListPage, setTxListPage] = useState(1);
+
+    const visibleAccounts = useMemo(() => (accounts || []).filter(a => !a.hidden), [accounts]);
+
+    // When opening with ?view=income (etc), search is "already loaded" – show that slice only
+    const viewLabel = viewPreset ? { income: 'Income', expense: 'Expense', net: 'Net flow', assets: 'Assets', debt: 'Debt', categories: 'Expense by category' }[viewPreset] : null;
+
+    useEffect(() => {
+        const dateParam = searchParams.get('date');
+        const categoryParam = searchParams.get('category');
+        if (dateParam) {
+            try {
+                const d = parseISO(dateParam);
+                const dayStr = format(d, 'yyyy-MM-dd');
+                setDatePreset('custom');
+                setCustomStart(dayStr);
+                setCustomEnd(dayStr);
+            } catch (_) { /* ignore */ }
+        }
+        if (categoryParam != null && categoryParam !== '') {
+            setSelectedCategoryNames(new Set([decodeURIComponent(categoryParam)]));
+        }
+    }, [searchParams]);
 
     const handleAISearch = async (e) => {
         e?.preventDefault();
@@ -162,9 +218,9 @@ const Insights = () => {
         setIsThinking(false);
     };
 
-    // Filtering Logic
+    // Filtering Logic (date, category, search) + view preset (income / expense / net / categories)
     const filteredData = useMemo(() => {
-        return transactions.filter(t => {
+        let list = transactions.filter(t => {
             if (!t.date) return false;
             const tDate = parseISO(t.date);
 
@@ -175,9 +231,14 @@ const Insights = () => {
                 }
             }
 
-            // 2. Category Filter
-            if (selectedCategory !== 'All') {
-                if (t.category !== selectedCategory) return false;
+            // 2. Category Filter (multi-select)
+            if (selectedCategoryNames && selectedCategoryNames.size > 0) {
+                if (!t.category || !selectedCategoryNames.has(t.category)) return false;
+            }
+
+            // 2b. Account / Wallet filter (multi-select)
+            if (selectedAccountIds && selectedAccountIds.size > 0) {
+                if (!t.accountId || !selectedAccountIds.has(t.accountId)) return false;
             }
 
             // 3. Text Search (Word Wise)
@@ -191,7 +252,27 @@ const Insights = () => {
 
             return true;
         });
-    }, [transactions, dateSelection, selectedCategory, searchQuery]);
+
+        // 4. View preset from Dashboard link: show only that slice (income means income, etc.)
+        if (viewPreset === 'income') {
+            list = list.filter(t => parseFloat(t.amount) > 0);
+        } else if (viewPreset === 'expense' || viewPreset === 'categories') {
+            list = list.filter(t => parseFloat(t.amount) < 0);
+        }
+        // net / assets / debt: no extra transaction filter (assets/debt use accounts below)
+
+        return list;
+    }, [transactions, dateSelection, selectedCategoryNames, selectedAccountIds, searchQuery, viewPreset]);
+
+    const totalTxPages = useMemo(() => Math.max(1, Math.ceil(filteredData.length / TX_LIST_PAGE_SIZE)), [filteredData.length]);
+    const paginatedTxs = useMemo(
+        () => filteredData.slice((txListPage - 1) * TX_LIST_PAGE_SIZE, txListPage * TX_LIST_PAGE_SIZE),
+        [filteredData, txListPage]
+    );
+
+    useEffect(() => {
+        setTxListPage(1);
+    }, [filteredData.length]);
 
     if (isLoading) return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-black">
@@ -199,12 +280,11 @@ const Insights = () => {
         </div>
     );
 
-    // Check if the currently selected MONTH is closed (only applicable in month mode)
-    const activeMonthKey = dateSelection.mode === 'month' ? format(dateSelection.start, 'yyyy-MM') : null;
+    const activeMonthKey = datePreset === 'this_month' ? format(now, 'yyyy-MM') : datePreset === 'last_month' ? format(subMonths(now, 1), 'yyyy-MM') : null;
     const isPeriodClosed = activeMonthKey ? closedPeriods.includes(activeMonthKey) : false;
 
-    // Calculations for Filtered Data
-    const expenses = filteredData.filter(t => t.amount < 0 && !t.description?.toLowerCase().includes('cc bill'));
+    // Calculations for Filtered Data (exclude CC payment/settlement + linked CC bill payments)
+    const expenses = expenseOnlyTransactions(filteredData, linkedCCPaymentTxnIds);
     const incomeList = filteredData.filter(t => t.amount > 0);
     const totalExpenses = expenses.reduce((s, t) => s + Math.abs(parseFloat(t.amount) || 0), 0);
     const totalIncome = incomeList.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
@@ -221,9 +301,28 @@ const Insights = () => {
         .map(([name, amount]) => ({
             name,
             amount,
+            value: amount,
             percent: totalExpenses > 0 ? (amount / totalExpenses * 100).toFixed(0) : 0,
             icon: categories.find(c => c.name === name)?.icon || '📦',
         }));
+
+    /** For line chart: daily expense totals in selected range */
+    const dailyExpenseData = useMemo(() => {
+        if (!dateSelection.start || !dateSelection.end) return [];
+        const byDate = {};
+        expenses.forEach((t) => {
+            const d = format(parseISO(t.date), 'yyyy-MM-dd');
+            byDate[d] = (byDate[d] || 0) + Math.abs(parseFloat(t.amount) || 0);
+        });
+        const days = eachDayOfInterval({ start: dateSelection.start, end: dateSelection.end });
+        return days.map((day) => {
+            const d = format(day, 'yyyy-MM-dd');
+            const label = format(day, 'd MMM');
+            return { name: label, date: d, value: byDate[d] || 0 };
+        });
+    }, [expenses, dateSelection.start, dateSelection.end]);
+
+    const CHART_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#6366f1', '#a855f7', '#ec4899', '#14b8a6'];
 
     return (
         <div className="min-h-screen text-text-main selection:bg-primary selection:text-black overflow-x-hidden">
@@ -235,7 +334,7 @@ const Insights = () => {
                     icon={PieChart}
                     actions={
                     <div className="flex flex-col items-end gap-2 relative">
-                        {dateSelection.mode === 'month' && activeMonthKey && (
+                        {activeMonthKey && (
                             <>
                                 <motion.div className="flex items-center gap-2">
                                     <button
@@ -309,61 +408,71 @@ const Insights = () => {
                         </div>
                     </div>
 
-                    {/* 2. Filters Row (Month & Category) */}
-                    <div className="grid grid-cols-2 gap-2 md:gap-4 relative z-40">
-                        {/* Month/Calendar Picker */}
-                        <div className="relative">
-                            <button
-                                onClick={() => setShowCalendar(!showCalendar)}
-                                className="w-full p-3 md:p-4 rounded-[1.2rem] md:rounded-[1.8rem] bg-canvas-subtle border border-card-border flex items-center gap-2 md:gap-4 hover:bg-canvas-elevated transition-all text-left"
-                            >
-                                <div className="w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl bg-card flex items-center justify-center text-primary shrink-0">
-                                    <Calendar size={14} className="md:w-[18px] md:h-[18px]" />
+                    {/* 2. Filters: single strip — Period | Sector | Wallet */}
+                    <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-0 rounded-xl border border-card-border bg-canvas-subtle/60 px-3 py-2.5 md:py-2">
+                        {/* Period — compact pills */}
+                        <div className="flex flex-wrap items-center gap-1.5 md:gap-2 md:pr-4">
+                            <Calendar size={12} className="text-text-muted shrink-0 hidden md:block" />
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted shrink-0 mr-0.5">Period</span>
+                            <div className="flex flex-wrap gap-1">
+                                {DATE_PRESETS.map(({ key, label }) => (
+                                    <button
+                                        key={key}
+                                        type="button"
+                                        onClick={() => setDatePreset(key)}
+                                        className={`min-h-[26px] px-2.5 py-1 rounded-md text-[11px] font-medium transition-all touch-manipulation ${
+                                            datePreset === key
+                                                ? 'bg-primary text-primary-foreground'
+                                                : 'text-text-muted hover:bg-canvas-elevated hover:text-text-main'
+                                        }`}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                            {datePreset === 'custom' && (
+                                <div className="flex items-center gap-1.5 ml-1 pl-1 border-l border-card-border">
+                                    <input
+                                        type="date"
+                                        value={customStart}
+                                        onChange={(e) => setCustomStart(e.target.value)}
+                                        className="h-7 px-2 rounded bg-canvas border border-card-border text-[11px] text-text-main outline-none focus:border-primary touch-manipulation w-[110px]"
+                                    />
+                                    <span className="text-text-muted text-[10px]">→</span>
+                                    <input
+                                        type="date"
+                                        value={customEnd}
+                                        onChange={(e) => setCustomEnd(e.target.value)}
+                                        className="h-7 px-2 rounded bg-canvas border border-card-border text-[11px] text-text-main outline-none focus:border-primary touch-manipulation w-[110px]"
+                                    />
                                 </div>
-                                <div className="flex-1 overflow-hidden min-w-0">
-                                    <span className="text-[7px] md:text-[8px] font-black uppercase tracking-widest text-text-muted block mb-0.5">Period</span>
-                                    <span className="text-xs md:text-lg font-black uppercase text-text-main block truncate">
-                                        {dateSelection.mode === 'month'
-                                            ? format(dateSelection.start, 'MMM yy')
-                                            : `${format(dateSelection.start, 'M/d')} - ${format(dateSelection.end, 'M/d')}`
-                                        }
-                                    </span>
-                                </div>
-                            </button>
-
-                            <AnimatePresence>
-                                {showCalendar && (
-                                    <>
-                                        <div className="fixed inset-0 z-40" onClick={() => setShowCalendar(false)} />
-                                        <GlassCalendar
-                                            selection={dateSelection}
-                                            onSelect={setDateSelection}
-                                            onClose={() => setShowCalendar(false)}
-                                        />
-                                    </>
-                                )}
-                            </AnimatePresence>
+                            )}
                         </div>
 
-                        {/* Category Selector */}
-                        <div className="relative p-3 md:p-4 rounded-[1.2rem] md:rounded-[1.8rem] bg-canvas-subtle border border-card-border flex items-center gap-2 md:gap-4">
-                            <div className="w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl bg-card flex items-center justify-center text-primary">
-                                <Layers size={14} className="md:w-[18px] md:h-[18px]" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <span className="text-[7px] md:text-[8px] font-black uppercase tracking-widest text-text-muted block mb-0.5">Sector</span>
-                                <select
-                                    value={selectedCategory}
-                                    onChange={(e) => setSelectedCategory(e.target.value)}
-                                    className="bg-transparent border-none p-0 text-sm font-bold uppercase text-text-main outline-none w-full appearance-none tracking-tight cursor-pointer"
-                                >
-                                    <option key="all" value="All">All</option>
-                                    {categories.map(c => (
-                                        <option key={c.id || c.name} value={c.name}>{c.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <Filter size={12} className="md:w-4 md:h-4 text-text-muted pointer-events-none shrink-0" />
+                        <div className="hidden md:block w-px h-5 bg-card-border shrink-0" aria-hidden />
+                        <div className="md:hidden w-full h-px bg-card-border shrink-0" aria-hidden />
+
+                        <div className="flex flex-wrap items-center gap-2 md:gap-4 md:pl-4 md:flex-1 md:min-w-0">
+                            <MultiSelectFilterCard
+                                compact
+                                label="Sector"
+                                Icon={Layers}
+                                options={categories.map((c) => ({ value: c.name, label: c.name }))}
+                                selectedSet={selectedCategoryNames}
+                                onChange={setSelectedCategoryNames}
+                                allLabel="All"
+                                countLabel="sectors"
+                            />
+                            <MultiSelectFilterCard
+                                compact
+                                label="Wallet"
+                                Icon={Wallet}
+                                options={visibleAccounts.map((a) => ({ value: a.id, label: a.name, icon: getAccountIcon(a) }))}
+                                selectedSet={selectedAccountIds}
+                                onChange={setSelectedAccountIds}
+                                allLabel="All"
+                                countLabel="wallets"
+                            />
                         </div>
                     </div>
 
@@ -386,76 +495,249 @@ const Insights = () => {
                             </motion.div>
                         )}
                     </AnimatePresence>
+
+                    {/* View preset chip when opened from Dashboard (e.g. ?view=income) */}
+                    {viewLabel && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Showing:</span>
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/15 border border-primary/30 text-primary text-xs font-black uppercase tracking-wide">
+                                {viewLabel}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => setSearchParams((prev) => { const next = new URLSearchParams(prev); next.delete('view'); return next; })}
+                                className="text-[10px] font-bold text-text-muted hover:text-text-main transition-colors"
+                            >
+                                Clear filter
+                            </button>
+                        </div>
+                    )}
                 </div>
 
-                {/* Summary - StatCards */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 md:mb-8">
-                    <StatCard label="Inflow" value={formatCurrency(totalIncome)} icon={TrendingUp} variant="income" />
-                    <StatCard label="Outflow" value={formatCurrency(totalExpenses)} icon={TrendingDown} variant="expense" />
-                    <StatCard
-                        label="Net"
-                        value={`${netValue >= 0 ? '+' : ''}${formatCurrency(netValue)}`}
-                        icon={PieChart}
-                        variant={netValue >= 0 ? 'primary' : 'expense'}
-                    />
-                    <StatCard
-                        label="Transactions"
-                        value={String(filteredData.length)}
-                        subtext="In period"
-                        variant="neutral"
-                    />
-                </div>
-
-                {/* Categories List */}
-                <SectionCard title="Breakdown" subtitle="By category" className="mb-6 md:mb-8">
-                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2 md:gap-3">
-                        {sortedCategories.length > 0 ? (
-                            sortedCategories.map((cat, idx) => (
-                                <motion.div
-                                    key={cat.name}
-                                    initial={{ x: -8, opacity: 0.5 }}
-                                    whileInView={{ x: 0, opacity: 1 }}
-                                    transition={{ delay: 0.02 * idx }}
-                                    viewport={{ once: true }}
-                                    className="p-3 rounded-xl bg-canvas-subtle/30 border border-transparent flex items-center justify-between hover:border-primary/15 transition-all"
-                                >
-                                    <div className="flex items-center gap-3 md:gap-4">
-                                        <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-canvas-subtle border border-card-border flex items-center justify-center text-lg md:text-xl">
-                                            {cat.icon}
-                                        </div>
-                                        <div>
-                                            <h4 className="text-[10px] md:text-xs font-black uppercase tracking-tight text-text-main">{cat.name}</h4>
-                                            <div className="flex items-center gap-1.5 md:gap-2 mt-0.5 md:mt-1">
-                                                <div className="h-1.5 w-12 md:w-16 bg-card-border rounded-full overflow-hidden">
-                                                    <div className="h-full bg-primary rounded-full" style={{ width: `${cat.percent}%` }} />
+                {/* Assets / Debt section when view=assets or view=debt */}
+                {(viewPreset === 'assets' || viewPreset === 'debt') && (
+                    <SectionCard
+                        title={viewPreset === 'assets' ? 'Assets' : 'Debt'}
+                        subtitle={viewPreset === 'assets' ? 'Accounts (excluding credit)' : 'Credit accounts'}
+                        className="mb-6 md:mb-8"
+                    >
+                        {(() => {
+                            const relevantAccounts = viewPreset === 'assets'
+                                ? (accounts || []).filter(a => a.type !== 'credit' && !a.hidden)
+                                : (accounts || []).filter(a => a.type === 'credit' && !a.hidden);
+                            const total = relevantAccounts.reduce((s, a) => s + (parseFloat(a.balance) || 0), 0);
+                            return (
+                                <div className="space-y-3">
+                                    <p className="text-lg font-black tabular-nums text-text-main">
+                                        {viewPreset === 'assets' ? formatCurrency(total) : formatCurrency(Math.abs(total))}
+                                    </p>
+                                    <div className="grid gap-2">
+                                        {relevantAccounts.map((acc) => (
+                                            <div
+                                                key={acc.id}
+                                                className="p-3 rounded-xl bg-canvas-subtle/30 border border-card-border flex items-center justify-between"
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 rounded-xl bg-card flex items-center justify-center">
+                                                        {viewPreset === 'assets' ? <Wallet size={18} className="text-primary" /> : <CreditCard size={18} className="text-rose-500" />}
+                                                    </div>
+                                                    <span className="font-bold text-text-main">{acc.name}</span>
                                                 </div>
-                                                <span className="text-[8px] md:text-[9px] font-black text-text-muted">{cat.percent}%</span>
+                                                <span className={`font-black tabular-nums ${viewPreset === 'debt' ? 'text-rose-500' : 'text-text-main'}`}>
+                                                    {formatCurrency(acc.balance)}
+                                                </span>
                                             </div>
-                                        </div>
+                                        ))}
                                     </div>
-                                    <span className="text-base md:text-lg font-black text-text-main tabular-nums tracking-tighter">{formatCurrency(cat.amount)}</span>
-                                </motion.div>
-                            ))
-                        ) : (
-                            <div className="col-span-2 py-12 rounded-2xl bg-canvas-subtle/30 border border-dashed border-card-border text-center p-6">
-                                <Info size={32} className="mx-auto text-text-muted/30 mb-3" />
-                                <p className="text-sm font-bold text-text-muted">No data for this filter</p>
-                                <p className="text-xs text-text-muted/60 mt-1">Try a different date range or category</p>
-                            </div>
-                        )}
+                                    {relevantAccounts.length === 0 && (
+                                        <p className="text-sm text-text-muted">No {viewPreset === 'assets' ? 'asset' : 'credit'} accounts. Add them in Accounts.</p>
+                                    )}
+                                </div>
+                            );
+                        })()}
+                    </SectionCard>
+                )}
+
+                {/* Summary — compact strip (matches filter bar) */}
+                <div className="grid grid-cols-2 md:flex md:flex-row md:items-center gap-2 md:gap-0 rounded-xl border border-card-border bg-canvas-subtle/60 px-3 py-2.5 md:py-2 mb-6 md:mb-8">
+                    <div className="flex items-center gap-2 min-w-0 p-1 md:p-0 md:flex-1 md:min-w-0 md:pr-4">
+                        <TrendingUp size={14} className="text-emerald-500 shrink-0" />
+                        <div className="min-w-0">
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted block">Inflow</span>
+                            <span className="text-sm font-black tabular-nums text-emerald-400 truncate block">{formatCurrency(totalIncome)}</span>
+                        </div>
                     </div>
+                    <div className="hidden md:block w-px h-8 bg-card-border shrink-0" aria-hidden />
+                    <div className="flex items-center gap-2 min-w-0 p-1 md:p-0 md:flex-1 md:min-w-0 md:px-4">
+                        <TrendingDown size={14} className="text-rose-500 shrink-0" />
+                        <div className="min-w-0">
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted block">Outflow</span>
+                            <span className="text-sm font-black tabular-nums text-rose-400 truncate block">{formatCurrency(totalExpenses)}</span>
+                        </div>
+                    </div>
+                    <div className="hidden md:block w-px h-8 bg-card-border shrink-0" aria-hidden />
+                    <div className="flex items-center gap-2 min-w-0 p-1 md:p-0 md:flex-1 md:min-w-0 md:px-4">
+                        <PieChart size={14} className={`shrink-0 ${netValue >= 0 ? 'text-primary' : 'text-rose-500'}`} />
+                        <div className="min-w-0">
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted block">Net</span>
+                            <span className={`text-sm font-black tabular-nums truncate block ${netValue >= 0 ? 'text-primary' : 'text-rose-400'}`}>
+                                {netValue >= 0 ? '+' : ''}{formatCurrency(netValue)}
+                            </span>
+                        </div>
+                    </div>
+                    <div className="hidden md:block w-px h-8 bg-card-border shrink-0" aria-hidden />
+                    <div className="flex items-center gap-2 min-w-0 p-1 md:p-0 md:flex-1 md:min-w-0 md:pl-4">
+                        <BarChart3 size={14} className="text-text-muted shrink-0" />
+                        <div className="min-w-0">
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted block">Transactions</span>
+                            <span className="text-sm font-black tabular-nums text-text-main">{filteredData.length}</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Breakdown: multi-option graph view for current filter */}
+                <SectionCard
+                    title="Breakdown"
+                    subtitle="By category · switch view"
+                    className="mb-6 md:mb-8"
+                    action={
+                        <div className="flex items-center gap-1 flex-wrap">
+                            {[
+                                { id: 'list', label: 'List', Icon: Layers },
+                                { id: 'bar', label: 'Bar', Icon: BarChart3 },
+                                { id: 'line', label: 'Line', Icon: LineChart },
+                                { id: 'pie', label: 'Pie', Icon: PieChart },
+                            ].map(({ id, label, Icon }) => (
+                                <button
+                                    key={id}
+                                    type="button"
+                                    onClick={() => setGraphView(id)}
+                                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all ${graphView === id ? 'bg-primary text-primary-foreground' : 'bg-canvas-subtle text-text-muted hover:text-text-main'}`}
+                                >
+                                    <Icon size={12} />
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                    }
+                >
+                    {sortedCategories.length > 0 || dailyExpenseData.some((d) => d.value > 0) ? (
+                        <>
+                            {graphView === 'list' && (
+                                <div className="grid grid-cols-1 gap-2 md:grid-cols-2 md:gap-3">
+                                    {sortedCategories.map((cat, idx) => (
+                                        <motion.div
+                                            key={cat.name}
+                                            initial={{ x: 0, opacity: 1 }}
+                                            whileInView={{ x: 0, opacity: 1 }}
+                                            transition={{ delay: 0.02 * idx }}
+                                            viewport={{ once: true }}
+                                            className="p-3 rounded-xl bg-canvas-subtle/30 border border-transparent flex items-center justify-between hover:border-primary/15 transition-all"
+                                        >
+                                            <div className="flex items-center gap-3 md:gap-4">
+                                                <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-canvas-subtle border border-card-border flex items-center justify-center text-lg md:text-xl">
+                                                    {cat.icon}
+                                                </div>
+                                                <div>
+                                                    <h4 className="text-[10px] md:text-xs font-black uppercase tracking-tight text-text-main">{cat.name}</h4>
+                                                    <div className="flex items-center gap-1.5 md:gap-2 mt-0.5 md:mt-1">
+                                                        <div className="h-1.5 w-12 md:w-16 bg-card-border rounded-full overflow-hidden">
+                                                            <div className="h-full bg-primary rounded-full" style={{ width: `${cat.percent}%` }} />
+                                                        </div>
+                                                        <span className="text-[8px] md:text-[9px] font-black text-text-muted">{cat.percent}%</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <span className="text-base md:text-lg font-black text-text-main tabular-nums tracking-tighter">{formatCurrency(cat.amount)}</span>
+                                        </motion.div>
+                                    ))}
+                                </div>
+                            )}
+                            {graphView === 'bar' && sortedCategories.length > 0 && (
+                                <div className="h-[320px] w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart layout="vertical" data={sortedCategories} margin={{ top: 4, right: 16, left: 4, bottom: 4 }}>
+                                            <CartesianGrid strokeDasharray="2 2" horizontal={false} stroke="rgba(255,255,255,0.06)" />
+                                            <XAxis type="number" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.5)' }} tickFormatter={(v) => (v >= 100000 ? `${(v / 100000).toFixed(1)}L` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v)} />
+                                            <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.6)' }} />
+                                            <Tooltip cursor={{ fill: 'rgba(255,255,255,0.06)' }} formatter={(value) => [formatCurrency(value), 'Spend']} contentStyle={{ borderRadius: 12, border: '1px solid var(--card-border)' }} />
+                                            <Bar dataKey="value" radius={[0, 4, 4, 0]} isAnimationActive animationDuration={400}>
+                                                {sortedCategories.map((_, idx) => (
+                                                    <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
+                                                ))}
+                                            </Bar>
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            )}
+                            {graphView === 'line' && dailyExpenseData.length > 0 && (
+                                <div className="h-[280px] w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <RechartsLine data={dailyExpenseData} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
+                                            <CartesianGrid strokeDasharray="2 2" stroke="rgba(255,255,255,0.06)" />
+                                            <XAxis dataKey="name" tick={{ fontSize: 9, fill: 'rgba(255,255,255,0.5)' }} interval="preserveStartEnd" />
+                                            <YAxis tick={{ fontSize: 9, fill: 'rgba(255,255,255,0.5)' }} tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v)} />
+                                            <Tooltip formatter={(value) => [formatCurrency(value), 'Expense']} contentStyle={{ borderRadius: 12, border: '1px solid var(--card-border)' }} />
+                                            <Line type="monotone" dataKey="value" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} isAnimationActive animationDuration={400} />
+                                        </RechartsLine>
+                                    </ResponsiveContainer>
+                                </div>
+                            )}
+                            {graphView === 'pie' && sortedCategories.length > 0 && (
+                                <div className="h-[320px] w-full max-w-md mx-auto">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <RechartsPie>
+                                            <Pie
+                                                data={sortedCategories}
+                                                dataKey="value"
+                                                nameKey="name"
+                                                cx="50%"
+                                                cy="50%"
+                                                innerRadius="40%"
+                                                outerRadius="75%"
+                                                paddingAngle={2}
+                                                isAnimationActive
+                                                animationDuration={400}
+                                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                            >
+                                                {sortedCategories.map((_, idx) => (
+                                                    <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
+                                                ))}
+                                            </Pie>
+                                            <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ borderRadius: 12, border: '1px solid var(--card-border)' }} />
+                                        </RechartsPie>
+                                    </ResponsiveContainer>
+                                </div>
+                            )}
+                            {graphView === 'line' && !dailyExpenseData.some((d) => d.value > 0) && (
+                                <div className="py-12 rounded-2xl bg-canvas-subtle/30 border border-dashed border-card-border text-center p-6">
+                                    <p className="text-sm font-bold text-text-muted">No daily expense in range</p>
+                                    <p className="text-xs text-text-muted/60 mt-1">Switch to List, Bar or Pie for category breakdown</p>
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        <div className="py-12 rounded-2xl bg-canvas-subtle/30 border border-dashed border-card-border text-center p-6">
+                            <Info size={32} className="mx-auto text-text-muted/30 mb-3" />
+                            <p className="text-sm font-bold text-text-muted">No data for this filter</p>
+                            <p className="text-xs text-text-muted/60 mt-1">Try a different date range or category</p>
+                        </div>
+                    )}
                 </SectionCard>
 
                 {/* Transaction List */}
                 {filteredData.length > 0 && (
                     <SectionCard title="Transactions" subtitle={`${filteredData.length} items`} className="mb-6">
                         <div className="space-y-2">
-                            {filteredData.slice(0, 20).map((tx, idx) => {
+                            {paginatedTxs.map((tx, idx) => {
                                 const isExpense = parseFloat(tx.amount) < 0;
+                                const account = tx.accountId ? (accounts || []).find(a => a.id === tx.accountId) : null;
+                                const ccDisplay = getLinkedCCPaymentDisplay(tx.id, billPayments, bills, accounts, creditCardPayments, creditCards, { transaction: tx });
+                                const displayDescription = ccDisplay ? ccDisplay.label : (tx.description || 'No description');
                                 return (
                                     <motion.div
                                         key={tx.id || idx}
-                                        initial={{ x: -10, opacity: 0 }}
+                                        initial={{ x: 0, opacity: 1 }}
                                         whileInView={{ x: 0, opacity: 1 }}
                                         transition={{ delay: 0.02 * idx }}
                                         viewport={{ once: true }}
@@ -464,14 +746,23 @@ const Insights = () => {
                                         <div className="flex items-center gap-3 flex-1 min-w-0">
                                             <div className={`w-10 h-10 md:w-11 md:h-11 rounded-xl flex items-center justify-center text-lg shrink-0 ${isExpense ? 'bg-rose-500/10 text-rose-500' : 'bg-emerald-500/10 text-emerald-500'
                                                 }`}>
-                                                {categories.find(c => c.name === tx.category)?.icon || (isExpense ? '💸' : '💰')}
+                                                {ccDisplay ? '💳' : (categories.find(c => c.name === tx.category)?.icon || (isExpense ? '💸' : '💰'))}
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <h4 className="text-xs md:text-sm font-bold text-text-main line-clamp-1">{tx.description || 'No description'}</h4>
-                                                <div className="flex items-center gap-2 mt-0.5">
+                                                <h4 className="text-xs md:text-sm font-bold text-text-main line-clamp-1" title={ccDisplay ? tx.description : undefined}>{displayDescription}</h4>
+                                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                                                     <span className="text-[10px] md:text-xs font-black text-primary uppercase">{format(new Date(tx.date), 'dd MMM yyyy')}</span>
                                                     <span className="w-1 h-1 rounded-full bg-card-border" />
                                                     <span className="text-[10px] font-bold text-text-muted truncate">{tx.category || 'Other'}</span>
+                                                    {tx.accountId && (
+                                                        <>
+                                                            <span className="w-1 h-1 rounded-full bg-card-border" />
+                                                            <span className="text-[10px] font-bold text-text-muted truncate inline-flex items-center gap-1">
+                                                                <span title={account?.name}>{getAccountIcon(account)}</span>
+                                                                {account?.name ?? '—'}
+                                                            </span>
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -482,8 +773,30 @@ const Insights = () => {
                                 );
                             })}
 
-                            {filteredData.length > 20 && (
-                                <p className="text-center py-3 text-[10px] font-semibold text-text-muted">Showing first 20 of {filteredData.length}</p>
+                            {totalTxPages > 1 && (
+                                <div className="flex items-center justify-center gap-2 pt-3 pb-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setTxListPage(p => Math.max(1, p - 1))}
+                                        disabled={txListPage <= 1}
+                                        className="p-2 rounded-lg border border-card-border bg-canvas-subtle/50 text-text-muted hover:text-text-main hover:border-primary/30 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                                        aria-label="Previous page"
+                                    >
+                                        <ChevronLeft size={18} />
+                                    </button>
+                                    <span className="text-[10px] md:text-xs font-semibold text-text-muted tabular-nums">
+                                        {txListPage} / {totalTxPages}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTxListPage(p => Math.min(totalTxPages, p + 1))}
+                                        disabled={txListPage >= totalTxPages}
+                                        className="p-2 rounded-lg border border-card-border bg-canvas-subtle/50 text-text-muted hover:text-text-main hover:border-primary/30 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                                        aria-label="Next page"
+                                    >
+                                        <ChevronRight size={18} />
+                                    </button>
+                                </div>
                             )}
                         </div>
                     </SectionCard>

@@ -58,6 +58,7 @@ object NotificationHelper {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("sms_data", transaction.rawText)
             putExtra("transaction_id", transaction.id)
+            putExtra("open_pending", true)
         }
 
         val openPendingIntent = PendingIntent.getActivity(
@@ -104,11 +105,12 @@ object NotificationHelper {
             )
         ).addRemoteInput(replyRemoteInput).build()
 
-        // Categorize action - opens TransactionEditActivity with category and bank dropdowns
-        val categorizeIntent = Intent(context, TransactionEditActivity::class.java).apply {
+        // Edit action - opens MainActivity with pending badge in edit mode
+        val categorizeIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(EXTRA_TRANSACTION_ID, transaction.id)
-            putExtra(EXTRA_TRANSACTION_JSON, gson.toJson(transaction))
+            putExtra("open_pending", true)
+            putExtra("edit_mode", true)
         }
         val categorizePendingIntent = PendingIntent.getActivity(
             context,
@@ -187,15 +189,15 @@ class NotificationActionReceiver : BroadcastReceiver() {
 
         when (intent.action) {
             NotificationHelper.ACTION_APPROVE -> {
-                // Mark as approved and persist to Room, but KEEP in pending so app can inject
-                // and add to Sheets. PWA will call removePendingTransaction after saving.
+                // Mark as approved and open app with pending sheet visible
+                // PWA will auto-save approved items to Sheets and call removePendingTransaction
                 val pending = TransactionStore.getPendingById(context, transactionId)
                 if (pending != null) {
                     TransactionStore.markApproved(context, transactionId)
-                    TransactionStore.persistToDatabase(context, pending)
-                    // Launch app so injectPendingTransactions runs and PWA can add to Sheets
                     val openIntent = Intent(context, MainActivity::class.java).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        putExtra(NotificationHelper.EXTRA_TRANSACTION_ID, transactionId)
+                        putExtra("open_pending", true)
                     }
                     context.startActivity(openIntent)
                 }
@@ -207,11 +209,11 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     ?.toString()
                 val pending = TransactionStore.getPendingById(context, transactionId)
                 if (pending != null) {
-                    val updated = if (reply?.isNotBlank() == true) pending.copy(description = reply.trim()) else pending
                     TransactionStore.markApproved(context, transactionId, descriptionOverride = reply)
-                    TransactionStore.persistToDatabase(context, updated)
                     val openIntent = Intent(context, MainActivity::class.java).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        putExtra(NotificationHelper.EXTRA_TRANSACTION_ID, transactionId)
+                        putExtra("open_pending", true)
                     }
                     context.startActivity(openIntent)
                 }

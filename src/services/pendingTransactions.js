@@ -4,6 +4,8 @@
  * Integrates with Android native app via AndroidBridge
  */
 
+import { generateShortId } from '../utils/generateId';
+
 const PENDING_KEY = 'laksh_pending_transactions';
 
 class PendingTransactionsService {
@@ -71,7 +73,7 @@ class PendingTransactionsService {
         }
 
         const pending = {
-            id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
+            id: generateShortId(),
             ...transaction,
             status: 'pending',
             createdAt: new Date().toISOString()

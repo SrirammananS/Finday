@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, AlertCircle, X } from 'lucide-react';
+import { generateShortId } from '../utils/generateId';
 
 const FeedbackContext = createContext();
 
@@ -24,7 +25,7 @@ export const FeedbackProvider = ({ children }) => {
     const toast = useCallback((message, type = 'success') => {
         if (!isMountedRef.current) return;
         
-        const id = Math.random().toString(36).substring(2, 11);
+        const id = generateShortId();
         setToasts(prev => [...prev, { id, message, type }]);
 
         // Auto-remove after 4s

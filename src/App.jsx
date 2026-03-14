@@ -15,6 +15,7 @@ import { useFinance } from './context/FinanceContext';
 import { AnimatePresence, motion } from 'framer-motion';
 
 import { lazyWithRetry } from './utils/lazyRetry';
+import { generateShortId } from './utils/generateId';
 
 // Code splitting - lazy load pages for faster initial bundle
 const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
@@ -25,6 +26,7 @@ const Categories = lazyWithRetry(() => import('./pages/Categories'));
 const Insights = lazyWithRetry(() => import('./pages/Insights'));
 const Settings = lazyWithRetry(() => import('./pages/Settings'));
 const Bills = lazyWithRetry(() => import('./pages/Bills'));
+const CreditCardManager = lazyWithRetry(() => import('./pages/CreditCardManager'));
 const Friends = lazyWithRetry(() => import('./pages/Friends'));
 const Welcome = lazyWithRetry(() => import('./pages/Welcome'));
 const OAuthCallback = lazyWithRetry(() => import('./pages/OAuthCallback'));
@@ -174,7 +176,7 @@ function App() {
                 if (txn.amount && !pendingTransactionsService.isDuplicate(Math.abs(txn.amount), txn.date || new Date().toISOString().split('T')[0])) {
                   pendingTransactionsService.add({
                     ...txn,
-                    id: txn.id || `sms_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+                    id: txn.id || generateShortId(),
                     source: 'sms_android',
                   });
                 }
@@ -251,6 +253,7 @@ function App() {
                 <Route path="insights" element={<Insights />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="bills" element={<Bills />} />
+                <Route path="credit-cards" element={<CreditCardManager />} />
                 <Route path="friends" element={<Friends />} />
               </Route>
             </Routes>

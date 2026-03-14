@@ -10,6 +10,7 @@ import { pendingTransactionsService } from '../services/pendingTransactions';
 import { useFinance } from '../context/FinanceContext';
 import { useFeedback } from '../context/FeedbackContext';
 import { useLocation } from 'react-router-dom';
+import { formatCurrency } from '../utils/formatUtils';
 
 const PendingTransactionsBadge = () => {
     const { addTransaction, accounts, categories, categoriesByUsage } = useFinance();
@@ -57,6 +58,44 @@ const PendingTransactionsBadge = () => {
             window.history.replaceState({}, '', window.location.pathname);
         }
     }, [categories, toast]);
+
+    // Open pending sheet (from notification tap); syncs from service then shows sheet
+    const openSheetWithPayload = (editMode = false, transactionId = '') => {
+        pendingTransactionsService.load();
+        const allPending = pendingTransactionsService.getAll();
+        setPending(allPending);
+        if (allPending.length === 0) return;
+        let targetIndex = 0;
+        if (transactionId) {
+            const idx = allPending.findIndex(t => t.id === transactionId);
+            if (idx >= 0) targetIndex = idx;
+        }
+        setCurrentIndex(targetIndex);
+        setShowSheet(true);
+        if (editMode) setEditMode(true);
+    };
+
+    // Listen for Android notification open — event + durable flag (handles wrong screen / late mount)
+    useEffect(() => {
+        const handleOpenSheet = (e) => {
+            const { editMode: shouldEdit = false, transactionId = '' } = e.detail || {};
+            openSheetWithPayload(shouldEdit, transactionId);
+        };
+        window.addEventListener('laksh-open-pending-sheet', handleOpenSheet);
+
+        const flag = localStorage.getItem('laksh_open_pending_sheet');
+        if (flag) {
+            try {
+                localStorage.removeItem('laksh_open_pending_sheet');
+                const { editMode: shouldEdit = false, transactionId = '' } = JSON.parse(flag);
+                openSheetWithPayload(shouldEdit, transactionId);
+            } catch {
+                // ignore bad flag
+            }
+        }
+
+        return () => window.removeEventListener('laksh-open-pending-sheet', handleOpenSheet);
+    }, []);
 
     const currentTransaction = pending[currentIndex];
 
@@ -267,7 +306,7 @@ const PendingTransactionsBadge = () => {
                                         {/* Amount Display - Enhanced */}
                                         <div className="flex flex-col items-center space-y-2">
                                             <div className={`text-5xl font-black tracking-tighter ${currentTransaction.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                                {currentTransaction.type === 'income' ? '+' : '-'}₹{Math.abs(currentTransaction.amount).toLocaleString()}
+                                                {currentTransaction.type === 'income' ? '+' : '-'}{formatCurrency(currentTransaction.amount, { useAbs: true })}
                                             </div>
                                             <div className="text-base font-bold text-text-main mt-2 px-4 py-2 bg-canvas-subtle rounded-xl border border-card-border">
                                                 {currentTransaction.description}

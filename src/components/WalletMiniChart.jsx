@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatCurrency } from '../utils/formatUtils';
 import {
     AreaChart,
     Area,
@@ -17,8 +18,8 @@ const CustomTooltip = ({ active, payload, showTooltip }) => {
     if (!p) return null;
     return (
         <div className="px-3 py-2 rounded-xl bg-black/80 backdrop-blur-sm border border-white/10 text-[10px] font-bold">
-            <div className="text-emerald-400">In: ₹{(p.income || 0).toLocaleString()}</div>
-            <div className="text-rose-400">Out: ₹{(p.expense || 0).toLocaleString()}</div>
+            <div className="text-emerald-400">In: {formatCurrency(p.income || 0)}</div>
+            <div className="text-rose-400">Out: {formatCurrency(p.expense || 0)}</div>
         </div>
     );
 };
@@ -28,12 +29,14 @@ const CustomTooltip = ({ active, payload, showTooltip }) => {
  * Shows income (green) and expense (red) trend over the last N days.
  * Handles empty states and zero data gracefully.
  */
-const WalletMiniChart = ({ data, height = 56, showTooltip = true }) => {
+const WalletMiniChart = ({ data, height = 56, showTooltip = true, chartId = 'default' }) => {
     const hasData = data?.some((d) => d.income > 0 || d.expense > 0);
     const maxVal = data?.reduce(
         (max, d) => Math.max(max, d.income, d.expense),
         1
     );
+    const idIn = `miniIn-${chartId}`;
+    const idOut = `miniOut-${chartId}`;
 
     if (!data || data.length === 0) {
         return (
@@ -54,11 +57,11 @@ const WalletMiniChart = ({ data, height = 56, showTooltip = true }) => {
                     margin={{ top: 4, right: 4, left: 4, bottom: 0 }}
                 >
                     <defs>
-                        <linearGradient id="miniIn" x1="0" y1="0" x2="0" y2="1">
+                        <linearGradient id={idIn} x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor="#10b981" stopOpacity={0.4} />
                             <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
                         </linearGradient>
-                        <linearGradient id="miniOut" x1="0" y1="0" x2="0" y2="1">
+                        <linearGradient id={idOut} x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor="#f43f5e" stopOpacity={0.4} />
                             <stop offset="100%" stopColor="#f43f5e" stopOpacity={0} />
                         </linearGradient>
@@ -84,14 +87,14 @@ const WalletMiniChart = ({ data, height = 56, showTooltip = true }) => {
                         dataKey="income"
                         stroke="#10b981"
                         strokeWidth={1.5}
-                        fill="url(#miniIn)"
+                        fill={`url(#${idIn})`}
                     />
                     <Area
                         type="monotone"
                         dataKey="expense"
                         stroke="#f43f5e"
                         strokeWidth={1.5}
-                        fill="url(#miniOut)"
+                        fill={`url(#${idOut})`}
                     />
                 </AreaChart>
             </ResponsiveContainer>

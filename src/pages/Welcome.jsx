@@ -2,20 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    Wallet,
     Cloud,
     FileSpreadsheet,
     Sparkles,
     Loader2,
     ArrowRight,
-    Smartphone,
     RefreshCw,
-    Save,
     Plus,
-    Check,
-    Cpu,
     Shield,
-    Activity,
     Globe,
     ExternalLink
 } from 'lucide-react';
@@ -25,7 +19,7 @@ import { storage, STORAGE_KEYS } from '../services/storage';
 
 const Welcome = () => {
     const navigate = useNavigate();
-    const { isConnected: _isConnected, isLoading: contextLoading, updateConfig, createFinanceSheet, setGuestMode, forceRefresh, refreshData, config } = useFinance();
+    const { isLoading: contextLoading, updateConfig, createFinanceSheet, setGuestMode, forceRefresh, refreshData, config } = useFinance();
     const [step, setStep] = useState('welcome');
     const [spreadsheets, setSpreadsheets] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -33,8 +27,7 @@ const Welcome = () => {
     const [hasCredentials, setHasCredentials] = useState(false);
     const [redirectAttempted, setRedirectAttempted] = useState(false);
     const [copyStatus, setCopyStatus] = useState('');
-    const [_showUrl, setShowUrl] = useState(false);
-    const [successUrl, setSuccessUrl] = useState('');
+    const [pastedUrl, setPastedUrl] = useState('');
 
     const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
     const isMountedRef = useRef(true);
@@ -54,12 +47,11 @@ const Welcome = () => {
         const checkOAuthRefresh = async () => {
             const refreshRequired = localStorage.getItem('oauth_refresh_required');
             if (refreshRequired === 'true' && config?.spreadsheetId) {
-                console.log('[Welcome] OAuth refresh detected, triggering data load...');
                 localStorage.removeItem('oauth_refresh_required');
                 try {
                     await refreshData(config.spreadsheetId, true);
-                } catch (err) {
-                    console.error('[Welcome] OAuth refresh failed:', err);
+                } catch {
+                    // Refresh will retry on next interaction
                 }
             }
         };
@@ -75,7 +67,6 @@ const Welcome = () => {
             const isTokenValid = savedToken && tokenExpiry && Date.now() < parseInt(tokenExpiry);
             
             if (savedId && isTokenValid && everConnected === 'true' && !redirectAttempted) {
-                console.log('[Welcome] Valid session found, redirecting to app...');
                 setHasCredentials(true);
                 setRedirectAttempted(true);
                 navigate('/', { replace: true });
@@ -84,19 +75,17 @@ const Welcome = () => {
             
             // If token expired but we have refresh token, try to refresh silently
             if (savedId && !isTokenValid && localStorage.getItem('google_refresh_token')) {
-                console.log('[Welcome] Token expired, attempting silent refresh...');
                 try {
                     const { cloudBackup } = await import('../services/cloudBackup');
                     await cloudBackup.init();
                     if (cloudBackup.isSignedIn()) {
-                        console.log('[Welcome] Silent refresh successful');
                         setHasCredentials(true);
                         setRedirectAttempted(true);
                         navigate('/', { replace: true });
                         return;
                     }
-                } catch (refreshError) {
-                    console.warn('[Welcome] Silent refresh failed:', refreshError);
+                } catch {
+                    // User will sign in again
                 }
             }
 
@@ -109,8 +98,8 @@ const Welcome = () => {
                         setSpreadsheets(sheets);
                         setStep('select');
                     }
-                } catch (err) {
-                    console.error('[LAKSH] Auto-load sheets failed:', err);
+                } catch {
+                    // Stay on welcome
                 } finally {
                     if (isMountedRef.current) setIsLoading(false);
                 }
@@ -162,10 +151,8 @@ const Welcome = () => {
             storage.remove(STORAGE_KEYS.GUEST_MODE);
             localStorage.removeItem('laksh_guest_mode');
 
-            // Trigger data refresh in background (don't block navigation)
-            console.log('[Welcome] Sheet selected, triggering refresh...');
             if (forceRefresh) {
-                forceRefresh().catch(e => console.log('[Welcome] Background refresh error:', e));
+                forceRefresh().catch(() => {});
             }
 
             // Defer navigate to next tick so React can apply isConnected before ProtectedRoute renders
@@ -218,30 +205,40 @@ const Welcome = () => {
         }
     };
 
-    const handleProcessSuccessUrl = async (url) => {
-        if (!url || !url.includes('access_token=')) {
-            setError('Paste the FULL URL from Chrome.');
+    const handleProcessPastedUrl = async (url) => {
+        if (!url?.trim() || (!url.includes('access_token=') && !url.includes('code='))) {
+            setError('Paste the full URL from Chrome after signing in.');
             return;
         }
+        if (!isMountedRef.current) return;
         setIsLoading(true);
         setError('');
         try {
-            const hashPart = url.includes('#') ? url.split('#')[1] : (url.includes('?') ? url.split('?')[1] : url);
+            const hashPart = url.includes('#') ? url.split('#')[1] : url.includes('?') ? url.split('?')[1] : url;
             const params = new URLSearchParams(hashPart);
             const token = params.get('access_token');
-            const expiresIn = params.get('expires_in');
-            if (!token) throw new Error('Token not found');
-            sheetsService.setAccessToken(token);
-            localStorage.setItem('google_access_token', token);
-            localStorage.setItem('google_token_expiry', String(Date.now() + (parseInt(expiresIn || '3600') * 1000)));
+            const code = params.get('code');
+            const expiresIn = params.get('expires_in') || '3600';
+            if (code) {
+                const { cloudBackup } = await import('../services/cloudBackup');
+                await cloudBackup.exchangeCodeForToken(code, window.location.origin + '/oauth-callback');
+            } else if (token) {
+                sheetsService.setAccessToken(token);
+                localStorage.setItem('google_access_token', token);
+                localStorage.setItem('google_token_expiry', String(Date.now() + (parseInt(expiresIn, 10) * 1000)));
+            } else {
+                throw new Error('Token not found in URL');
+            }
+            if (!isMountedRef.current) return;
             await sheetsService.init();
             const sheets = await sheetsService.listSpreadsheets();
+            if (!isMountedRef.current) return;
             setSpreadsheets(sheets);
             setStep('select');
         } catch {
-            setError('Bridge failed. Check URL.');
+            if (isMountedRef.current) setError('Could not use that URL. Paste the full address from Chrome.');
         } finally {
-            setIsLoading(false);
+            if (isMountedRef.current) setIsLoading(false);
         }
     };
 
@@ -302,35 +299,61 @@ const Welcome = () => {
                             <div className="space-y-4">
                                 {isAndroidWebView() ? (
                                     <div className="space-y-6">
-                                        <button onClick={handleSignIn} disabled={isLoading} className="w-full h-20 bg-primary text-black rounded-[2rem] font-black uppercase tracking-widest text-lg shadow-[0_0_50px_rgba(var(--primary-rgb),0.3)] flex items-center justify-center gap-4">
-                                            {isLoading ? <Loader2 className="animate-spin" /> : <Cloud />}
-                                            {isLoading ? 'INITIATING...' : 'SYNC GOOGLE ACCOUNT'}
+                                        <button
+                                            onClick={handleSignIn}
+                                            disabled={isLoading}
+                                            className="w-full h-20 bg-primary text-black rounded-[2rem] font-black uppercase tracking-widest text-lg shadow-[0_0_50px_rgba(var(--primary-rgb),0.3)] flex items-center justify-center gap-4"
+                                        >
+                                            {isLoading ? <Loader2 className="animate-spin" size={24} /> : <Cloud size={24} />}
+                                            {isLoading ? 'Opening browser…' : 'Sign in with Google'}
                                         </button>
-                                        <div className="p-8 rounded-[2.5rem] bg-canvas-subtle border border-card-border text-left">
-                                            <h4 className="text-xs font-black uppercase tracking-[0.2em] text-primary mb-4">Manual Connection</h4>
-                                            <p className="text-[10px] text-text-muted leading-relaxed uppercase font-black opacity-40 mb-6">If automatic handshake fails, copy the auth signal from Chrome mirror:</p>
-                                            <div className="space-y-4">
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    <button onClick={async () => { if (await sheetsService.handleCopyLink()) { setCopyStatus('COPIED'); setTimeout(() => setCopyStatus(''), 2000); } else setShowUrl(true); }} className="h-14 rounded-2xl border border-card-border bg-canvas-subtle text-[9px] font-black uppercase tracking-widest hover:border-primary transition-all">
-                                                        {copyStatus || 'COPY LINK'}
+
+                                        <div className="p-6 rounded-2xl bg-canvas-subtle border border-card-border text-left">
+                                            <p className="text-xs font-semibold text-text-muted mb-3">Having trouble?</p>
+                                            <div className="space-y-3">
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={async () => {
+                                                            const ok = await sheetsService.handleCopyLink();
+                                                            if (isMountedRef.current) {
+                                                                setCopyStatus(ok ? 'Copied' : 'Copy link');
+                                                                if (ok) setTimeout(() => setCopyStatus(''), 2000);
+                                                            }
+                                                        }}
+                                                        className="flex-1 py-3 rounded-xl border border-card-border bg-canvas text-text-main text-sm font-medium hover:border-primary transition-colors"
+                                                    >
+                                                        {copyStatus || 'Copy sign-in link'}
                                                     </button>
-                                                    <a href={sheetsService.getAuthUrl().replace('https://', 'intent://') + '#Intent;scheme=https;action=android.intent.action.VIEW;package=com.android.chrome;end'} className="h-14 rounded-2xl border border-card-border bg-canvas-subtle text-[9px] font-black uppercase tracking-widest hover:border-primary transition-all flex items-center justify-center gap-2 text-text-main">
-                                                        CHROME <ExternalLink size={12} />
+                                                    <a
+                                                        href={`${sheetsService.getAuthUrl().replace('https://', 'intent://')}#Intent;scheme=https;action=android.intent.action.VIEW;package=com.android.chrome;end`}
+                                                        className="flex-1 py-3 rounded-xl border border-card-border bg-canvas text-text-main text-sm font-medium hover:border-primary transition-colors flex items-center justify-center gap-1"
+                                                    >
+                                                        Open Chrome <ExternalLink size={14} />
                                                     </a>
                                                 </div>
-                                                <div className="relative">
-                                                    <input type="text" value={successUrl} onChange={e => setSuccessUrl(e.target.value)} placeholder="PASTE URL HERE..." className="w-full h-16 bg-black border border-white/10 rounded-2xl px-6 text-[10px] font-black uppercase tracking-widest focus:border-primary outline-none text-white" />
-                                                    <button onClick={() => handleProcessSuccessUrl(successUrl)} disabled={!successUrl || isLoading} className="mt-3 w-full h-14 bg-white/10 hover:bg-white/20 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all">CONNECT ACCOUNT</button>
-                                                </div>
+                                                <input
+                                                    type="text"
+                                                    value={pastedUrl}
+                                                    onChange={(e) => setPastedUrl(e.target.value)}
+                                                    placeholder="Paste URL from Chrome here"
+                                                    className="w-full py-3 px-4 rounded-xl bg-canvas border border-card-border text-sm text-text-main placeholder:text-text-muted focus:border-primary outline-none"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleProcessPastedUrl(pastedUrl)}
+                                                    disabled={!pastedUrl.trim() || isLoading}
+                                                    className="w-full py-3 rounded-xl bg-primary/20 text-primary font-medium text-sm hover:bg-primary/30 disabled:opacity-50 transition-colors"
+                                                >
+                                                    Connect with pasted URL
+                                                </button>
                                             </div>
                                         </div>
 
-                                        {/* Guest Mode for Android - More Prominent */}
-                                        <div className="mt-6 pt-6 border-t border-white/10">
-                                            <p className="text-center text-[10px] text-text-muted/60 uppercase tracking-widest mb-4">
-                                                Or continue without account
-                                            </p>
+                                        <div className="pt-4 border-t border-card-border">
+                                            <p className="text-center text-xs text-text-muted mb-3">Or continue without account</p>
                                             <button
+                                                type="button"
                                                 onClick={() => {
                                                     storage.set(STORAGE_KEYS.GUEST_MODE, 'true');
                                                     storage.set(STORAGE_KEYS.EVER_CONNECTED, 'true');
@@ -339,26 +362,27 @@ const Welcome = () => {
                                                     if (setGuestMode) setGuestMode(true);
                                                     navigate('/', { replace: true });
                                                 }}
-                                                className="w-full h-16 bg-gradient-to-r from-violet-600/20 to-purple-600/20 border border-violet-500/30 rounded-[1.8rem] text-sm font-black uppercase tracking-widest text-violet-300 hover:border-violet-500/50 hover:from-violet-600/30 hover:to-purple-600/30 transition-all flex items-center justify-center gap-3"
+                                                className="w-full h-14 bg-gradient-to-r from-violet-600/20 to-purple-600/20 border border-violet-500/30 rounded-2xl text-sm font-semibold text-violet-300 hover:border-violet-500/50 transition-all flex items-center justify-center gap-2"
                                             >
-                                                <span className="text-lg">👤</span>
-                                                GUEST MODE
+                                                Guest mode
                                             </button>
-                                            <p className="text-center text-[9px] text-text-muted/40 mt-2">
-                                                Track expenses locally • No sign-in required
-                                            </p>
+                                            <p className="text-center text-[10px] text-text-muted/50 mt-2">Track locally, no sign-in</p>
                                         </div>
                                     </div>
                                 ) : (
                                     <div className="space-y-4">
-                                        <button onClick={handleSignIn} disabled={isLoading} className="w-full h-20 bg-primary text-black rounded-[2rem] font-black uppercase tracking-widest text-lg shadow-[0_0_50px_rgba(var(--primary-rgb),0.3)] flex items-center justify-center gap-4 transition-all hover:scale-[1.02]">
-                                            <Cloud strokeWidth={3} />
-                                            SYNC GOOGLE CLOUD
+                                        <button
+                                            onClick={handleSignIn}
+                                            disabled={isLoading}
+                                            className="w-full h-20 bg-primary text-black rounded-[2rem] font-black uppercase tracking-widest text-lg shadow-[0_0_50px_rgba(var(--primary-rgb),0.3)] flex items-center justify-center gap-4 transition-all hover:scale-[1.02]"
+                                        >
+                                            <Cloud strokeWidth={3} size={24} />
+                                            Sign in with Google
                                         </button>
-
-                                        {/* Guest Mode */}
                                         <div className="pt-4 border-t border-card-border">
+                                            <p className="text-center text-xs text-text-muted mb-3">Or continue without account</p>
                                             <button
+                                                type="button"
                                                 onClick={() => {
                                                     storage.set(STORAGE_KEYS.GUEST_MODE, 'true');
                                                     storage.set(STORAGE_KEYS.EVER_CONNECTED, 'true');
@@ -367,14 +391,11 @@ const Welcome = () => {
                                                     if (setGuestMode) setGuestMode(true);
                                                     navigate('/', { replace: true });
                                                 }}
-                                                className="w-full h-16 bg-gradient-to-r from-violet-600/20 to-purple-600/20 border border-violet-500/30 rounded-[1.8rem] text-sm font-black uppercase tracking-widest text-violet-300 hover:border-violet-500/50 transition-all flex items-center justify-center gap-3"
+                                                className="w-full h-14 bg-gradient-to-r from-violet-600/20 to-purple-600/20 border border-violet-500/30 rounded-2xl text-sm font-semibold text-violet-300 hover:border-violet-500/50 transition-all flex items-center justify-center gap-2"
                                             >
-                                                <span className="text-lg">👤</span>
-                                                GUEST MODE
+                                                Guest mode
                                             </button>
-                                            <p className="text-center text-[9px] text-text-muted/40 mt-2">
-                                                Track expenses locally • No sign-in required
-                                            </p>
+                                            <p className="text-center text-[10px] text-text-muted/50 mt-2">Track locally, no sign-in</p>
                                         </div>
                                     </div>
                                 )}
@@ -442,14 +463,6 @@ const Welcome = () => {
                     )}
                 </AnimatePresence>
 
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 1 }}
-                    className="absolute bottom-10 text-[9px] font-black uppercase tracking-[1em] text-text-muted/20"
-                >
-                    COMPLIANCE_LEVEL_A1
-                </motion.div>
             </div>
         </div>
     );

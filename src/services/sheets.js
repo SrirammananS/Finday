@@ -1,6 +1,7 @@
 // Google Sheets Service - Robust Database Integration with Realtime Sync
 import { storage, STORAGE_KEYS } from './storage';
 import { importWithRetry } from '../utils/lazyRetry';
+import { generateShortId } from '../utils/generateId';
 
 const DISCOVERY_DOCS = [
     "https://sheets.googleapis.com/$discovery/rest?version=v4",
@@ -104,7 +105,7 @@ class GoogleSheetsService {
     async enqueueWrite(spreadsheetId, sheetName, operation, payload) {
         const queue = getQueue();
         const writeRequest = {
-            id: Date.now().toString(36) + Math.random().toString(36).substring(2),
+            id: generateShortId(),
             spreadsheetId,
             sheetName,
             operation, // 'append' | 'update' | 'delete' | 'batch'
@@ -242,9 +243,10 @@ class GoogleSheetsService {
             `client_id=${clientId}&` +
             `redirect_uri=${encodeURIComponent(redirectUri)}&` +
             `scope=${scope}&` +
-            `response_type=token&` +
+            `response_type=code&` +
+            `access_type=offline&` +
             `state=${state}&` +
-            `prompt=consent`;  // Force consent to ensure fresh token
+            `prompt=consent`;
 
         console.log('[LAKSH] Opening external browser for OAuth');
         console.log('[LAKSH] Redirect URI:', redirectUri);
@@ -745,7 +747,7 @@ class GoogleSheetsService {
         const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.appdata');
         const state = Math.random().toString(36).substring(2);
         localStorage.setItem('oauth_state', state);
-        return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&state=${state}`;
+        return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&access_type=offline&prompt=consent&scope=${scope}&state=${state}`;
     }
 
     setAccessToken(token) {
@@ -906,12 +908,8 @@ class GoogleSheetsService {
                     window.gapi.client.setToken({ access_token: cloudBackup.accessToken });
                 }
                 this.accessToken = cloudBackup.accessToken;
-                
-                // Also update localStorage for consistency
-                const expiry = Date.now() + (55 * 60 * 1000); // 55 minutes
+                // Expiry already set by cloudBackup (full expires_in from Google)
                 localStorage.setItem('google_access_token', cloudBackup.accessToken);
-                localStorage.setItem('google_token_expiry', String(expiry));
-                
                 return true;
             }
             
@@ -1182,10 +1180,12 @@ class GoogleSheetsService {
     getHeadersForSheet(sheetTitle) {
         const cleanTitle = sheetTitle.startsWith('_') ? sheetTitle : `_${sheetTitle}`;
         if (cleanTitle === '_Config') return ['Key', 'Value'];
-        if (cleanTitle === '_Accounts') return ['ID', 'Name', 'Type', 'Balance', 'BillingCycleStart', 'DueDate', 'CreatedAt', 'IsSecret'];
+        if (cleanTitle === '_Accounts') return ['ID', 'Name', 'Type', 'Balance', 'BillingCycleStart', 'DueDate', 'CreatedAt', 'IsSecret', 'Icon'];
         if (cleanTitle === '_Categories') return ['Name', 'Keywords', 'Color', 'Icon'];
         if (cleanTitle === '_Bills') return ['ID', 'Name', 'Amount', 'DueDay', 'BillingDay', 'Category', 'Status', 'BillType', 'Cycle', 'CreatedAt', 'AccountID'];
         if (cleanTitle === '_BillPayments') return ['ID', 'BillID', 'Name', 'Cycle', 'Amount', 'DueDate', 'Status', 'PaidDate', 'TransactionID', 'AccountID'];
+        if (cleanTitle === '_CreditCards') return ['ID', 'AccountID', 'Name', 'CycleStart', 'CycleEnd', 'DueDate', 'Amount', 'Status', 'CreatedAt'];
+        if (cleanTitle === '_CreditCardPayments') return ['ID', 'CreditCardID', 'Name', 'Cycle', 'Amount', 'DueDate', 'Status', 'PaidDate', 'TransactionID', 'CreatedAt'];
         // Monthly sheets
         return ['ID', 'Date', 'Description', 'Amount', 'Category', 'AccountID', 'Type', 'CreatedAt', 'Friend', 'Source'];
     }
@@ -1290,7 +1290,7 @@ class GoogleSheetsService {
     async getAccounts(spreadsheetId) {
         try {
             const sheetName = await this.resolveSheetName(spreadsheetId, '_Accounts');
-            const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:H`);
+            const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:I`);
             return this.parseAccountRows(rows);
         } catch (error) {
             console.error('Error getting accounts:', error);
@@ -1298,17 +1298,25 @@ class GoogleSheetsService {
         }
     }
 
+    defaultAccountIcon(type) {
+        return type === 'bank' ? '🏦' : type === 'credit' ? '💳' : '💵';
+    }
+
     parseAccountRows(rows) {
-        return rows.slice(1).map(row => ({
-            id: row[0],
-            name: row[1],
-            type: row[2],
-            balance: parseFloat(row[3]) || 0,
-            billingDay: row[4] || '',
-            dueDay: row[5] || '',
-            createdAt: row[6],
-            isSecret: row[7] === 'true' || row[7] === true
-        })).filter(acc => acc.id);
+        return rows.slice(1).map(row => {
+            const type = row[2];
+            return {
+                id: row[0],
+                name: row[1],
+                type: type || 'bank',
+                balance: parseFloat(row[3]) || 0,
+                billingDay: row[4] || '',
+                dueDay: row[5] || '',
+                createdAt: row[6],
+                isSecret: row[7] === 'true' || row[7] === true,
+                icon: row[8] || this.defaultAccountIcon(type)
+            };
+        }).filter(acc => acc.id);
     }
 
     async addAccount(spreadsheetId, account) {
@@ -1323,20 +1331,21 @@ class GoogleSheetsService {
             account.billingDay || '',
             account.dueDay || '',
             new Date().toISOString(),
-            account.isSecret ? 'true' : 'false'
+            account.isSecret ? 'true' : 'false',
+            account.icon || this.defaultAccountIcon(account.type)
         ];
 
         if (window.gapi?.client?.sheets) {
             await window.gapi.client.sheets.spreadsheets.values.append({
                 spreadsheetId,
-                range: `'${sheetName}'!A:H`,
+                range: `'${sheetName}'!A:I`,
                 valueInputOption: 'RAW',
                 insertDataOption: 'INSERT_ROWS',
                 resource: { values: [row] }
             });
         } else {
             await this.makeApiRequest(
-                `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`'${sheetName}'!A:H`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+                `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`'${sheetName}'!A:I`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
                 {
                     method: 'POST',
                     body: JSON.stringify({ values: [row] })
@@ -1350,7 +1359,7 @@ class GoogleSheetsService {
         const sheetName = await this.resolveSheetName(spreadsheetId, '_Accounts');
 
         let rows = [];
-        const range = `'${sheetName}'!A:H`;
+        const range = `'${sheetName}'!A:I`;
 
         if (window.gapi?.client?.sheets) {
             const response = await window.gapi.client.sheets.spreadsheets.values.get({ spreadsheetId, range });
@@ -1372,10 +1381,11 @@ class GoogleSheetsService {
                 updates.billingDay ?? currentRow[4],
                 updates.dueDay ?? currentRow[5],
                 currentRow[6],
-                updates.isSecret !== undefined ? (updates.isSecret ? 'true' : 'false') : (currentRow[7] || 'false')
+                updates.isSecret !== undefined ? (updates.isSecret ? 'true' : 'false') : (currentRow[7] || 'false'),
+                updates.icon !== undefined ? updates.icon : (currentRow[8] || this.defaultAccountIcon(updates.type ?? currentRow[2]))
             ];
 
-            const updateRange = `'${sheetName}'!A${rowIndex + 1}:H${rowIndex + 1}`;
+            const updateRange = `'${sheetName}'!A${rowIndex + 1}:I${rowIndex + 1}`;
 
             if (window.gapi?.client?.sheets) {
                 await window.gapi.client.sheets.spreadsheets.values.update({
@@ -1819,7 +1829,7 @@ class GoogleSheetsService {
     async getBills(spreadsheetId) {
         try {
             const sheetName = await this.resolveSheetName(spreadsheetId, '_Bills');
-            const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:J`);
+            const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:K`);
             const seenIds = new Set();
             return rows.slice(1).map(row => ({
                 id: row[0],
@@ -1831,7 +1841,8 @@ class GoogleSheetsService {
                 status: row[6] || 'active',
                 billType: row[7] || 'recurring',
                 cycle: row[8] || 'monthly',
-                createdAt: row[9]
+                createdAt: row[9],
+                accountId: row[10] || ''
             })).filter(b => {
                 if (!b.id || seenIds.has(b.id)) return false;
                 seenIds.add(b.id);
@@ -1912,47 +1923,199 @@ class GoogleSheetsService {
     async getBillPayments(spreadsheetId) {
         try {
             const sheetName = await this.resolveSheetName(spreadsheetId, '_BillPayments');
-            const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:I`);
-            const payments = rows.slice(1).map(row => ({
-                id: row[0],
-                billId: row[1],
-                name: row[2],
-                cycle: row[3],
-                amount: parseFloat(row[4]) || 0,
-                dueDate: row[5],
-                status: row[6],
-                paidDate: row[7],
-                transactionId: row[8]
-            }));
+            const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:J`);
+            const PAYMENT_COLS = 10;
+            const raw = rows.slice(1).map(row => {
+                const id = row[0] != null ? String(row[0]).trim() : '';
+                const billId = row[1] != null ? String(row[1]).trim() : '';
+                if (!id || !billId) return null;
+                return {
+                    id,
+                    billId,
+                    name: row[2] != null ? String(row[2]).trim() : '',
+                    cycle: row[3] != null ? String(row[3]).trim() : '',
+                    amount: parseFloat(row[4]) || 0,
+                    dueDate: row[5] != null ? String(row[5]).trim() : '',
+                    status: (row[6] != null ? String(row[6]).trim() : '') || 'pending',
+                    paidDate: row[7] != null ? String(row[7]).trim() : '',
+                    transactionId: row[8] != null ? String(row[8]).trim() : '',
+                    accountId: row[9] != null ? String(row[9]).trim() : ''
+                };
+            }).filter(Boolean);
 
-            // Deduplicate: If multiple instances for same bill+cycle exist in sheet, take the most recent (last in sheet)
-            const seen = new Set();
-            return payments.reverse().filter(p => {
+            const byKey = new Map();
+            for (const p of raw) {
                 const key = `${p.billId}:${p.cycle}`;
-                if (seen.has(key)) return false;
-                seen.add(key);
-                return true;
-            }).reverse();
+                const existing = byKey.get(key);
+                if (!existing || (p.status === 'paid' && existing.status !== 'paid')) byKey.set(key, p);
+            }
+            return Array.from(byKey.values()).sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
         } catch (error) {
             console.error('Error getting bill payments:', error);
             return [];
         }
     }
 
+    async getCreditCards(spreadsheetId) {
+        try {
+            const sheetName = await this.resolveSheetName(spreadsheetId, '_CreditCards');
+            const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:I`);
+            return rows.slice(1).map(row => ({
+                id: row[0],
+                accountId: row[1] || '',
+                name: row[2] || '',
+                cycleStart: row[3] || '',
+                cycleEnd: row[4] || '',
+                dueDate: row[5] || '',
+                amount: parseFloat(row[6]) || 0,
+                status: row[7] || 'open',
+                createdAt: row[8] || ''
+            })).filter(r => r.id);
+        } catch (error) {
+            console.error('Error getting credit cards:', error);
+            return [];
+        }
+    }
+
+    async getCreditCardPayments(spreadsheetId) {
+        try {
+            const sheetName = await this.resolveSheetName(spreadsheetId, '_CreditCardPayments');
+            const rows = await this.getSpreadsheetValues(spreadsheetId, `'${sheetName}'!A:J`);
+            return rows.slice(1).map(row => ({
+                id: row[0],
+                creditCardId: row[1] || '',
+                name: row[2] || '',
+                cycle: row[3] || '',
+                amount: parseFloat(row[4]) || 0,
+                dueDate: row[5] || '',
+                status: row[6] || 'pending',
+                paidDate: row[7] || '',
+                transactionId: row[8] || '',
+                createdAt: row[9] || ''
+            })).filter(r => r.id && r.creditCardId);
+        } catch (error) {
+            console.error('Error getting credit card payments:', error);
+            return [];
+        }
+    }
+
+    async addCreditCard(spreadsheetId, card) {
+        const row = [
+            String(card.id ?? ''),
+            String(card.accountId ?? ''),
+            String(card.name ?? ''),
+            String(card.cycleStart ?? ''),
+            String(card.cycleEnd ?? ''),
+            String(card.dueDate ?? ''),
+            Number(card.amount) || 0,
+            String(card.status ?? 'open'),
+            String(card.createdAt ?? new Date().toISOString())
+        ];
+        return this.enqueueWrite(spreadsheetId, '_CreditCards', 'append', {
+            range: '_CreditCards!A:I',
+            values: [row]
+        });
+    }
+
+    async updateCreditCard(spreadsheetId, cardId, updates) {
+        await this.ensureClientReady();
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_CreditCards');
+        const range = `'${sheetName}'!A:I`;
+        let rows = [];
+        if (window.gapi?.client?.sheets) {
+            const response = await window.gapi.client.sheets.spreadsheets.values.get({ spreadsheetId, range });
+            rows = response.result.values || [];
+        } else {
+            const data = await this.makeApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+            rows = data.values || [];
+        }
+        const rowIndex = rows.findIndex(row => row[0] === cardId);
+        if (rowIndex > 0) {
+            const currentRow = rows[rowIndex];
+            const updatedRow = [
+                cardId,
+                updates.accountId ?? currentRow[1],
+                updates.name ?? currentRow[2],
+                updates.cycleStart ?? currentRow[3],
+                updates.cycleEnd ?? currentRow[4],
+                updates.dueDate ?? currentRow[5],
+                updates.amount !== undefined ? Number(updates.amount) : (parseFloat(currentRow[6]) || 0),
+                updates.status ?? currentRow[7],
+                currentRow[8]
+            ];
+            return this.enqueueWrite(spreadsheetId, '_CreditCards', 'update', {
+                range: `_CreditCards!A${rowIndex + 1}:I${rowIndex + 1}`,
+                values: [updatedRow]
+            });
+        }
+    }
+
+    async addCreditCardPayment(spreadsheetId, payment) {
+        const row = [
+            String(payment.id ?? ''),
+            String(payment.creditCardId ?? ''),
+            String(payment.name ?? ''),
+            String(payment.cycle ?? ''),
+            Number(payment.amount) || 0,
+            String(payment.dueDate ?? ''),
+            String(payment.status ?? 'pending'),
+            String(payment.paidDate ?? ''),
+            String(payment.transactionId ?? ''),
+            String(payment.createdAt ?? new Date().toISOString())
+        ];
+        return this.enqueueWrite(spreadsheetId, '_CreditCardPayments', 'append', {
+            range: '_CreditCardPayments!A:J',
+            values: [row]
+        });
+    }
+
+    async updateCreditCardPayment(spreadsheetId, paymentId, updates) {
+        await this.ensureClientReady();
+        const sheetName = await this.resolveSheetName(spreadsheetId, '_CreditCardPayments');
+        const range = `'${sheetName}'!A:J`;
+        let rows = [];
+        if (window.gapi?.client?.sheets) {
+            const response = await window.gapi.client.sheets.spreadsheets.values.get({ spreadsheetId, range });
+            rows = response.result.values || [];
+        } else {
+            const data = await this.makeApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+            rows = data.values || [];
+        }
+        const rowIndex = rows.findIndex(row => row[0] === paymentId);
+        if (rowIndex > 0) {
+            const currentRow = rows[rowIndex];
+            const updatedRow = [
+                paymentId,
+                updates.creditCardId ?? currentRow[1],
+                updates.name ?? currentRow[2],
+                updates.cycle ?? currentRow[3],
+                updates.amount !== undefined ? Number(updates.amount) : (parseFloat(currentRow[4]) || 0),
+                updates.dueDate ?? currentRow[5],
+                updates.status ?? currentRow[6],
+                updates.paidDate !== undefined ? updates.paidDate : currentRow[7],
+                updates.transactionId !== undefined ? updates.transactionId : currentRow[8],
+                currentRow[9]
+            ];
+            return this.enqueueWrite(spreadsheetId, '_CreditCardPayments', 'update', {
+                range: `_CreditCardPayments!A${rowIndex + 1}:J${rowIndex + 1}`,
+                values: [updatedRow]
+            });
+        }
+    }
+
     async addBillPayment(spreadsheetId, payment) {
         const row = [
-            payment.id,
-            payment.billId,
-            payment.name,
-            payment.cycle,
-            payment.amount,
-            payment.dueDate,
-            payment.status || 'pending',
-            payment.paidDate || '',
-            payment.transactionId || '',
-            payment.accountId || '' // New field
+            String(payment.id ?? ''),
+            String(payment.billId ?? ''),
+            String(payment.name ?? ''),
+            String(payment.cycle ?? ''),
+            Number(payment.amount) || 0,
+            String(payment.dueDate ?? ''),
+            String(payment.status ?? 'pending'),
+            String(payment.paidDate ?? ''),
+            String(payment.transactionId ?? ''),
+            String(payment.accountId ?? '')
         ];
-
         return this.enqueueWrite(spreadsheetId, '_BillPayments', 'append', {
             range: '_BillPayments!A:J',
             values: [row]
@@ -1976,17 +2139,19 @@ class GoogleSheetsService {
 
         if (rowIndex >= 0) {
             const curr = rows[rowIndex];
+            const str = (v) => (v == null || v === '' ? '' : String(v));
+            const num = (v) => (v == null || v === '' ? 0 : Number(v)) || 0;
             const updated = [
-                paymentId,
-                Object.hasOwn(updates, 'billId') ? updates.billId : (curr[1] || ''),
-                Object.hasOwn(updates, 'name') ? updates.name : (curr[2] || ''),
-                Object.hasOwn(updates, 'cycle') ? updates.cycle : (curr[3] || ''),
-                Object.hasOwn(updates, 'amount') ? updates.amount : (curr[4] || '0'),
-                Object.hasOwn(updates, 'dueDate') ? updates.dueDate : (curr[5] || ''),
-                Object.hasOwn(updates, 'status') ? updates.status : (curr[6] || 'pending'),
-                Object.hasOwn(updates, 'paidDate') ? updates.paidDate : (curr[7] || ''),
-                Object.hasOwn(updates, 'transactionId') ? updates.transactionId : (curr[8] || ''),
-                Object.hasOwn(updates, 'accountId') ? updates.accountId : (curr[9] || '')
+                str(paymentId),
+                str(Object.hasOwn(updates, 'billId') ? updates.billId : curr[1]),
+                str(Object.hasOwn(updates, 'name') ? updates.name : curr[2]),
+                str(Object.hasOwn(updates, 'cycle') ? updates.cycle : curr[3]),
+                num(Object.hasOwn(updates, 'amount') ? updates.amount : curr[4]),
+                str(Object.hasOwn(updates, 'dueDate') ? updates.dueDate : curr[5]),
+                str(Object.hasOwn(updates, 'status') ? updates.status : curr[6]) || 'pending',
+                str(Object.hasOwn(updates, 'paidDate') ? updates.paidDate : curr[7]),
+                str(Object.hasOwn(updates, 'transactionId') ? updates.transactionId : curr[8]),
+                str(Object.hasOwn(updates, 'accountId') ? updates.accountId : curr[9])
             ];
 
             return this.enqueueWrite(spreadsheetId, '_BillPayments', 'update', {

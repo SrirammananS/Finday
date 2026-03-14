@@ -34,13 +34,17 @@ export default function GoogleSheetsConnect({ onConnect, onDisconnect, isConnect
         setIsLoading(true);
         setError('');
         try {
-            // Use cloudBackup for OAuth session
-            if (!cloudBackup.isSignedIn()) {
-                await cloudBackup.signIn();
+            if (isWebView) {
+                // Android WebView: use sheetsService.signIn() which opens external browser via AndroidBridge
+                // cloudBackup.signIn() uses GAPI popup which silently fails in WebView
+                await sheetsService.signIn();
+            } else {
+                if (!cloudBackup.isSignedIn()) {
+                    await cloudBackup.signIn();
+                }
             }
             if (!isMountedRef.current) return;
-            // Load user's spreadsheets
-            await sheetsService.init(); // No clientId needed
+            await sheetsService.init();
             if (!isMountedRef.current) return;
             const sheets = await sheetsService.listSpreadsheets();
             if (!isMountedRef.current) return;

@@ -42,11 +42,12 @@ export async function generateBillInstances({
 
   logger.info(`Running Smart Bill Audit (Cycle: ${currentMonthKey})...`);
 
-  // Phase 1: Status Sync (Auto-detect payments for EXISTING bills)
+  // Phase 1: Status Sync (Auto-detect payments for EXISTING recurring bills only; CC is closed when user marks payment in Credit Card Manager)
   let workingPayments = [...paymentsList];
   for (const payment of paymentsList.filter((p) => p.status === 'pending')) {
     const bill = billsList.find((b) => b.id === payment.billId);
     if (!bill) continue;
+    if (bill.billType === 'credit_card') continue; // CC: only close when user marks bill payment and chooses card in Credit Card Manager
 
     const pDate = parseISO(payment.dueDate);
     const searchStart = subDays(pDate, 15);
@@ -70,7 +71,7 @@ export async function generateBillInstances({
     }
   }
 
-  // Phase 2: Signal Generation (Create new cycles)
+  // Phase 2: Recurring = one instance per month for bills only; CC = credit only, one instance per billing/due cycle
   for (const bill of billsList) {
     try {
       let cycleKey;
@@ -79,6 +80,7 @@ export async function generateBillInstances({
       let calculationEnd;
 
       if (bill.billType === 'credit_card') {
+        // CC: generate when billing date reached; one instance per statement cycle with due date
         const billingDay = parseInt(bill.billingDay) || 1;
         const dueDay = parseInt(bill.dueDay) || 1;
         const todayDay = today.getDate();
@@ -98,6 +100,8 @@ export async function generateBillInstances({
           calculationStart = subMonths(calculationEnd, 1);
         }
       } else {
+        // Recurring only: bills (not CC); one instance per current month; due date = due day this month
+        if (bill.billType === 'credit_card') continue;
         cycleKey = currentMonthKey;
         const dueDay = parseInt(bill.dueDay) || 1;
         dueDate = format(new Date(today.getFullYear(), today.getMonth(), dueDay), 'yyyy-MM-dd');
@@ -136,6 +140,8 @@ export async function generateBillInstances({
         amount,
         dueDate,
         status: 'pending',
+        paidDate: '',
+        transactionId: '',
         accountId: bill.accountId || '',
       };
 

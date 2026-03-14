@@ -5,28 +5,28 @@ import { motion, AnimatePresence } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
 import PageHeader from '../components/PageHeader';
 import StatCard from '../components/ui/StatCard';
-import { Wallet, CreditCard, Banknote, Plus, Trash2, X, ArrowRight, Eye, EyeOff, Lock as LockIcon, Search, ShieldCheck, TrendingUp, TrendingDown } from 'lucide-react';
+import { Wallet, CreditCard, Banknote, Plus, Trash2, X, ArrowRight, Eye, EyeOff, Lock as LockIcon, Search, ShieldCheck, TrendingUp, TrendingDown, Edit3 } from 'lucide-react';
+import { formatCurrency } from '../utils/formatUtils';
+import { getAccountIcon, getDefaultAccountIconByType } from '../utils/accountUtils';
+import IconPicker from '../components/ui/IconPicker';
+import VaultPinModal from '../components/VaultPinModal';
+import { parseSampleBillingCycle } from '../utils/billingCycleUtils';
 
 const Accounts = () => {
-    const { accounts = [], addAccount, updateAccount, deleteAccount, isLoading, secretUnlocked, toggleSecretUnlock } = useFinance();
+    const { accounts = [], addAccount, updateAccount, deleteAccount, isLoading, secretUnlocked, hasVaultMpin, lockVault, unlockVaultWithPin, setVaultMpinAndUnlock } = useFinance();
     const [showModal, setShowModal] = useState(false);
     const [editing, setEditing] = useState(null);
-    const [form, setForm] = useState({ name: '', type: 'bank', balance: '', isSecret: false });
+    const [form, setForm] = useState({ name: '', type: 'bank', balance: '', isSecret: false, icon: '' });
     const [search, setSearch] = useState('');
+    const [sampleCycleText, setSampleCycleText] = useState('');
+    const [sampleDueText, setSampleDueText] = useState('');
+    const [sampleParseError, setSampleParseError] = useState(null);
+    const [showVaultPinModal, setShowVaultPinModal] = useState(false);
 
     React.useEffect(() => {
         if (showModal) document.body.classList.add('overflow-hidden');
         else document.body.classList.remove('overflow-hidden');
     }, [showModal]);
-
-    const formatCurrency = (value) => {
-        return new Intl.NumberFormat('en-IN', {
-            style: 'currency',
-            currency: 'INR',
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0,
-        }).format(value || 0);
-    };
 
     if (isLoading) return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-black">
@@ -36,7 +36,11 @@ const Accounts = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        const data = { ...form, balance: parseFloat(form.balance) || 0 };
+        const data = {
+            ...form,
+            balance: parseFloat(form.balance) || 0,
+            icon: form.icon || getDefaultAccountIconByType(form.type)
+        };
         editing ? await updateAccount(editing.id, data) : await addAccount(data);
         setShowModal(false);
         setEditing(null);
@@ -51,8 +55,29 @@ const Accounts = () => {
     const openEditModal = (acc, e) => {
         e.stopPropagation();
         setEditing(acc);
-        setForm({ name: acc.name, type: acc.type, balance: acc.balance.toString(), billingDay: acc.billingDay, dueDay: acc.dueDay, isSecret: acc.isSecret || false });
+        setForm({
+            name: acc.name,
+            type: acc.type,
+            balance: acc.balance.toString(),
+            billingDay: acc.billingDay,
+            dueDay: acc.dueDay,
+            isSecret: acc.isSecret || false,
+            icon: acc.icon || getDefaultAccountIconByType(acc.type)
+        });
+        setSampleCycleText('');
+        setSampleDueText('');
+        setSampleParseError(null);
         setShowModal(true);
+    };
+
+    const applySampleCycle = () => {
+        setSampleParseError(null);
+        const result = parseSampleBillingCycle(sampleCycleText, sampleDueText);
+        if (result.error) {
+            setSampleParseError(result.error);
+            return;
+        }
+        setForm(prev => ({ ...prev, billingDay: String(result.billingDay), dueDay: String(result.dueDay) }));
     };
 
     return (
@@ -66,7 +91,7 @@ const Accounts = () => {
                     actions={
                     secretCount > 0 && (
                                 <button
-                                    onClick={toggleSecretUnlock}
+                                    onClick={() => secretUnlocked ? lockVault() : setShowVaultPinModal(true)}
                                     className={`group flex items-center gap-3 px-6 py-4 rounded-[1.5rem] border transition-all ${secretUnlocked ? 'bg-primary border-primary text-black' : 'bg-card border-card-border text-text-main hover:border-primary/50'}`}
                                 >
                                     <div className="flex flex-col items-start mr-4">
@@ -99,15 +124,15 @@ const Accounts = () => {
                         />
                         <StatCard
                             label="Credit / Debt"
-                            value={formatCurrency(visibleAccounts.filter(a => a.type === 'credit').reduce((sum, a) => sum + a.balance, 0))}
+                            value={formatCurrency(visibleAccounts.filter(a => a.type === 'credit').reduce((sum, a) => sum + a.balance, 0), { useAbs: false })}
                             icon={TrendingDown}
                             variant="expense"
                         />
                         <StatCard
                             label="Net Worth"
-                            value={formatCurrency(totalBalance)}
+                            value={formatCurrency(totalBalance, { useAbs: false })}
                             icon={Wallet}
-                            variant="primary"
+                            variant={totalBalance < 0 ? 'expense' : 'primary'}
                         />
                     </div>
 
@@ -132,7 +157,7 @@ const Accounts = () => {
                                             <div className="flex justify-between items-start mb-4">
                                                 <div className="flex items-center gap-2.5">
                                                     <div className="w-8 h-8 rounded-xl bg-canvas-subtle border border-card-border flex items-center justify-center text-sm group-hover:border-primary/30 transition-all">
-                                                        {acc.type === 'bank' ? '🏦' : acc.type === 'credit' ? '💳' : '💵'}
+                                                        {getAccountIcon(acc)}
                                                     </div>
                                                     <div>
                                                         <h3 className="text-xs font-black uppercase tracking-tight text-text-main leading-tight truncate max-w-[80px] md:max-w-none">{acc.name}</h3>
@@ -141,15 +166,17 @@ const Accounts = () => {
                                                 </div>
                                                 <button
                                                     onClick={(e) => openEditModal(acc, e)}
-                                                    className="w-7 h-7 rounded-full bg-canvas-subtle border border-card-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-all -mr-1 -mt-1"
+                                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-canvas-subtle border border-card-border hover:bg-primary hover:text-primary-foreground transition-all -mr-1 -mt-1 text-[9px] font-bold uppercase tracking-wider text-text-muted hover:border-primary"
+                                                    title="Edit account"
                                                 >
-                                                    <Plus size={12} className="rotate-45" />
+                                                    <Edit3 size={12} />
+                                                    Edit
                                                 </button>
                                             </div>
 
                                             <div>
-                                                <h3 className="text-base md:text-lg font-black tracking-tight text-text-main tabular-nums leading-none">
-                                                    {formatCurrency(acc.balance)}
+                                                <h3 className={`text-base md:text-lg font-black tracking-tight tabular-nums leading-none ${(acc.balance ?? 0) < 0 ? 'text-rose-500' : 'text-text-main'}`}>
+                                                    {formatCurrency(acc.balance ?? 0, { useAbs: false })}
                                                 </h3>
                                                 {isCredit && (acc.billingDay || acc.dueDay) && (
                                                     <div className="flex gap-2.5 mt-2">
@@ -162,7 +189,7 @@ const Accounts = () => {
                                                         {acc.billingDay && (
                                                             <div className="flex items-center gap-1.5">
                                                                 <div className="w-1 h-1 rounded-full bg-text-muted/20" />
-                                                                <span className="text-[7px] font-black uppercase tracking-wider text-text-muted">Bill: {acc.billingDay}</span>
+                                                                <span className="text-[7px] font-black uppercase tracking-wider text-text-muted">Stmt: {acc.billingDay}</span>
                                                             </div>
                                                         )}
                                                     </div>
@@ -170,13 +197,20 @@ const Accounts = () => {
                                             </div>
                                         </div>
 
-                                        <div className="relative z-10 border-t border-card-border mt-3 pt-3 flex items-center justify-between">
+                                        <div className="relative z-10 border-t border-card-border mt-3 pt-3 flex items-center justify-between gap-2">
                                             <Link
                                                 to={`/accounts/${acc.id}`}
                                                 className="text-[8px] font-black uppercase tracking-widest text-text-muted hover:text-primary transition-all flex items-center gap-1"
                                             >
                                                 History <ArrowRight size={10} />
                                             </Link>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => openEditModal(acc, e)}
+                                                className="text-[8px] font-black uppercase tracking-widest text-text-muted hover:text-primary transition-all flex items-center gap-1"
+                                            >
+                                                Edit
+                                            </button>
                                             {acc.isSecret && (
                                                 <LockIcon size={10} className="text-primary/60" />
                                             )}
@@ -189,7 +223,7 @@ const Accounts = () => {
 
                     {hiddenAccounts.length > 0 && (
                         <motion.button
-                            onClick={toggleSecretUnlock}
+                            onClick={() => setShowVaultPinModal(true)}
                             initial={{ scale: 0.95, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
                             className="p-5 rounded-[1.8rem] bg-card border-2 border-dashed border-card-border flex flex-col items-center justify-center gap-3 text-center hover:border-primary/50 transition-all group min-h-[120px] h-full"
@@ -207,7 +241,7 @@ const Accounts = () => {
                     )}
 
                     <motion.button
-                        onClick={() => { setEditing(null); setForm({ name: '', type: 'bank', balance: '', billingDay: '', dueDay: '' }); setShowModal(true); }}
+                        onClick={() => { setEditing(null); setForm({ name: '', type: 'bank', balance: '', billingDay: '', dueDay: '', icon: '' }); setSampleCycleText(''); setSampleDueText(''); setSampleParseError(null); setShowModal(true); }}
                         className="p-5 rounded-[1.8rem] bg-transparent border-2 border-dashed border-card-border flex flex-col items-center justify-center gap-3 text-center hover:border-primary/50 transition-all group min-h-[120px] h-full"
                     >
                         <div className="w-10 h-10 rounded-xl bg-canvas-subtle border border-card-border flex items-center justify-center text-text-muted group-hover:bg-primary group-hover:text-primary-foreground transition-all">
@@ -278,6 +312,15 @@ const Accounts = () => {
                                     </div>
 
                                     <div>
+                                        <IconPicker
+                                            label="Node Icon"
+                                            value={form.icon || getDefaultAccountIconByType(form.type)}
+                                            onChange={(icon) => setForm({ ...form, icon })}
+                                            defaultByType={getDefaultAccountIconByType(form.type)}
+                                        />
+                                    </div>
+
+                                    <div>
                                         <label className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted ml-4 mb-3 block">Node Architecture</label>
                                         <div className="grid grid-cols-3 gap-4">
                                             {[
@@ -288,7 +331,7 @@ const Accounts = () => {
                                                 <button
                                                     key={type.id}
                                                     type="button"
-                                                    onClick={() => setForm({ ...form, type: type.id })}
+                                                    onClick={() => setForm({ ...form, type: type.id, icon: form.icon || getDefaultAccountIconByType(type.id) })}
                                                     className={`p-6 rounded-3xl border transition-all flex flex-col items-center gap-3 ${form.type === type.id ? 'bg-primary border-primary text-primary-foreground' : 'bg-canvas-subtle border-card-border text-text-main hover:bg-canvas-elevated'}`}
                                                 >
                                                     <span className="text-3xl">{type.icon}</span>
@@ -304,29 +347,65 @@ const Accounts = () => {
                                                 initial={{ height: 0, opacity: 0 }}
                                                 animate={{ height: 'auto', opacity: 1 }}
                                                 exit={{ height: 0, opacity: 0 }}
-                                                className="grid grid-cols-2 gap-8 overflow-hidden"
+                                                className="space-y-6 overflow-hidden"
                                             >
-                                                <div>
-                                                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted ml-4 mb-3 block">Statement Cycle</label>
-                                                    <input
-                                                        type="number"
-                                                        min="1" max="31"
-                                                        value={form.billingDay || ''}
-                                                        onChange={e => setForm({ ...form, billingDay: e.target.value })}
-                                                        className="w-full bg-canvas-subtle border border-card-border p-6 rounded-3xl outline-none focus:border-primary transition-all font-black text-text-main"
-                                                        placeholder="Day (1-31)"
-                                                    />
+                                                <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
+                                                    Interval only: we store statement day and due day (1–31). Cycles repeat (e.g. 13 Dec–12 Jan, 13 Jan–12 Feb).
+                                                </p>
+                                                <div className="grid grid-cols-2 gap-8">
+                                                    <div>
+                                                        <label className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted ml-4 mb-3 block">Statement day</label>
+                                                        <input
+                                                            type="number"
+                                                            min="1" max="31"
+                                                            value={form.billingDay || ''}
+                                                            onChange={e => setForm({ ...form, billingDay: e.target.value })}
+                                                            className="w-full bg-canvas-subtle border border-card-border p-6 rounded-3xl outline-none focus:border-primary transition-all font-black text-text-main"
+                                                            placeholder="e.g. 13"
+                                                            title="Day of month statement is generated (1–31). Cycle = this day to day before next (e.g. 13 = 13 Dec–12 Jan, 13 Jan–12 Feb)."
+                                                        />
+                                                        <p className="text-[9px] text-text-muted/80 mt-1.5 ml-4">Cycle: 13 Dec–12 Jan, 13 Jan–12 Feb…</p>
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted ml-4 mb-3 block">Due day</label>
+                                                        <input
+                                                            type="number"
+                                                            min="1" max="31"
+                                                            value={form.dueDay || ''}
+                                                            onChange={e => setForm({ ...form, dueDay: e.target.value })}
+                                                            className="w-full bg-canvas-subtle border border-card-border p-6 rounded-3xl outline-none focus:border-primary transition-all font-black text-text-main"
+                                                            placeholder="e.g. 30"
+                                                            title="Day of month payment is due (1–31)."
+                                                        />
+                                                        <p className="text-[9px] text-text-muted/80 mt-1.5 ml-4">Pay-by date for each cycle</p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted ml-4 mb-3 block">Repayment Lock</label>
+                                                <div className="space-y-3 rounded-2xl border border-dashed border-card-border p-4 bg-canvas-subtle/50">
+                                                    <p className="text-[9px] font-bold text-text-muted uppercase tracking-wider">Or paste one sample cycle + due</p>
                                                     <input
-                                                        type="number"
-                                                        min="1" max="31"
-                                                        value={form.dueDay || ''}
-                                                        onChange={e => setForm({ ...form, dueDay: e.target.value })}
-                                                        className="w-full bg-canvas-subtle border border-card-border p-6 rounded-3xl outline-none focus:border-primary transition-all font-black text-text-main"
-                                                        placeholder="Day (1-31)"
+                                                        type="text"
+                                                        value={sampleCycleText}
+                                                        onChange={e => { setSampleCycleText(e.target.value); setSampleParseError(null); }}
+                                                        placeholder="e.g. 13/12/2025 to 12/1/26 or 13 Dec 2025 - 12 Jan 2026"
+                                                        className="w-full bg-canvas-subtle border border-card-border px-4 py-3 rounded-xl text-sm font-medium text-text-main placeholder:text-text-muted/60 outline-none focus:border-primary"
                                                     />
+                                                    <input
+                                                        type="text"
+                                                        value={sampleDueText}
+                                                        onChange={e => { setSampleDueText(e.target.value); setSampleParseError(null); }}
+                                                        placeholder="e.g. 30 Mar 2026 or 30/3/26"
+                                                        className="w-full bg-canvas-subtle border border-card-border px-4 py-3 rounded-xl text-sm font-medium text-text-main placeholder:text-text-muted/60 outline-none focus:border-primary"
+                                                    />
+                                                    <div className="flex items-center gap-3">
+                                                        <button
+                                                            type="button"
+                                                            onClick={applySampleCycle}
+                                                            className="px-4 py-2 rounded-xl border border-primary text-primary text-xs font-bold uppercase tracking-wider hover:bg-primary hover:text-black transition-all"
+                                                        >
+                                                            Fill from sample
+                                                        </button>
+                                                        {sampleParseError && <span className="text-[10px] text-rose-400">{sampleParseError}</span>}
+                                                    </div>
                                                 </div>
                                             </motion.div>
                                         )}
@@ -365,6 +444,14 @@ const Accounts = () => {
                     </div>
                 )}
             </AnimatePresence>
+
+            <VaultPinModal
+                isOpen={showVaultPinModal}
+                onClose={() => setShowVaultPinModal(false)}
+                hasVaultMpin={hasVaultMpin}
+                onUnlock={unlockVaultWithPin}
+                onCreateAndUnlock={setVaultMpinAndUnlock}
+            />
         </div>
     );
 };

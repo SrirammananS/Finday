@@ -140,5 +140,51 @@ export function useBillActions({
         setBills, setBillPayments, setIsSyncing, setLastSyncTime
     ]);
 
-    return { addBill, updateBill, updateBillPayment, deleteBill };
+    const repairBills = useCallback(async () => {
+        if (!config.spreadsheetId) return { fixed: 0 };
+
+        const creditAccountIds = new Set(
+            accounts.filter(a => a.type === 'credit').map(a => a.id)
+        );
+        let fixedCount = 0;
+
+        setIsSyncing(true);
+        try {
+            const repairedBills = bills.map(b => {
+                const shouldBeCC = creditAccountIds.has(b.accountId);
+                const isCC = b.billType === 'credit_card';
+                if (shouldBeCC && !isCC) {
+                    fixedCount++;
+                    return { ...b, billType: 'credit_card' };
+                }
+                if (!shouldBeCC && isCC && !b.accountId) {
+                    fixedCount++;
+                    return { ...b, billType: 'recurring' };
+                }
+                return b;
+            });
+
+            if (fixedCount > 0) {
+                setBills(repairedBills);
+                localDB.saveData({ transactions, accounts, categories, bills: repairedBills, billPayments });
+
+                for (const b of repairedBills) {
+                    const orig = bills.find(o => o.id === b.id);
+                    if (orig && orig.billType !== b.billType) {
+                        await sheetsService.updateBill(config.spreadsheetId, b.id, { billType: b.billType });
+                    }
+                }
+                setLastSyncTime(new Date());
+            }
+
+            return { fixed: fixedCount };
+        } catch (err) {
+            logger.error('repairBills failed:', err);
+            return { fixed: 0, error: err.message };
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [bills, accounts, billPayments, transactions, categories, config, setBills, setIsSyncing, setLastSyncTime]);
+
+    return { addBill, updateBill, updateBillPayment, deleteBill, repairBills };
 }

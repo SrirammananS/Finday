@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { billManager } from '../services/billManager';
 import { smartAI } from '../services/smartAI';
+import { formatCurrency } from '../utils/formatUtils';
 
 const CYCLES = [
     { value: 'weekly', label: 'Weekly' },
@@ -78,7 +79,7 @@ export default function BillManager({ transactions = [], onAddTransaction }) {
             <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2 bg-gradient-to-br from-primary/20 to-purple-500/20 rounded-xl p-3 border border-primary/30 flex items-center justify-between">
                     <p className="text-xs text-text-muted">Monthly Bills</p>
-                    <p className="text-xl font-bold text-text-main">₹{monthlyTotal.toLocaleString()}</p>
+                    <p className="text-xl font-bold text-text-main">{formatCurrency(monthlyTotal)}</p>
                 </div>
                 <div className="bg-gradient-to-br from-orange-500/20 to-red-500/20 rounded-xl p-3 border border-orange-500/30">
                     <p className="text-xs text-text-muted">Due Soon</p>

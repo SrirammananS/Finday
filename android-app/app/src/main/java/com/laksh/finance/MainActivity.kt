@@ -10,6 +10,9 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.util.Log
 import android.view.View
 import android.webkit.*
@@ -169,28 +172,31 @@ class MainActivity : AppCompatActivity() {
                         }
                         
                         val accessToken = params?.get("access_token")
+                        val refreshTokenDL = params?.get("refresh_token")
+                        val expiresInStr = params?.get("expires_in")
 
                         if (accessToken != null) {
                             Log.d("LAKSH", "Extracted access token from deep link. Injecting...")
-                            // FIXED: Set expiry to 1 year (365 days) to prevent frequent logins
-                            val ONE_YEAR_MS = 365L * 24 * 60 * 60 * 1000
-                            val expiryMs = System.currentTimeMillis() + ONE_YEAR_MS
+                            val expiresInSec = expiresInStr?.toLongOrNull() ?: 3600L
+                            val expiryMs = System.currentTimeMillis() + (expiresInSec * 1000)
+                            val refreshJs = if (refreshTokenDL != null) {
+                                "localStorage.setItem('google_refresh_token', '$refreshTokenDL');"
+                            } else ""
                             
                             val script = """
                                 try {
-                            localStorage.setItem('google_access_token', '$accessToken');
-                            localStorage.setItem('google_token_expiry', '$expiryMs');
-                            
-                            // Unify for Laksh services
-                            localStorage.setItem('laksh_access_token', '$accessToken');
-                            localStorage.setItem('laksh_gapi_token', '$accessToken');
-                            localStorage.setItem('laksh_token_expiry', '$expiryMs');
-                            localStorage.setItem('laksh_backup_token_expiry', '$expiryMs');
+                                    localStorage.setItem('google_access_token', '$accessToken');
+                                    localStorage.setItem('google_token_expiry', '$expiryMs');
+                                    $refreshJs
+                                    
+                                    localStorage.setItem('laksh_access_token', '$accessToken');
+                                    localStorage.setItem('laksh_gapi_token', '$accessToken');
+                                    localStorage.setItem('laksh_token_expiry', '$expiryMs');
+                                    localStorage.setItem('laksh_backup_token_expiry', '$expiryMs');
 
-                            sessionStorage.setItem('google_access_token', '$accessToken');
-                            sessionStorage.setItem('google_token_expiry', '$expiryMs');
-                            console.log('[LAKSH-NATIVE] Token injected successfully across all keys');
-                                    // Navigate to home and reload to force context refresh
+                                    sessionStorage.setItem('google_access_token', '$accessToken');
+                                    sessionStorage.setItem('google_token_expiry', '$expiryMs');
+                                    console.log('[LAKSH-NATIVE] Token injected successfully across all keys');
                                     window.location.href = '/'; 
                                     window.location.reload();
                                 } catch(e) {
@@ -358,9 +364,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var pendingOpenSheet = false
+    private var pendingEditMode = false
+    private var pendingTransactionId: String? = null
+
     private fun handleIntent() {
         val uri = intent?.data
         Log.d("LAKSH", "Checking intent: uri=$uri")
+
+        // Check for notification open flags
+        val openPending = intent?.getBooleanExtra("open_pending", false) == true
+        val editMode = intent?.getBooleanExtra("edit_mode", false) == true
+        val txnId = intent?.getStringExtra("transaction_id")
+        if (openPending) {
+            pendingOpenSheet = true
+            pendingEditMode = editMode
+            pendingTransactionId = txnId
+        }
         
         if (uri != null && uri.scheme == "laksh" && uri.host == "oauth-callback") {
             Log.d("LAKSH", "OAuth Deep Link detected: $uri")
@@ -374,10 +394,11 @@ class MainActivity : AppCompatActivity() {
                 
                 val token = params["access_token"]
                 val refreshToken = params["refresh_token"]
+                val expiresInStr = params["expires_in"]
                 
                 if (token != null) {
-                    val ONE_YEAR_MS = 365L * 24 * 60 * 60 * 1000
-                    val expiryMs = System.currentTimeMillis() + ONE_YEAR_MS
+                    val expiresInSec = expiresInStr?.toLongOrNull() ?: 3600L
+                    val expiryMs = System.currentTimeMillis() + (expiresInSec * 1000)
                     val refreshJs = if (refreshToken != null) {
                         Log.d("LAKSH", "Injecting OAuth token + refresh_token from deep link")
                         "localStorage.setItem('google_refresh_token', '$refreshToken');"
@@ -420,9 +441,9 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-        } else {
+        } else if (intent?.getBooleanExtra("open_pending", false) != true) {
+            // Only add from sms_data when not opening from notification (transaction already in store)
             intent?.getStringExtra("sms_data")?.let { smsData ->
-                // Will be injected after page loads
                 TransactionStore.addPendingFromSms(this, smsData)
             }
         }
@@ -461,6 +482,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun injectPendingTransactions() {
         val pending = TransactionStore.getPendingTransactions(this)
+        val shouldOpenSheet = pendingOpenSheet
+        val shouldEditMode = pendingEditMode
+        val targetTxnId = (pendingTransactionId ?: "").replace("\\", "\\\\").replace("'", "\\'")
+
+        pendingOpenSheet = false
+        pendingEditMode = false
+        pendingTransactionId = null
+
         if (pending != "[]" && pending.isNotEmpty()) {
             val json = pending.replace("'", "\\'").replace("\n", "\\n")
             webView.evaluateJavascript(
@@ -469,40 +498,50 @@ class MainActivity : AppCompatActivity() {
                     try {
                         const pending = JSON.parse('$json');
                         if (pending && pending.length > 0) {
-                            // Get existing pending transactions from PWA storage
                             const stored = localStorage.getItem('laksh_pending_transactions');
                             const existing = stored ? JSON.parse(stored) : [];
                             const ids = new Set(existing.map(t => t.id));
-                            
-                            // Process approved transactions - add them as pending with autoSave flag
-                            // The PWA will auto-process these when it loads
-                            const approved = pending.filter(t => t.status === 'approved');
-                            const review = pending.filter(t => t.status !== 'approved');
-                            
-                            // Add new transactions (both approved and review go to pending queue)
                             const allNew = pending.filter(t => !ids.has(t.id));
-                            
                             if (allNew.length > 0) {
-                                // Transactions with status='approved' will be auto-saved by PWA
-                                // Transactions with status='pending' will be shown for review
                                 localStorage.setItem('laksh_pending_transactions', JSON.stringify([...allNew, ...existing]));
-                                console.log('[Android] Injected transactions:', allNew.length, 'approved:', approved.length, 'review:', review.length);
-                                
-                                // Dispatch event to trigger PWA update
                                 window.dispatchEvent(new Event('laksh-transactions-updated'));
                             }
+                        }
+                        if ($shouldOpenSheet) {
+                            localStorage.setItem('laksh_open_pending_sheet', JSON.stringify({ editMode: $shouldEditMode, transactionId: '$targetTxnId' }));
+                            if (location.pathname === '/welcome') {
+                                location.href = '/';
+                                return;
+                            }
+                            window.dispatchEvent(new CustomEvent('laksh-open-pending-sheet', {
+                                detail: { editMode: $shouldEditMode, transactionId: '$targetTxnId' }
+                            }));
                         }
                     } catch(e) {
                         console.error('[Android] Failed to inject:', e);
                     }
                 })();
                 """.trimIndent()
-            ) {
-                // BUG FIX: Do NOT clear pending on injection.
-                // Previously we cleared immediately, losing data if PWA failed to persist.
-                // Pending transactions are only removed when user taps Save/Ignore in notification,
-                // or when PWA calls AndroidBridge.removePendingTransaction(id) after saving.
-            }
+            ) {}
+        } else if (shouldOpenSheet) {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    try {
+                        localStorage.setItem('laksh_open_pending_sheet', JSON.stringify({ editMode: $shouldEditMode, transactionId: '$targetTxnId' }));
+                        if (location.pathname === '/welcome') {
+                            location.href = '/';
+                            return;
+                        }
+                        window.dispatchEvent(new CustomEvent('laksh-open-pending-sheet', {
+                            detail: { editMode: $shouldEditMode, transactionId: '$targetTxnId' }
+                        }));
+                    } catch(e) {
+                        console.error('[Android] Open pending failed:', e);
+                    }
+                })();
+                """.trimIndent()
+            ) {}
         }
     }
     
@@ -620,6 +659,39 @@ class WebAppInterface(private val activity: MainActivity) {
         }
     }
     
+    @JavascriptInterface
+    fun vibrate(pattern: String) {
+        try {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val mgr = activity.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                mgr.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                activity.getSystemService(android.content.Context.VIBRATOR_SERVICE) as Vibrator
+            }
+            val durations = pattern.split(",").mapNotNull { it.trim().toLongOrNull() }
+            if (durations.isEmpty()) return
+            if (durations.size == 1) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createOneShot(durations[0], VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(durations[0])
+                }
+            } else {
+                val timings = LongArray(durations.size) { durations[it] }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createWaveform(timings, -1))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(timings, -1)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("LAKSH", "Vibrate failed: ${e.message}")
+        }
+    }
+
     @JavascriptInterface
     fun openExternalBrowser(url: String) {
         try {

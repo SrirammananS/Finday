@@ -1,21 +1,53 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
 import PageHeader from '../components/PageHeader';
-import { Plus, Trash2, CheckCircle2, X, ChevronLeft, ChevronRight, Brain, Calendar, List, Activity, Link2, Check, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, CheckCircle2, X, ChevronLeft, ChevronRight, Brain, Calendar, List, Activity, Link2, Check, AlertCircle, Wrench } from 'lucide-react';
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isSameMonth, parseISO, subDays, addDays } from 'date-fns';
 import { billManager } from '../services/billManager';
 import { smartAI } from '../services/smartAI';
+import { formatCurrency } from '../utils/formatUtils';
+
+const CYCLE_KEY = (d) => format(d, 'yyyy-MM');
+const isPaid = (p) => p.status === 'paid';
+
+/** Only returns transactions in the due-date window that match amount or name. No “last 5 in month” fallback. */
+function transactionsInDueWindow(transactions, payment, billPayments = []) {
+    if (!payment?.dueDate) return [];
+    const linkedIds = new Set((billPayments || []).map(p => p.transactionId).filter(Boolean));
+    const pDate = parseISO(payment.dueDate);
+    const start = subDays(pDate, 15);
+    const end = addDays(pDate, 20);
+    const list = transactions.filter(t => {
+        if (linkedIds.has(t.id)) return false;
+        if (parseFloat(t.amount) >= 0) return false;
+        const txDate = parseISO(t.date);
+        return txDate >= start && txDate <= end;
+    });
+    return list.sort((a, b) => parseISO(b.date) - parseISO(a.date));
+}
+
+function matchTransactions(transactions, payment, billPayments = []) {
+    const allInWindow = transactionsInDueWindow(transactions, payment, billPayments);
+    const pAmt = parseFloat(payment?.amount) || 0;
+    const namePart = payment?.name?.toLowerCase().split(' ')[0] || '';
+    return allInWindow.filter(t => {
+        const txAmt = Math.abs(parseFloat(t.amount));
+        const amtOk = Math.abs(txAmt - pAmt) <= (pAmt || 1) * 0.15;
+        const nameOk = namePart && t.description?.toLowerCase().includes(namePart);
+        return amtOk || nameOk;
+    });
+}
 
 const Bills = () => {
     const {
         bills = [],
         billPayments = [],
         addBill,
-        updateBill: _updateBill,
         deleteBill,
         updateBillPayment,
+        repairBills,
         isLoading,
         transactions = []
     } = useFinance();
@@ -25,132 +57,92 @@ const Bills = () => {
         name: '',
         amount: '',
         dueDay: '1',
-        billingDay: '1', // For CC bills - when statement is generated
+        billingDay: '1',
         category: 'Utilities/Bills',
         cycle: 'monthly',
-        billType: 'recurring' // 'recurring' or 'credit_card'
+        billType: 'recurring'
     });
     const [selectedMonth, setSelectedMonth] = useState(new Date());
     const [showDetected, setShowDetected] = useState(false);
-    const [showMarkPaidModal, setShowMarkPaidModal] = useState(null); // Holds the payment instance being marked as paid
+    const [showMarkPaidModal, setShowMarkPaidModal] = useState(null);
     const [selectedTransactionId, setSelectedTransactionId] = useState(null);
+    const [repairStatus, setRepairStatus] = useState(null);
+    const [search, setSearch] = useState('');
 
-    const detectedBills = useMemo(() => {
-        if (transactions.length <= 5) return [];
-        const detected = billManager.detectBillsFromTransactions(transactions, smartAI);
-        return detected.filter(d =>
-            !bills.some(b => b.name?.toLowerCase() === d.name?.toLowerCase())
-        );
-    }, [transactions, bills]);
+    const today = new Date();
+    const cycleKey = CYCLE_KEY(selectedMonth);
 
-    React.useEffect(() => {
-        if (showModal) document.body.classList.add('overflow-hidden');
-        else document.body.classList.remove('overflow-hidden');
-    }, [showModal]);
-
-    // Filter payments for the current month/view
-    const visibleBills = useMemo(() => {
-        const selectedMonthKey = format(selectedMonth, 'yyyy-MM');
-        return billPayments.filter(p => {
-            // Check if this payment is relevant for the selected view
-            // High priority: The cycle matches (e.g., 2026-02)
-            if (p.cycle === selectedMonthKey) return true;
-
-            // Fallback: The due date is in the selected month
+    const { visibleBills, cycleTotal, paidCount, unpaidCount } = useMemo(() => {
+        const list = billPayments.filter(p => {
+            if (p.cycle === cycleKey) return true;
             try {
                 return isSameMonth(parseISO(p.dueDate), selectedMonth);
             } catch {
                 return false;
             }
-        }).sort((a, b) => {
+        });
+        list.sort((a, b) => {
             try {
                 return parseISO(a.dueDate) - parseISO(b.dueDate);
             } catch {
                 return 0;
             }
         });
-    }, [billPayments, selectedMonth]);
-
-    const today = new Date();
-
-    if (isLoading) return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-canvas">
-            <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }} className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full" />
-        </div>
-    );
-
-    const totalMonthly = bills.reduce((acc, bill) => acc + (parseFloat(bill.amount) || 0), 0);
-    const calendarDays = eachDayOfInterval({ start: startOfMonth(selectedMonth), end: endOfMonth(selectedMonth) });
-
-    const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('en-IN', {
-            style: 'currency',
-            currency: 'INR',
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0
-        }).format(Math.abs(amount) || 0);
-    };
-
-    // Helper functions for the UI
-    const isPaid = (payment) => payment.status === 'paid';
-
-    const getLinkedTransaction = (payment) => {
-        if (payment.transactionId) return transactions.find(t => t.id === payment.transactionId);
-        return null;
-    };
-
-    const getMatchingTransactions = (payment) => {
-        if (!payment) return [];
-        const pDate = parseISO(payment.dueDate);
-        // Expand window: 15 days before due date, 20 days after
-        const start = subDays(pDate, 15);
-        const end = addDays(pDate, 20);
-
-        const matches = transactions.filter(t => {
-            const txDate = parseISO(t.date);
-            const inRange = txDate >= start && txDate <= end;
-            const isExpense = parseFloat(t.amount) < 0;
-            const txAmt = Math.abs(parseFloat(t.amount));
-            const pAmt = parseFloat(payment.amount);
-
-            const amtMatch = Math.abs(txAmt - pAmt) <= (pAmt || 1) * 0.15; // 15% tolerance
-            const nameMatch = t.description?.toLowerCase().includes(payment.name?.toLowerCase().split(' ')[0]);
-
-            return inRange && isExpense && (amtMatch || nameMatch);
-        });
-
-        // If no smart matches, return the 5 most recent transactions in that month
-        if (matches.length === 0) {
-            return transactions
-                .filter(t => isSameMonth(parseISO(t.date), pDate) && parseFloat(t.amount) < 0)
-                .sort((a, b) => parseISO(b.date) - parseISO(a.date))
-                .slice(0, 5);
+        let paid = 0;
+        let total = 0;
+        for (const p of list) {
+            total += parseFloat(p.amount) || 0;
+            if (isPaid(p)) paid++;
         }
+        return {
+            visibleBills: list,
+            cycleTotal: total,
+            paidCount: paid,
+            unpaidCount: list.length - paid
+        };
+    }, [billPayments, selectedMonth, cycleKey]);
 
-        return matches.sort((a, b) => parseISO(b.date) - parseISO(a.date));
-    };
+    const filteredBills = useMemo(() => {
+        if (!search.trim()) return visibleBills;
+        const q = search.trim().toLowerCase();
+        return visibleBills.filter(p => p.name?.toLowerCase().includes(q));
+    }, [visibleBills, search]);
 
-    const handleMarkPaid = async (payment, transactionId = null) => {
-        console.log(`[LAKSH] Marking ${payment.name} as paid. TxID:`, transactionId);
+    const totalMonthly = useMemo(() => bills.reduce((acc, b) => acc + (parseFloat(b.amount) || 0), 0), [bills]);
+    const calendarDays = useMemo(() => eachDayOfInterval({ start: startOfMonth(selectedMonth), end: endOfMonth(selectedMonth) }), [selectedMonth]);
+
+    const detectedBills = useMemo(() => {
+        if (transactions.length <= 5) return [];
+        const detected = billManager.detectBillsFromTransactions(transactions, smartAI, billPayments);
+        return detected.filter(d => !bills.some(b => b.name?.toLowerCase() === d.name?.toLowerCase()));
+    }, [transactions, bills, billPayments]);
+
+    useEffect(() => {
+        if (showModal) document.body.classList.add('overflow-hidden');
+        else document.body.classList.remove('overflow-hidden');
+    }, [showModal]);
+
+    const getLinkedTransaction = useCallback((payment) => {
+        if (!payment?.transactionId) return null;
+        return transactions.find(t => t.id === payment.transactionId);
+    }, [transactions]);
+
+    const getMatchingTransactions = useCallback((payment) => matchTransactions(transactions, payment, billPayments), [transactions, billPayments]);
+    const getTransactionsInDueWindow = useCallback((payment) => transactionsInDueWindow(transactions, payment, billPayments), [transactions, billPayments]);
+
+    const handleMarkPaid = useCallback(async (payment, transactionId = null) => {
         await updateBillPayment(payment.id, {
             status: 'paid',
             paidDate: new Date().toISOString(),
-            transactionId: transactionId
+            transactionId: transactionId ?? undefined
         });
         setShowMarkPaidModal(null);
         setSelectedTransactionId(null);
-    };
+    }, [updateBillPayment]);
 
-    const handleUnmarkPaid = async (payment) => {
-        await updateBillPayment(payment.id, {
-            status: 'pending',
-            paidDate: null,
-            transactionId: null
-        });
-    };
-
-    const paidCount = visibleBills.filter(isPaid).length;
-    const unpaidCount = visibleBills.length - paidCount;
+    const handleUnmarkPaid = useCallback(async (payment) => {
+        await updateBillPayment(payment.id, { status: 'pending', paidDate: null, transactionId: null });
+    }, [updateBillPayment]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -189,8 +181,8 @@ const Bills = () => {
                             <span className="text-[10px] font-bold uppercase text-rose-500/70">Pending</span>
                         </div>
                         <div className="text-right">
-                            <span className="text-[10px] font-bold uppercase text-text-muted block">Monthly</span>
-                            <span className="text-lg font-black text-text-main tabular-nums">{formatCurrency(totalMonthly)}</span>
+                            <span className="text-[10px] font-bold uppercase text-text-muted block">Due this month</span>
+                            <span className="text-lg font-black text-text-main tabular-nums">{formatCurrency(cycleTotal)}</span>
                         </div>
                     </div>
                     }
@@ -199,6 +191,13 @@ const Bills = () => {
                 {/* Controls and AI Hub */}
                 <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-12">
                     <div className="flex items-center gap-4">
+                        <input
+                            type="text"
+                            placeholder="Find bill..."
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            className="h-10 px-4 rounded-xl bg-canvas-subtle border border-card-border text-sm font-medium text-text-main placeholder:text-text-muted focus:border-primary outline-none w-36 md:w-44"
+                        />
                         <div className="flex gap-2 p-1 bg-canvas-subtle border border-card-border rounded-xl">
                             <button
                                 onClick={() => setViewMode('list')}
@@ -243,9 +242,26 @@ const Bills = () => {
                             onClick={() => setShowDetected(!showDetected)}
                             className="h-10 px-6 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center gap-2 hover:bg-primary/20 transition-all text-xs font-bold"
                         >
-                            <Brain size={16} /> Suggested from transactions ({detectedBills.length})
+                            <Brain size={16} /> Suggested ({detectedBills.length})
                         </button>
                     )}
+                    <button
+                        onClick={async () => {
+                            setRepairStatus('running');
+                            const result = await repairBills();
+                            setRepairStatus(result.fixed > 0 ? `Fixed ${result.fixed} bills` : 'All clean');
+                            setTimeout(() => setRepairStatus(null), 3000);
+                        }}
+                        disabled={repairStatus === 'running'}
+                        className={`h-10 px-4 rounded-xl flex items-center gap-2 text-xs font-bold transition-all ${
+                            repairStatus === 'running' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse'
+                            : repairStatus ? 'bg-primary/20 text-primary border border-primary/30'
+                            : 'bg-canvas-subtle border border-card-border text-text-muted hover:border-primary/30 hover:text-primary'
+                        }`}
+                    >
+                        <Wrench size={14} />
+                        {repairStatus === 'running' ? 'Repairing...' : repairStatus || 'Repair'}
+                    </button>
                 </div>
 
                 {/* AI Detection Overlay */}
@@ -302,7 +318,12 @@ const Bills = () => {
                             <span className="text-xs font-bold uppercase tracking-tighter text-text-muted group-hover:text-text-main">Add Bill</span>
                         </button>
 
-                        {bills.length === 0 && visibleBills.length === 0 && (
+                        {search.trim() && filteredBills.length === 0 && (
+                            <div className="col-span-full py-8 rounded-2xl bg-card border border-card-border text-center">
+                                <p className="text-sm font-bold text-text-muted">No bills match “{search.trim()}”</p>
+                            </div>
+                        )}
+                        {!search.trim() && bills.length === 0 && visibleBills.length === 0 && (
                             <div className="col-span-full md:col-span-2 lg:col-span-3 py-16 rounded-2xl bg-card border border-dashed border-card-border text-center">
                                 <Activity size={40} className="mx-auto text-text-muted/30 mb-4" />
                                 <h3 className="text-base font-bold text-text-muted">No bills yet</h3>
@@ -316,7 +337,7 @@ const Bills = () => {
                             </div>
                         )}
 
-                        {visibleBills.map((payment, idx) => {
+                        {filteredBills.map((payment, idx) => {
                             const paid = isPaid(payment);
                             const linkedTx = getLinkedTransaction(payment);
                             const template = payment.template || {};
@@ -440,11 +461,18 @@ const Bills = () => {
 
                             {calendarDays.map(day => {
                                 const dayNum = day.getDate();
-                                const dayBills = bills.filter(b => parseInt(b.dueDay) === dayNum);
-                                const hasBill = dayBills.length > 0;
+                                const dayPayments = visibleBills.filter(p => {
+                                    try {
+                                        const d = parseISO(p.dueDate);
+                                        return isSameDay(d, day);
+                                    } catch {
+                                        return false;
+                                    }
+                                });
+                                const hasBill = dayPayments.length > 0;
                                 const isToday = isSameDay(day, today);
                                 const isPast = day < today && !isToday;
-                                const allPaid = hasBill && dayBills.every(b => b.status === 'paid');
+                                const allPaid = hasBill && dayPayments.every(p => p.status === 'paid');
 
                                 return (
                                     <div
@@ -464,8 +492,8 @@ const Bills = () => {
                                         {hasBill && (
                                             <div className="absolute inset-0 opacity-0 group-hover/day:opacity-100 transition-opacity bg-card/95 dark:bg-black/95 z-20 rounded-2xl p-3 flex flex-col justify-center text-center pointer-events-none border border-primary/20 shadow-xl">
                                                 <p className="text-xs font-bold uppercase text-primary mb-1">Bill due</p>
-                                                <p className="text-xs font-bold text-text-main uppercase truncate">{dayBills[0].name}</p>
-                                                <p className="text-sm font-bold text-text-main mt-1">{formatCurrency(dayBills[0].amount)}</p>
+                                                <p className="text-xs font-bold text-text-main uppercase truncate">{dayPayments[0].name}</p>
+                                                <p className="text-sm font-bold text-text-main mt-1">{formatCurrency(dayPayments[0].amount)}</p>
                                             </div>
                                         )}
                                     </div>
@@ -647,9 +675,10 @@ const Bills = () => {
                                     <p className="text-[10px] text-primary font-bold">Select one to attach ID</p>
                                 </div>
 
-                                {getMatchingTransactions(showMarkPaidModal).length > 0 ? (
+                                {getTransactionsInDueWindow(showMarkPaidModal).length > 0 ? (
                                     <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                                        {getMatchingTransactions(showMarkPaidModal).map(tx => (
+                                        <p className="text-[10px] text-text-muted mb-1">Pick the transaction you used to pay (amount can differ e.g. cashback)</p>
+                                        {getTransactionsInDueWindow(showMarkPaidModal).map(tx => (
                                             <button
                                                 key={tx.id}
                                                 onClick={() => setSelectedTransactionId(selectedTransactionId === tx.id ? null : tx.id)}
@@ -674,7 +703,7 @@ const Bills = () => {
                                         ))}
                                     </div>
                                 ) : (
-                                    <p className="text-sm text-text-muted text-center py-4 bg-canvas-subtle rounded-2xl">No matching transactions found for this month</p>
+                                    <p className="text-sm text-text-muted text-center py-4 bg-canvas-subtle rounded-2xl">No transactions in due window. Mark paid without linking, or add a transaction and try again.</p>
                                 )}
                             </div>
 

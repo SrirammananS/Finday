@@ -4,19 +4,11 @@ import { motion } from 'framer-motion';
 import { Activity } from 'lucide-react';
 import { useWalletChartData } from '../hooks/useWalletChartData';
 import WalletMiniChart from './WalletMiniChart';
+import { formatCurrency } from '../utils/formatUtils';
+import { getAccountIcon } from '../utils/accountUtils';
 
-const formatCurrency = (value) => {
-    if (typeof value !== 'number') return '₹0';
-    return new Intl.NumberFormat('en-IN', {
-        style: 'currency',
-        currency: 'INR',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
-    }).format(value);
-};
-
-const WalletCard = React.memo(({ account, transactions, compact = false }) => {
-    const chartData = useWalletChartData(transactions, account.id, 14);
+const WalletCard = React.memo(({ account, transactions, compact = false, linkedCCPaymentTxnIds }) => {
+    const chartData = useWalletChartData(transactions, account.id, 14, null, null, linkedCCPaymentTxnIds);
     const isCredit = account.type === 'credit';
     const limit = account.limit || 100000;
     const utilization = isCredit ? (Math.abs(account.balance) / limit) * 100 : 0;
@@ -35,7 +27,7 @@ const WalletCard = React.memo(({ account, transactions, compact = false }) => {
 
             <div className="flex justify-between items-start relative z-10">
                 <div className="w-10 h-10 rounded-2xl bg-canvas-subtle border border-card-border flex items-center justify-center text-lg group-hover:border-primary/30 transition-all shadow-sm">
-                    {account.type === 'bank' ? '🏦' : account.type === 'credit' ? '💳' : '💵'}
+                    {getAccountIcon(account)}
                 </div>
                 <span className="text-xs font-black uppercase tracking-widest text-text-muted opacity-60 bg-canvas-subtle px-2 py-1 rounded-lg">
                     {account.type}
@@ -46,13 +38,13 @@ const WalletCard = React.memo(({ account, transactions, compact = false }) => {
                 <span className="text-xs font-black uppercase text-text-muted tracking-widest block truncate">
                     {account.name}
                 </span>
-                <p className="text-xl font-black text-text-main truncate tabular-nums leading-none">
-                    {formatCurrency(account.balance)}
+                <p className={`text-xl font-black truncate tabular-nums leading-none ${(account.balance ?? 0) < 0 ? 'text-rose-500' : 'text-text-main'}`}>
+                    {formatCurrency(account.balance ?? 0, { useAbs: false })}
                 </p>
 
-                {/* Mini chart - income/expense trend */}
+                {/* Mini chart - income/expense trend (unique chartId avoids SVG gradient id clash when multiple cards) */}
                 <div className="flex-1 min-h-[56px] -mx-1">
-                    <WalletMiniChart data={chartData} height={52} showTooltip={true} />
+                    <WalletMiniChart data={chartData} height={52} showTooltip={true} chartId={account.id} />
                 </div>
 
                 {isCredit && (

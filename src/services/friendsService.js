@@ -1,6 +1,8 @@
 /**
  * Friends Service - Manages friend list and balances
  */
+import { generateShortId } from '../utils/generateId';
+
 const FRIENDS_KEY = 'laksh_friends';
 
 class FriendsService {
@@ -72,7 +74,7 @@ class FriendsService {
             const exists = this.friends.find(f => f.name.toLowerCase() === name.toLowerCase());
             if (!exists) {
                 this.friends.push({
-                    id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
+                    id: generateShortId(),
                     name: name,
                     createdAt: new Date().toISOString()
                 });

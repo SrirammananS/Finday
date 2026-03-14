@@ -7,6 +7,7 @@ import StatCard from '../components/ui/StatCard';
 import { Users, TrendingUp, TrendingDown, X, CheckCircle2, Trash2, ArrowDownLeft, ArrowUpRight, ArrowRight, ShieldCheck, UserPlus, SlidersHorizontal, History, Link2 } from 'lucide-react';
 import { friendsService } from '../services/friendsService';
 import { calculateFriendBalances } from '../utils/friendBalances';
+import { formatCurrency } from '../utils/formatUtils';
 import { format, subDays, addDays } from 'date-fns';
 
 const Friends = () => {
@@ -50,15 +51,6 @@ const Friends = () => {
         const totalIOwe = friendBalances.reduce((sum, f) => sum + Math.abs(Math.min(0, f.balance)), 0);
         return { totalOwedToMe, totalIOwe, netBalance: totalOwedToMe - totalIOwe };
     }, [friendBalances]);
-
-    const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('en-IN', {
-            style: 'currency',
-            currency: 'INR',
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0
-        }).format(Math.abs(amount) || 0);
-    };
 
     const formatDate = (dateStr) => {
         const date = new Date(dateStr);

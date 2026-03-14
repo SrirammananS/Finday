@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Outlet } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import DynamicIsland from './DynamicIsland';
@@ -7,10 +7,21 @@ import LeftSidebar from './LeftSidebar';
 import RightSidebar from './RightSidebar';
 import TransactionForm from './TransactionForm';
 import SMSManager from './SMSManager';
+import EmojiBurst from './ui/EmojiBurst';
 
 const Layout = () => {
     const [showTransactionForm, setShowTransactionForm] = useState(false);
     const [showSMSModal, setShowSMSModal] = useState(false);
+    const welcomeFired = useRef(false);
+
+    useEffect(() => {
+        if (welcomeFired.current) return;
+        welcomeFired.current = true;
+        const t = setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('welcome-burst'));
+        }, 700);
+        return () => clearTimeout(t);
+    }, []);
 
     return (
         <div className="bg-canvas min-h-screen text-text-main overflow-hidden selection:bg-primary selection:text-primary-foreground transition-colors duration-500 relative">
@@ -51,6 +62,9 @@ const Layout = () => {
             <AnimatePresence>
                 {showSMSModal && <SMSManager isOpen={showSMSModal} onClose={() => setShowSMSModal(false)} />}
             </AnimatePresence>
+
+            {/* Emoji burst effect on transaction save */}
+            <EmojiBurst />
 
             {/* Version - sits above DynamicIsland on mobile */}
             <footer className="fixed bottom-14 right-4 z-40 text-[10px] text-text-muted/40 font-mono pointer-events-none md:bottom-4 md:z-[999] md:text-text-muted/50">

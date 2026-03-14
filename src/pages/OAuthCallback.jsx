@@ -28,7 +28,6 @@ export default function OAuthCallback() {
                 const expiresInFromHash = hashParams.get('expires_in');
 
                 if (error) {
-                    console.error('[LAKSH OAuth] Callback error:', error);
                     localStorage.setItem('oauth_error', error);
                     setStatus('error');
                     setTimeout(() => navigate('/welcome', { replace: true }), 2000);
@@ -38,8 +37,6 @@ export default function OAuthCallback() {
                 let accessToken, expiresIn, refreshToken;
 
                 if (code) {
-                    // Authorization Code flow - exchange for tokens (includes refresh_token)
-                    console.log('[LAKSH OAuth] Code received, exchanging for tokens...');
                     const { cloudBackup } = await import('../services/cloudBackup');
                     const redirectUri = window.location.origin + '/oauth-callback';
                     await cloudBackup.exchangeCodeForToken(code, redirectUri);
@@ -52,19 +49,12 @@ export default function OAuthCallback() {
                     expiresIn = expiresInFromHash || '3600';
                     refreshToken = null;
                 } else {
-                    console.error('[LAKSH OAuth] No code or access token in callback');
                     setStatus('error');
                     setTimeout(() => navigate('/welcome', { replace: true }), 2000);
                     return;
                 }
 
-                console.log('[LAKSH OAuth] Token received', refreshToken ? '(with refresh_token)' : '');
-
-                // Store token for session restoration
-                const isAndroid = /Android/i.test(navigator.userAgent) && /wv/i.test(navigator.userAgent);
-                const expiryMs = isAndroid
-                    ? Date.now() + (365 * 24 * 60 * 60 * 1000)
-                    : Date.now() + (parseInt(expiresIn || '3600') * 1000);
+                const expiryMs = Date.now() + (parseInt(expiresIn || '3600') * 1000);
                 localStorage.setItem('google_access_token', accessToken);
                 localStorage.setItem('google_token_expiry', String(expiryMs));
                 if (refreshToken) localStorage.setItem('google_refresh_token', refreshToken);
@@ -84,7 +74,7 @@ export default function OAuthCallback() {
                     });
                     setTimeout(() => bc.close(), 1000);
                 } catch {
-                    console.warn('[LAKSH OAuth] BroadcastChannel not supported');
+                    // BroadcastChannel not supported
                 }
 
                 localStorage.setItem('oauth_success_trigger', Date.now().toString());
@@ -107,8 +97,7 @@ export default function OAuthCallback() {
                     }).toString();
                     const deepLink = `laksh://oauth-callback#${fragment}`;
 
-                    setDeepLinkFragment(fragment); // for manual fallback when deep link fails
-                    console.log('[LAKSH OAuth] Attempting deep link redirect (with refresh_token)');
+                    setDeepLinkFragment(fragment);
                     window.location.href = deepLink;
 
                     setTimeout(() => setStatus('manual'), 2000);
@@ -116,8 +105,7 @@ export default function OAuthCallback() {
                     setTimeout(() => navigate('/welcome', { replace: true }), 1500);
                 }
 
-            } catch (err) {
-                console.error('[LAKSH OAuth] Callback processing failed:', err);
+            } catch {
                 setStatus('error');
                 setTimeout(() => navigate('/welcome', { replace: true }), 2000);
             }

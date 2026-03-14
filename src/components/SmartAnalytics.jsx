@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Sparkles, TrendingUp, TrendingDown, Target, Zap, BrainCircuit, BarChart3 } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
+import { formatCurrency } from '../utils/formatUtils';
 
 const SmartAnalytics = ({ isOpen, onClose }) => {
     const { transactions, categories: _categories } = useFinance();
@@ -28,7 +29,7 @@ const SmartAnalytics = ({ isOpen, onClose }) => {
             totalInc,
             savingsRate: totalInc > 0 ? ((totalInc - totalExp) / totalInc * 100).toFixed(1) : 0,
             topCategory: topCat ? { name: topCat[0], amount: topCat[1] } : null,
-            burnRate: (totalExp / 30).toFixed(0) // Daily average
+            burnRate: (totalExp / 30).toFixed(2) // Daily average
         };
     }, [transactions]);
 
@@ -88,7 +89,7 @@ const SmartAnalytics = ({ isOpen, onClose }) => {
                                     </div>
                                     <div className="modern-card p-6">
                                         <p className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-2">Daily Burn Rate</p>
-                                        <h3 className="text-3xl font-black text-rose-500">₹{Number(analysis.burnRate).toLocaleString()}</h3>
+                                        <h3 className="text-3xl font-black text-rose-500">{formatCurrency(Number(analysis.burnRate))}</h3>
                                         <p className="text-[10px] text-text-muted mt-1">Average daily expense</p>
                                     </div>
                                 </div>

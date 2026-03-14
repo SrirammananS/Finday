@@ -1,23 +1,19 @@
 import React, { useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import TransactionForm from '../components/TransactionForm';
 import PageLayout from '../components/PageLayout';
 import PageHeader from '../components/PageHeader';
-import { Search, Trash2, Filter, Plus, Download, FileText, ChevronDown, Calendar, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Search, Trash2, Filter, Plus, Download, FileText, ChevronDown, Calendar, ArrowUpRight, ArrowDownRight, Cloud, CloudOff } from 'lucide-react';
 import { exportTransactions, generateFinancialReport, downloadFile } from '../utils/exportUtils';
-
-const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-IN', {
-        style: 'currency',
-        currency: 'INR',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
-    }).format(Math.abs(amount) || 0);
-};
+import { formatCurrency } from '../utils/formatUtils';
+import { getLinkedCCPaymentDisplay } from '../utils/transactionUtils';
 
 const Transactions = () => {
-    const { transactions = [], categories = [], accounts = [], deleteTransaction, isLoading } = useFinance();
+    const [searchParams] = useSearchParams();
+    const dateFromUrl = searchParams.get('date'); // e.g. /transactions?date=2026-03-15
+    const { transactions = [], categories = [], accounts = [], bills = [], billPayments = [], creditCards = [], creditCardPayments = [], deleteTransaction, isLoading } = useFinance();
     const [showForm, setShowForm] = useState(false);
     const [editing, setEditing] = useState(null);
     const [search, setSearch] = useState('');
@@ -50,7 +46,9 @@ const Transactions = () => {
             const categoryMatch = !selectedCategory || t.category === selectedCategory;
 
             let dateMatch = true;
-            if (dateRange !== 'all' && t.date) {
+            if (dateFromUrl && t.date) {
+                dateMatch = t.date === dateFromUrl;
+            } else if (dateRange !== 'all' && t.date) {
                 const diff = (new Date() - new Date(t.date)) / (1000 * 60 * 60 * 24);
                 if (dateRange === 'week') dateMatch = diff <= 7;
                 if (dateRange === 'month') dateMatch = diff <= 30;
@@ -66,7 +64,7 @@ const Transactions = () => {
             date: (a, b) => new Date(b.date) - new Date(a.date)
         };
         return filtered.sort(sorters[sortBy] || sorters.date);
-    }, [transactions, search, selectedCategory, dateRange, sortBy, accounts]);
+    }, [transactions, search, selectedCategory, dateRange, dateFromUrl, sortBy, accounts]);
 
     const grouped = filteredAndSorted.reduce((acc, t) => {
         if (!t.date) return acc;
@@ -93,21 +91,21 @@ const Transactions = () => {
                     subtitle="Complete history across all nodes"
                     icon={FileText}
                     actions={
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 md:gap-3">
                         <div className="relative">
                             <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() => setShowExportMenu(!showExportMenu)}
-                                className="h-14 px-6 rounded-2xl bg-canvas-subtle border border-card-border hover:border-primary/40 transition-all flex items-center gap-3 group"
+                                className="h-10 md:h-14 px-3 md:px-6 rounded-xl md:rounded-2xl bg-canvas-subtle border border-card-border hover:border-primary/40 transition-all flex items-center gap-2 md:gap-3 group"
                             >
-                                <Download size={20} className="text-text-muted group-hover:text-primary transition-colors" />
-                                <span className="text-xs font-black uppercase tracking-widest">Export</span>
+                                <Download size={16} className="text-text-muted group-hover:text-primary transition-colors md:w-5 md:h-5" />
+                                <span className="text-[10px] md:text-xs font-black uppercase tracking-widest hidden sm:inline">Export</span>
                             </motion.button>
 
                             <AnimatePresence>
                                 {showExportMenu && (
                                     <motion.div
-                                        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                                        initial={{ opacity: 1, scale: 1, y: 0 }}
                                         animate={{ opacity: 1, scale: 1, y: 0 }}
                                         exit={{ opacity: 0, scale: 0.95, y: 10 }}
                                         className="absolute top-16 right-0 w-56 bg-card border border-card-border rounded-2xl backdrop-blur-2xl shadow-3xl p-2 z-50 overflow-hidden"
@@ -134,10 +132,10 @@ const Transactions = () => {
                         <motion.button
                             whileTap={{ scale: 0.95 }}
                             onClick={() => setShowForm(true)}
-                            className="h-14 px-8 rounded-2xl bg-primary text-black flex items-center gap-3 hover:shadow-[0_0_30px_rgba(var(--primary-rgb),0.4)] transition-all font-black"
+                            className="h-10 md:h-14 px-4 md:px-8 rounded-xl md:rounded-2xl bg-primary text-black flex items-center gap-2 md:gap-3 hover:shadow-[0_0_30px_rgba(var(--primary-rgb),0.4)] transition-all font-black"
                         >
-                            <Plus size={20} strokeWidth={3} />
-                            <span className="text-xs uppercase tracking-widest">Signal</span>
+                            <Plus size={18} strokeWidth={3} className="md:w-5 md:h-5" />
+                            <span className="text-[10px] md:text-xs uppercase tracking-widest">Add</span>
                         </motion.button>
                     </div>
                     }
@@ -216,11 +214,13 @@ const Transactions = () => {
                                     const isIncome = t.amount > 0;
                                     const account = accounts.find(a => a.id === t.accountId);
                                     const accountName = account ? account.name : '—';
+                                    const ccDisplay = getLinkedCCPaymentDisplay(t.id, billPayments, bills, accounts, creditCardPayments, creditCards, { transaction: t });
+                                    const displayDescription = ccDisplay ? ccDisplay.label : (t.description || '—');
 
                                     return (
                                         <motion.div
                                             key={`${t.id}-${t.date}`}
-                                            initial={{ x: -10, opacity: 0 }}
+                                            initial={{ x: 0, opacity: 1 }}
                                             whileInView={{ x: 0, opacity: 1 }}
                                             viewport={{ once: true }}
                                             transition={{ delay: 0.03 * iIdx }}
@@ -228,10 +228,15 @@ const Transactions = () => {
                                             className="group p-4 md:p-6 rounded-2xl bg-card border border-card-border flex items-center gap-4 cursor-pointer hover:border-primary/20 transition-all"
                                         >
                                             <div className="w-10 h-10 rounded-xl bg-canvas-subtle flex items-center justify-center text-xl shrink-0">
-                                                {cat?.icon || '📦'}
+                                                {ccDisplay ? '💳' : (cat?.icon || '📦')}
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-bold text-text-main truncate">{t.description}</p>
+                                                <div className="flex items-center gap-1.5">
+                                                    <p className="text-sm font-bold text-text-main truncate" title={ccDisplay ? t.description : undefined}>{displayDescription}</p>
+                                                    {t.synced === false && (
+                                                        <CloudOff size={12} className="text-amber-500 shrink-0" title="Not synced to cloud" />
+                                                    )}
+                                                </div>
                                                 <p className="text-[10px] font-semibold text-text-muted">{t.category} · {accountName}</p>
                                             </div>
                                             <div className="flex items-center gap-2 shrink-0">
@@ -241,7 +246,7 @@ const Transactions = () => {
                                                 </p>
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); if (confirm('Delete this transaction?')) deleteTransaction(t); }}
-                                                    className="w-8 h-8 rounded-lg flex items-center justify-center text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                                                    className="w-8 h-8 rounded-lg flex items-center justify-center text-rose-500/50 hover:text-rose-500 hover:bg-rose-500/10 md:opacity-0 md:group-hover:opacity-100 transition-all"
                                                 >
                                                     <Trash2 size={14} />
                                                 </button>

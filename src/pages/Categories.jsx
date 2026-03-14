@@ -1,27 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import PageLayout from '../components/PageLayout';
 import PageHeader from '../components/PageHeader';
 import StatCard from '../components/ui/StatCard';
 import { Plus, X, Trash2, Layers, Sparkles, TrendingUp, TrendingDown, PieChart } from 'lucide-react';
+import { formatCurrency } from '../utils/formatUtils';
+import { expenseOnlyTransactions, getLinkedCCPaymentTransactionIds } from '../utils/transactionUtils';
+import IconPicker from '../components/ui/IconPicker';
 
 const Categories = () => {
-    const { categories = [], transactions = [], addCategory, deleteCategory, isLoading } = useFinance();
+    const { categories = [], transactions = [], bills = [], billPayments = [], creditCardPayments = [], addCategory, deleteCategory, isLoading } = useFinance();
     const [showModal, setShowModal] = useState(false);
     const [form, setForm] = useState({ name: '', icon: '📦', color: '#CCFF00' });
 
-    const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('en-IN', {
-            style: 'currency',
-            currency: 'INR',
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0
-        }).format(Math.abs(amount) || 0);
-    };
-
+    const linkedCCPaymentTxnIds = useMemo(() => getLinkedCCPaymentTransactionIds(billPayments, bills, creditCardPayments), [billPayments, bills, creditCardPayments]);
     const incomeList = transactions.filter(t => t.type === 'income' || t.amount > 0);
-    const expenses = transactions.filter(t => t.type === 'expense' || t.amount < 0);
+    const expenses = expenseOnlyTransactions(transactions, linkedCCPaymentTxnIds);
     const totalIncome = incomeList.reduce((sum, t) => sum + Math.abs(t.amount), 0);
     const totalExpenses = expenses.reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
@@ -154,14 +149,10 @@ const Categories = () => {
 
                                     <div className="grid grid-cols-2 gap-8">
                                         <div className="space-y-4">
-                                            <label className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted ml-4 block">Visual Icon</label>
-                                            <input
-                                                type="text"
-                                                placeholder="Emoji"
+                                            <IconPicker
+                                                label="Visual Icon"
                                                 value={form.icon}
-                                                onChange={e => setForm({ ...form, icon: e.target.value })}
-                                                className="w-full h-20 bg-canvas-subtle border border-card-border px-8 rounded-3xl outline-none focus:border-primary transition-all font-black text-3xl text-center"
-                                                required
+                                                onChange={(icon) => setForm({ ...form, icon })}
                                             />
                                         </div>
                                         <div className="space-y-4">

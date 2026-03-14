@@ -2,62 +2,85 @@ import React, { useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useFinance } from '../context/FinanceContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, TrendingUp, TrendingDown, Wallet, Filter, Calendar, ChevronLeft, ChevronRight, CreditCard, Edit3, ShieldCheck, Activity, Globe, Info } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, Wallet, Filter, Calendar, ChevronLeft, ChevronRight, CreditCard, Edit3, ShieldCheck, Activity, Globe, Info, ExternalLink } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts';
-import { format, addMonths, subMonths } from 'date-fns';
+import { format, addMonths, subMonths, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
 import TransactionForm from '../components/TransactionForm';
-import { useWalletChartData } from '../hooks/useWalletChartData';
-
-const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-IN', {
-        style: 'currency',
-        currency: 'INR',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
-    }).format(Math.abs(amount) || 0);
-};
+import { useWalletChartData, getCycleRange } from '../hooks/useWalletChartData';
+import { formatCurrency } from '../utils/formatUtils';
+import { getAccountIcon } from '../utils/accountUtils';
+import { expenseOnlyTransactions, getLinkedCCPaymentTransactionIds, getLinkedCCPaymentDisplay } from '../utils/transactionUtils';
 
 const AccountDetail = () => {
     const { accountId } = useParams();
-    const { accounts = [], transactions = [], categories = [], isLoading } = useFinance();
-    const [selectedStatement, setSelectedStatement] = useState(new Date());
+    const { accounts = [], transactions = [], categories = [], bills = [], billPayments = [], creditCards = [], creditCardPayments = [], isLoading } = useFinance();
+    const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()));
+    const [viewCycleOffset, setViewCycleOffset] = useState(0); // 0 = current, -1 = previous, etc. (credit card only)
     const [showEditForm, setShowEditForm] = useState(false);
     const [editingTransaction, setEditingTransaction] = useState(null);
 
     const account = accounts.find(a => a.id === accountId);
     const isCreditCard = account?.type === 'credit';
-    const billingDay = parseInt(account?.billingDay) || 1;
+    const useCycleView = isCreditCard && account?.billingDay;
+    const billingDay = parseInt(account?.billingDay, 10) || 1;
 
-    // For credit cards, calculate statement period
-    const statementPeriod = useMemo(() => {
-        if (!isCreditCard) return null;
-        const currentMonth = selectedStatement.getMonth();
-        const currentYear = selectedStatement.getFullYear();
-        const statementEnd = new Date(currentYear, currentMonth, billingDay);
-        const statementStart = new Date(currentYear, currentMonth - 1, billingDay + 1);
-        return { start: statementStart, end: statementEnd };
-    }, [isCreditCard, selectedStatement, billingDay]);
+    const now = new Date();
+    const currentMonthStart = startOfMonth(now);
 
-    // Filter transactions
+    // For credit card: cycle range; for others: month range
+    const viewRange = useMemo(() => {
+        if (useCycleView) return getCycleRange(billingDay, viewCycleOffset);
+        return { start: startOfMonth(viewMonth), end: endOfMonth(viewMonth) };
+    }, [useCycleView, billingDay, viewCycleOffset, viewMonth]);
+
+    const canGoNextMonth = viewMonth.getTime() < currentMonthStart.getTime();
+    const canGoNextCycle = viewCycleOffset < 1;
+
+    // Filter transactions by selected view range (cycle for CC, month for others)
     const accountTransactions = useMemo(() => {
         let txList = transactions.filter(t => t.accountId === accountId);
-        if (isCreditCard && statementPeriod) {
-            txList = txList.filter(t => {
-                const txDate = new Date(t.date);
-                return txDate > statementPeriod.start && txDate <= statementPeriod.end;
-            });
-        }
+        txList = txList.filter(t => {
+            const txDate = new Date(t.date);
+            return isWithinInterval(txDate, { start: viewRange.start, end: viewRange.end });
+        });
         return txList.sort((a, b) => new Date(b.date) - new Date(a.date));
-    }, [transactions, accountId, isCreditCard, statementPeriod]);
+    }, [transactions, accountId, viewRange]);
 
+    const linkedCCPaymentTxnIds = useMemo(() => getLinkedCCPaymentTransactionIds(billPayments, bills, creditCardPayments), [billPayments, bills, creditCardPayments]);
     const stats = useMemo(() => {
         const income = accountTransactions.filter(t => t.type === 'income' || t.amount > 0).reduce((sum, t) => sum + Math.abs(t.amount), 0);
-        const expenses = accountTransactions.filter(t => t.type === 'expense' || t.amount < 0).reduce((sum, t) => sum + Math.abs(t.amount), 0);
+        const expenseTxns = expenseOnlyTransactions(accountTransactions, linkedCCPaymentTxnIds);
+        const expenses = expenseTxns.reduce((sum, t) => sum + Math.abs(t.amount), 0);
         return { income, expenses, count: accountTransactions.length };
-    }, [accountTransactions]);
+    }, [accountTransactions, linkedCCPaymentTxnIds]);
 
-    // Chart data: last 30 days income/expense trend for this account
-    const accountChartData = useWalletChartData(transactions, accountId, 30);
+    // Chart: cycle dateRange for CC, month view for others (excludes linked CC payments from expense)
+    const accountChartData = useWalletChartData(
+        transactions,
+        accountId,
+        30,
+        useCycleView ? null : viewMonth,
+        useCycleView ? viewRange : null,
+        linkedCCPaymentTxnIds
+    );
+
+    // Current cycle/month paid bill payment(s) for this account (for tab under graph)
+    const cycleKey = useCycleView ? format(viewRange.start, 'yyyy-MM') : format(viewMonth, 'yyyy-MM');
+    const currentCyclePayment = useMemo(() => {
+        const legacy = (billPayments || []).filter(
+            (p) =>
+                p.cycle === cycleKey &&
+                p.status === 'paid' &&
+                (p.accountId === accountId || (bills || []).some((b) => b.id === p.billId && b.accountId === accountId))
+        );
+        const ccPayments = (creditCardPayments || []).filter((p) => {
+            const card = (creditCards || []).find((c) => c.id === p.creditCardId);
+            if (!card || card.accountId !== accountId) return false;
+            if (p.status !== 'paid' && p.status !== 'closed') return false;
+            return p.cycle === cycleKey || (p.cycle && (String(p.cycle).startsWith(cycleKey + '-') || String(p.cycle).includes(cycleKey)));
+        });
+        return [...legacy, ...ccPayments];
+    }, [billPayments, bills, accountId, cycleKey, creditCardPayments, creditCards]);
 
     const handleEditTransaction = (transaction) => {
         setEditingTransaction(transaction);
@@ -104,7 +127,7 @@ const AccountDetail = () => {
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-8">
                         <div className="flex items-center gap-6">
                             <div className="w-20 h-20 rounded-[2rem] bg-canvas-subtle border border-card-border flex items-center justify-center text-4xl shadow-2xl">
-                                {account.type === 'bank' ? '🏦' : account.type === 'credit' ? '💳' : '💵'}
+                                {getAccountIcon(account)}
                             </div>
                             <div>
                                 <h1 className="text-2xl md:text-3xl font-black tracking-tighter leading-none text-text-main uppercase">{account.name}</h1>
@@ -194,9 +217,45 @@ const AccountDetail = () => {
                     </div>
                 </div>
 
+                {/* Period navigation: cycle for credit card, month for others */}
+                <div className="mb-6 p-3 rounded-[2.2rem] bg-card border border-card-border flex items-center justify-between">
+                    <button
+                        type="button"
+                        onClick={() => useCycleView ? setViewCycleOffset((o) => o - 1) : setViewMonth((prev) => subMonths(prev, 1))}
+                        className="w-14 h-14 rounded-2xl bg-canvas-subtle flex items-center justify-center hover:bg-canvas-elevated transition-all text-text-muted hover:text-text-main"
+                        aria-label={useCycleView ? 'Previous cycle' : 'Previous month'}
+                    >
+                        <ChevronLeft size={20} />
+                    </button>
+                    <div className="text-center">
+                        <div className="flex items-center gap-3 justify-center mb-1">
+                            <Calendar size={14} className="text-primary opacity-60" />
+                            <h3 className="text-[10px] font-black text-text-main uppercase tracking-[0.2em]">
+                                {useCycleView
+                                    ? `${format(viewRange.start, 'd MMM')} – ${format(viewRange.end, 'd MMM yyyy')}`
+                                    : format(viewMonth, 'MMMM yyyy')}
+                            </h3>
+                        </div>
+                        <p className="text-[9px] font-black text-text-muted opacity-40 uppercase tracking-widest">
+                            {useCycleView ? 'Graph &amp; history by statement cycle' : 'Graph &amp; history for this month'}
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => useCycleView ? setViewCycleOffset((o) => o + 1) : setViewMonth((prev) => addMonths(prev, 1))}
+                        disabled={useCycleView ? !canGoNextCycle : !canGoNextMonth}
+                        className="w-14 h-14 rounded-2xl bg-canvas-subtle flex items-center justify-center hover:bg-canvas-elevated transition-all text-text-muted hover:text-text-main disabled:opacity-40 disabled:cursor-not-allowed"
+                        aria-label={useCycleView ? 'Next cycle' : 'Next month'}
+                    >
+                        <ChevronRight size={20} />
+                    </button>
+                </div>
+
                 {/* Income/Expense Trend Chart */}
                 <div className="p-6 md:p-8 rounded-[2.5rem] bg-card border border-card-border mb-12 overflow-hidden">
-                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-4">Activity Trend (30 days)</h3>
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-4">
+                        Activity trend — {useCycleView ? `${format(viewRange.start, 'd MMM')} – ${format(viewRange.end, 'd MMM yyyy')}` : format(viewMonth, 'MMMM yyyy')}
+                    </h3>
                     <div className="h-48 md:h-56 -mx-2">
                         <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={accountChartData}>
@@ -211,7 +270,12 @@ const AccountDetail = () => {
                                     </linearGradient>
                                 </defs>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                                <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.5)' }} />
+                                <XAxis
+                                    dataKey="name"
+                                    tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.5)', angle: -90, textAnchor: 'end' }}
+                                    interval="preserveStartEnd"
+                                    height={56}
+                                />
                                 <YAxis hide domain={['auto', 'auto']} />
                                 <Tooltip
                                     contentStyle={{
@@ -224,46 +288,57 @@ const AccountDetail = () => {
                                     }}
                                     itemStyle={{ color: '#fff' }}
                                     labelStyle={{ color: 'rgba(255,255,255,0.8)' }}
-                                    formatter={(value, name) => [`₹${Number(value).toLocaleString()}`, name === 'Inflow' ? 'Inflow' : 'Outflow']}
-                                    labelFormatter={(label) => `Day ${label}`}
+                                    formatter={(value, name) => [formatCurrency(Number(value)), name === 'Inflow' ? 'Inflow' : 'Outflow']}
+                                    labelFormatter={(label) => label}
                                 />
                                 <Area type="monotone" dataKey="income" stroke="#10b981" strokeWidth={2} fill="url(#accIn)" name="Inflow" />
                                 <Area type="monotone" dataKey="expense" stroke="#f43f5e" strokeWidth={2} fill="url(#accOut)" name="Outflow" />
                             </AreaChart>
                         </ResponsiveContainer>
                     </div>
-                </div>
-
-                {/* Chrono Selector for Statement Period */}
-                {isCreditCard && (
-                    <div className="mb-12 p-3 rounded-[2.2rem] bg-card border border-card-border flex items-center justify-between">
-                        <button
-                            onClick={() => setSelectedStatement(prev => subMonths(prev, 1))}
-                            className="w-14 h-14 rounded-2xl bg-canvas-subtle flex items-center justify-center hover:bg-canvas-elevated transition-all text-text-muted"
-                        >
-                            <ChevronLeft size={20} />
-                        </button>
-                        <div className="text-center">
-                            <div className="flex items-center gap-3 justify-center mb-1">
-                                <Calendar size={14} className="text-primary opacity-60" />
-                                <h3 className="text-[10px] font-black text-text-main uppercase tracking-[0.2em]">
-                                    {format(selectedStatement, 'MMMM yyyy')} CYCLE
-                                </h3>
-                            </div>
-                            {statementPeriod && (
-                                <p className="text-[9px] font-black text-text-muted opacity-40 uppercase tracking-widest">
-                                    {format(statementPeriod.start, 'MMM d')} - {format(statementPeriod.end, 'MMM d')}
-                                </p>
-                            )}
+                    {/* Current cycle payment paid date + link to transaction/insights */}
+                    {currentCyclePayment.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-card-border/50 flex flex-wrap items-center gap-4">
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted">
+                                {useCycleView ? 'Cycle payment' : 'This month'}
+                            </span>
+                            {currentCyclePayment.map((p) => {
+                                const linkedTx = p.transactionId ? transactions.find((t) => t.id === p.transactionId) : null;
+                                const fromAcc = linkedTx?.accountId ? accounts.find((a) => a.id === linkedTx.accountId) : null;
+                                const fromName = fromAcc?.name || null;
+                                const dateForLink = linkedTx?.date || (p.paidDate ? format(new Date(p.paidDate), 'yyyy-MM-dd') : null);
+                                const paidDateStr = p.paidDate ? format(new Date(p.paidDate), 'dd MMM yyyy') : '—';
+                                return (
+                                    <div key={p.id} className="flex items-center gap-3 flex-wrap">
+                                        <span className="text-xs font-bold text-emerald-500/90">
+                                            {fromName ? `From ${fromName} → paid ${paidDateStr}. Settled` : `Paid ${paidDateStr}`}
+                                            {p.name && !fromName && ` · ${p.name}`}
+                                            {p.amount ? ` · ${formatCurrency(Math.abs(p.amount))}` : ''}
+                                        </span>
+                                        {dateForLink && (
+                                            <>
+                                                <Link
+                                                    to={`/insights?view=expense&date=${dateForLink}`}
+                                                    className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-primary hover:underline"
+                                                >
+                                                    <ExternalLink size={12} />
+                                                    Insights
+                                                </Link>
+                                                <Link
+                                                    to={`/transactions?date=${dateForLink}`}
+                                                    className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-text-muted hover:text-primary hover:underline"
+                                                >
+                                                    <ExternalLink size={12} />
+                                                    Transactions
+                                                </Link>
+                                            </>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
-                        <button
-                            onClick={() => setSelectedStatement(prev => addMonths(prev, 1))}
-                            className="w-14 h-14 rounded-2xl bg-canvas-subtle flex items-center justify-center hover:bg-canvas-elevated transition-all text-text-muted"
-                        >
-                            <ChevronRight size={20} />
-                        </button>
-                    </div>
-                )}
+                    )}
+                </div>
 
                 {/* Signals History */}
                 <section>
@@ -278,7 +353,7 @@ const AccountDetail = () => {
                         <div className="py-32 rounded-[3.5rem] bg-card border border-dashed border-card-border text-center flex flex-col items-center justify-center">
                             <Filter size={40} className="text-text-muted/10 mb-6" />
                             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted/40">
-                                {isCreditCard ? 'NO SIGNALS DETECTED IN THIS CYCLE' : 'NO ACCOUNT HISTORY TRACED'}
+                                {useCycleView ? 'NO TRANSACTIONS THIS CYCLE' : 'NO TRANSACTIONS THIS MONTH'}
                             </p>
                         </div>
                     ) : (
@@ -286,6 +361,7 @@ const AccountDetail = () => {
                             {accountTransactions.map((t, idx) => {
                                 const cat = categories.find(c => c.name === t.category);
                                 const isExpense = t.type === 'expense' || t.amount < 0;
+                                const ccDisplay = getLinkedCCPaymentDisplay(t.id, billPayments, bills, accounts, creditCardPayments, creditCards, { transaction: t });
                                 return (
                                     <motion.div
                                         key={t.id}
@@ -298,10 +374,10 @@ const AccountDetail = () => {
                                     >
                                         <div className="flex items-center gap-6">
                                             <div className="w-14 h-14 rounded-2xl bg-canvas-subtle border border-card-border flex items-center justify-center text-2xl group-hover:border-primary/30 transition-all">
-                                                {cat?.icon || '📦'}
+                                                {(ccDisplay ? '💳' : (cat?.icon || '📦'))}
                                             </div>
                                             <div>
-                                                <p className="text-lg font-black uppercase tracking-tighter text-text-main group-hover:text-text-main transition-colors">{t.description || t.category}</p>
+                                                <p className="text-lg font-black uppercase tracking-tighter text-text-main group-hover:text-text-main transition-colors" title={ccDisplay ? t.description : undefined}>{ccDisplay?.label ?? (t.description || t.category)}</p>
                                                 <div className="flex items-center gap-3 mt-1">
                                                     <span className="text-[9px] font-black uppercase tracking-widest text-text-muted opacity-50">
                                                         {format(new Date(t.date), 'dd MMM yyyy')}

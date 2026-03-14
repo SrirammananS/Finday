@@ -3,6 +3,8 @@
  * Manages recurring bills, due dates, and reminders
  */
 
+import { generateShortId } from '../utils/generateId';
+
 const BILLS_KEY = 'laksh_bills';
 const BILL_HISTORY_KEY = 'laksh_bill_history';
 
@@ -44,7 +46,7 @@ class BillManagerService {
 
     addBill(bill) {
         const newBill = {
-            id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
+            id: generateShortId(),
             name: bill.name,
             amount: bill.amount,
             category: bill.category || 'Utilities/Bills',
@@ -242,17 +244,24 @@ class BillManagerService {
 
     // ============== AUTO-DETECT FROM TRANSACTIONS ==============
 
-    detectBillsFromTransactions(transactions, smartAI) {
+    /**
+     * @param {Array} transactions
+     * @param {Object} smartAI
+     * @param {Array} [billPayments] - If provided, transactions already linked to any bill payment (transactionId) are excluded so paid/linked txns don't show as detected bills.
+     */
+    detectBillsFromTransactions(transactions, smartAI, billPayments = []) {
         const detected = [];
         const processedDescriptions = new Set();
+        const linkedTransactionIds = new Set((billPayments || []).map(p => p.transactionId).filter(Boolean));
 
-        // Group transactions by similar description
+        // Group transactions by similar description (exclude already-linked/paid)
         const grouped = {};
         transactions.forEach(t => {
+            if (linkedTransactionIds.has(t.id)) return; // already linked to a bill payment – don't use for detection
             if (t.amount >= 0) return; // Only expenses
             const desc = (t.description || '').toLowerCase().trim();
             if (!desc || processedDescriptions.has(desc)) return;
-            
+
             if (!grouped[desc]) grouped[desc] = [];
             grouped[desc].push(t);
         });

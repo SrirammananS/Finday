@@ -47,7 +47,8 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="portrait"
-            android:theme="@style/Theme.LAKSH" >
+            android:theme="@style/Theme.LAKSH"
+            android:windowSoftInputMode="adjustResize" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

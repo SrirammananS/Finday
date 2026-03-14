@@ -13,6 +13,7 @@ import { useTransactionActions } from '../hooks/useTransactionActions';
 import { useBillActions } from '../hooks/useBillActions';
 import { AuthProvider, useAuth } from './AuthContext';
 import { generateShortId } from '../utils/generateId';
+import { hashVaultPin, verifyVaultPin } from '../utils/vaultPin';
 
 const FinanceContext = createContext();
 
@@ -39,6 +40,7 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
     const isMountedRef = useRef(true);
     const mountTimeRef = useRef(Date.now());
     const generatedBuffer = useRef(new Set());
+    const refreshInProgressRef = useRef(false);
     const [loadingStage, setLoadingStage] = useState('init'); // init | auth | fetch | ready | error
     const [loadingStatus, setLoadingStatus] = useState({ step: 0, message: 'Initializing...', error: null });
     const [isSyncing, setIsSyncing] = useState(false);
@@ -56,6 +58,8 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
     const [categories, setCategories] = useState([]);
     const [bills, setBills] = useState([]);
     const [billPayments, setBillPayments] = useState([]);
+    const [creditCards, setCreditCards] = useState([]);
+    const [creditCardPayments, setCreditCardPayments] = useState([]);
     const [closedPeriods, setClosedPeriods] = useState(storage.getJSON(STORAGE_KEYS.CLOSED_PERIODS) || []);
     const [secretUnlocked, setSecretUnlocked] = useState(false);
 
@@ -73,9 +77,34 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
     // Calculate dynamic balances for friends based on transactions
     const friendsWithBalance = useFriendsWithBalance(friends, transactions);
 
-    const toggleSecretUnlock = useCallback(() => {
-        setSecretUnlocked(prev => !prev);
+    const hasVaultMpin = !!(config && config.vault_mpin_hash);
+
+    const lockVault = useCallback(() => {
+        setSecretUnlocked(false);
     }, []);
+
+    const unlockVaultWithPin = useCallback(async (pin) => {
+        const stored = config && config.vault_mpin_hash;
+        if (!stored) return { success: false, error: 'No MPIN set' };
+        const ok = await verifyVaultPin(pin, stored);
+        if (ok) setSecretUnlocked(true);
+        return { success: ok, error: ok ? undefined : 'Wrong MPIN' };
+    }, [config]);
+
+    const setVaultMpinAndUnlock = useCallback(async (pin) => {
+        const spreadsheetId = config && config.spreadsheetId;
+        if (!spreadsheetId) return { success: false, error: 'Not connected' };
+        const hash = await hashVaultPin(pin);
+        try {
+            await sheetsService.setConfig(spreadsheetId, 'vault_mpin_hash', hash);
+            setConfig(prev => ({ ...prev, vault_mpin_hash: hash }));
+            setSecretUnlocked(true);
+            return { success: true };
+        } catch (err) {
+            logger.error('Set vault MPIN failed:', err);
+            return { success: false, error: err?.message || 'Failed to save' };
+        }
+    }, [config, setConfig]);
 
     // ===== INITIALIZATION =====
     useEffect(() => {
@@ -95,6 +124,27 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
             clearInterval(interval);
         };
     }, []);
+
+    // Proactive token refresh: silently refresh access token every 50 minutes
+    // Google access tokens expire in 60 min; refreshing at 50 min avoids 401s
+    useEffect(() => {
+        const REFRESH_INTERVAL_MS = 50 * 60 * 1000;
+        const refreshTimer = setInterval(async () => {
+            if (isGuest) return;
+            const refreshToken = localStorage.getItem('google_refresh_token');
+            if (!refreshToken) return;
+            try {
+                const refreshed = await sheetsService.refreshToken();
+                if (refreshed) {
+                    logger.info('Proactive token refresh succeeded');
+                }
+            } catch (e) {
+                logger.warn('Proactive token refresh failed:', e?.message);
+            }
+        }, REFRESH_INTERVAL_MS);
+
+        return () => clearInterval(refreshTimer);
+    }, [isGuest]);
 
     // Helper function to ensure sheets service is ready (with token refresh for mobile)
     const ensureSheetsReady = async () => {
@@ -127,7 +177,7 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
         setIsSyncing,
         setLastSyncTime
     });
-    const { addBill, updateBill, updateBillPayment, deleteBill } = billActions;
+    const { addBill, updateBill, updateBillPayment, deleteBill, repairBills } = billActions;
 
     const generateBillInstances = useCallback(async (billsList, paymentsList, txnsList, spreadsheetId) => {
         await generateBillInstancesService({
@@ -142,6 +192,90 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
             sheetsService,
         });
     }, [updateBillPayment, toast]);
+
+    // Credit card CRUD (new sheets _CreditCards / _CreditCardPayments)
+    const addCreditCard = useCallback(async (data) => {
+        const card = { id: generateId(), ...data, createdAt: data.createdAt || new Date().toISOString() };
+        const newCards = [card, ...creditCards];
+        setCreditCards(newCards);
+        await localDB.saveData({ transactions, accounts, categories, bills, billPayments, creditCards: newCards, creditCardPayments });
+        if (config.spreadsheetId) {
+            setIsSyncing(true);
+            try {
+                await sheetsService.ensureSheetExists(config.spreadsheetId, '_CreditCards');
+                await sheetsService.addCreditCard(config.spreadsheetId, card);
+                setLastSyncTime(new Date());
+            } catch (err) {
+                logger.error('addCreditCard failed:', err);
+                setCreditCards(creditCards);
+                throw err;
+            } finally {
+                setIsSyncing(false);
+            }
+        }
+        return card;
+    }, [creditCards, creditCardPayments, transactions, accounts, categories, bills, billPayments, config, setCreditCards, setIsSyncing, setLastSyncTime]);
+
+    const updateCreditCard = useCallback(async (cardId, updates) => {
+        const newCards = creditCards.map(c => c.id === cardId ? { ...c, ...updates } : c);
+        setCreditCards(newCards);
+        await localDB.saveData({ transactions, accounts, categories, bills, billPayments, creditCards: newCards, creditCardPayments });
+        if (config.spreadsheetId) {
+            setIsSyncing(true);
+            try {
+                await sheetsService.updateCreditCard(config.spreadsheetId, cardId, updates);
+                setLastSyncTime(new Date());
+            } catch (err) {
+                logger.error('updateCreditCard failed:', err);
+                setCreditCards(creditCards);
+                throw err;
+            } finally {
+                setIsSyncing(false);
+            }
+        }
+    }, [creditCards, creditCardPayments, transactions, accounts, categories, bills, billPayments, config, setCreditCards, setIsSyncing, setLastSyncTime]);
+
+    const addCreditCardPayment = useCallback(async (data) => {
+        const payment = { id: generateId(), ...data, createdAt: data.createdAt || new Date().toISOString() };
+        const newPayments = [...creditCardPayments, payment];
+        setCreditCardPayments(newPayments);
+        await localDB.saveData({ transactions, accounts, categories, bills, billPayments, creditCards, creditCardPayments: newPayments });
+        if (config.spreadsheetId) {
+            setIsSyncing(true);
+            try {
+                await sheetsService.ensureSheetExists(config.spreadsheetId, '_CreditCardPayments');
+                await sheetsService.addCreditCardPayment(config.spreadsheetId, payment);
+                setLastSyncTime(new Date());
+            } catch (err) {
+                logger.error('addCreditCardPayment failed:', err);
+                setCreditCardPayments(creditCardPayments);
+                throw err;
+            } finally {
+                setIsSyncing(false);
+            }
+        }
+        return payment;
+    }, [creditCards, creditCardPayments, transactions, accounts, categories, bills, billPayments, config, setCreditCardPayments, setIsSyncing, setLastSyncTime]);
+
+    const updateCreditCardPayment = useCallback(async (paymentId, updates, paymentsOverride) => {
+        const base = paymentsOverride ?? creditCardPayments;
+        const newPayments = base.map(p => p.id === paymentId ? { ...p, ...updates } : p);
+        setCreditCardPayments(newPayments);
+        await localDB.saveData({ transactions, accounts, categories, bills, billPayments, creditCards, creditCardPayments: newPayments });
+        if (config.spreadsheetId) {
+            setIsSyncing(true);
+            try {
+                await sheetsService.updateCreditCardPayment(config.spreadsheetId, paymentId, updates);
+                setLastSyncTime(new Date());
+            } catch (err) {
+                logger.error('updateCreditCardPayment failed:', err);
+                setCreditCardPayments(creditCardPayments);
+                throw err;
+            } finally {
+                setIsSyncing(false);
+            }
+        }
+    }, [creditCards, creditCardPayments, transactions, accounts, categories, bills, billPayments, config, setCreditCardPayments, setIsSyncing, setLastSyncTime]);
 
     // Deprecated: connect function using clientId/spreadsheetId
     // All authentication/session restoration is now handled by OAuth (cloudBackup)
@@ -161,6 +295,13 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
         }
 
         logger.info(`Starting data refresh for sheet: ${spreadsheetId.substring(0, 10)}...`);
+
+        // Prevent concurrent refresh (single-flight sync)
+        if (refreshInProgressRef.current) {
+            logger.info('Sync already in progress, skipping duplicate refresh');
+            return;
+        }
+        refreshInProgressRef.current = true;
 
         // Clear cache if force refresh requested
         if (forceRefresh) {
@@ -202,12 +343,14 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
             }
             // Fetch all data in parallel with retry
             logger.info(`Fetching data for sheet: ${spreadsheetId}`);
-            const [fetchedTransactions, fetchedAccounts, fetchedCategories, fetchedBills, fetchedBillPayments, fetchedConfig] = await Promise.all([
+            const [fetchedTransactions, fetchedAccounts, fetchedCategories, fetchedBills, fetchedBillPayments, fetchedCreditCards, fetchedCreditCardPayments, fetchedConfig] = await Promise.all([
                 sheetsService.getTransactions(spreadsheetId, 12), // Get more months for bill detection
                 sheetsService.getAccounts(spreadsheetId),
                 sheetsService.getCategories(spreadsheetId),
                 sheetsService.getBills(spreadsheetId),
                 sheetsService.getBillPayments(spreadsheetId),
+                sheetsService.getCreditCards(spreadsheetId),
+                sheetsService.getCreditCardPayments(spreadsheetId),
                 sheetsService.getConfig(spreadsheetId)
             ]);
 
@@ -217,26 +360,115 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
                 categories: fetchedCategories?.length || 0,
                 bills: fetchedBills?.length || 0,
                 billPayments: fetchedBillPayments?.length || 0,
+                creditCards: fetchedCreditCards?.length || 0,
+                creditCardPayments: fetchedCreditCardPayments?.length || 0,
                 configKeys: Object.keys(fetchedConfig || {})
             });
 
-            // Update state
-            setTransactions(fetchedTransactions);
+            // Preserve any locally-saved transactions that haven't synced to Sheets yet
+            const cachedData = await localDB.getAllData();
+            const unsyncedLocal = (cachedData.transactions || []).filter(t => t.synced === false);
+            const fetchedIds = new Set((fetchedTransactions || []).map(t => t.id));
+            const orphanedUnsynced = unsyncedLocal.filter(t => !fetchedIds.has(t.id));
+
+            // Merge: keep unsynced first, then fetched; dedupe by id so we never show same tx twice
+            const seenIds = new Set();
+            const mergedList = [];
+            for (const t of orphanedUnsynced) {
+                if (t.id && !seenIds.has(t.id)) {
+                    seenIds.add(t.id);
+                    mergedList.push(t);
+                }
+            }
+            for (const t of (fetchedTransactions || [])) {
+                if (t.id && !seenIds.has(t.id)) {
+                    seenIds.add(t.id);
+                    mergedList.push(t);
+                }
+            }
+            let mergedTransactions = mergedList;
+            if (orphanedUnsynced.length > 0) {
+                logger.info(`Preserving ${orphanedUnsynced.length} unsynced local transaction(s), merged total: ${mergedTransactions.length}`);
+            }
+
+            // Update state (merge _Config sheet into config so vault_mpin_hash etc. are available)
+            setConfig(prev => ({ ...prev, ...(fetchedConfig || {}) }));
+            setTransactions(mergedTransactions);
             setAccounts(fetchedAccounts);
             setCategories(fetchedCategories);
             setBills(fetchedBills);
             setBillPayments(fetchedBillPayments);
+            let finalCreditCards = fetchedCreditCards || [];
+            let finalCreditCardPayments = fetchedCreditCardPayments || [];
+            const migrationKey = 'laksh_cc_migrated';
+            const needsMigration = finalCreditCards.length === 0 &&
+                (fetchedBills || []).some(b => b.billType === 'credit_card') &&
+                !localStorage.getItem(migrationKey);
 
-            // Smart Bill Instance Generation (Logic to reduce client-side manual work)
-            await generateBillInstances(fetchedBills, fetchedBillPayments, fetchedTransactions, spreadsheetId);
+            if (needsMigration) {
+                const ccBills = (fetchedBills || []).filter(b => b.billType === 'credit_card');
+                const newCards = ccBills.map(b => ({
+                    id: b.id,
+                    accountId: b.accountId || b.billAccountId || '',
+                    name: b.name || '',
+                    cycleStart: b.cycleStart || '',
+                    cycleEnd: b.cycleEnd || '',
+                    dueDate: b.dueDate || '',
+                    amount: Number(b.amount) || 0,
+                    status: b.status === 'due' ? 'open' : 'closed',
+                    createdAt: b.createdAt || new Date().toISOString()
+                }));
+                const ccBillIds = new Set(ccBills.map(b => b.id));
+                const newPayments = (fetchedBillPayments || []).filter(p => ccBillIds.has(p.billId)).map(p => ({
+                    id: p.id,
+                    creditCardId: p.billId,
+                    name: p.name || '',
+                    cycle: p.cycle || '',
+                    amount: Number(p.amount) || 0,
+                    dueDate: p.dueDate || '',
+                    status: p.status || 'pending',
+                    paidDate: p.paidDate || '',
+                    transactionId: p.transactionId || '',
+                    createdAt: p.createdAt || new Date().toISOString()
+                }));
+                if (newCards.length > 0) {
+                    logger.info(`[LAKSH CC] Migrating ${newCards.length} CC cycles and ${newPayments.length} payments to _CreditCards / _CreditCardPayments`);
+                    finalCreditCards = newCards;
+                    finalCreditCardPayments = newPayments;
+                    try {
+                        await sheetsService.ensureSheetExists(spreadsheetId, '_CreditCards');
+                        await sheetsService.ensureSheetExists(spreadsheetId, '_CreditCardPayments');
+                        for (const c of newCards) {
+                            await sheetsService.addCreditCard(spreadsheetId, c);
+                        }
+                        for (const p of newPayments) {
+                            await sheetsService.addCreditCardPayment(spreadsheetId, p);
+                        }
+                        localStorage.setItem(migrationKey, 'true');
+                    } catch (migErr) {
+                        logger.warn('[LAKSH CC] Migration write to sheets failed:', migErr?.message);
+                    }
+                }
+            }
+
+            setCreditCards(finalCreditCards);
+            setCreditCardPayments(finalCreditCardPayments);
+
+            // Smart Bill Instance Generation: recurring bills only; CC cycles come from generateCCBills + _CreditCards
+            const recurringBills = (fetchedBills || []).filter(b => b.billType !== 'credit_card');
+            const recurringBillIds = new Set(recurringBills.map(b => b.id));
+            const recurringPayments = (fetchedBillPayments || []).filter(p => recurringBillIds.has(p.billId));
+            await generateBillInstances(recurringBills, recurringPayments, mergedTransactions, spreadsheetId);
 
             // Cache data locally for offline access
             await localDB.saveData({
-                transactions: fetchedTransactions,
+                transactions: mergedTransactions,
                 accounts: fetchedAccounts,
                 categories: fetchedCategories,
                 bills: fetchedBills,
-                billPayments: fetchedBillPayments
+                billPayments: fetchedBillPayments,
+                creditCards: finalCreditCards,
+                creditCardPayments: finalCreditCardPayments
             });
 
             setLastSyncTime(new Date());
@@ -246,15 +478,48 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
             // Background: Flush any pending offline writes
             sheetsService.flushQueue().catch(e => logger.info('Post-refresh flush background:', e));
 
+            // Retry syncing orphaned unsynced transactions to Sheets
+            if (orphanedUnsynced.length > 0 && spreadsheetId) {
+                (async () => {
+                    let syncedCount = 0;
+                    for (const tx of orphanedUnsynced) {
+                        try {
+                            await sheetsService.addTransaction(spreadsheetId, tx);
+                            syncedCount++;
+                        } catch (syncErr) {
+                            logger.warn('Failed to re-sync transaction:', tx.id, syncErr?.message);
+                        }
+                    }
+                    if (syncedCount > 0) {
+                        logger.info(`Re-synced ${syncedCount}/${orphanedUnsynced.length} orphaned transactions`);
+                        setTransactions(prev => prev.map(t => {
+                            const wasSynced = orphanedUnsynced.find(u => u.id === t.id);
+                            return wasSynced ? { ...t, synced: true } : t;
+                        }));
+                        const currentData = await localDB.getAllData();
+                        await localDB.saveData({
+                            ...currentData,
+                            transactions: mergedTransactions.map(t => {
+                                const wasSynced = orphanedUnsynced.find(u => u.id === t.id);
+                                return wasSynced ? { ...t, synced: true } : t;
+                            })
+                        });
+                    }
+                })().catch(e => logger.warn('Background re-sync failed:', e));
+            }
+
             logger.info('Sync complete!');
         } catch (err) {
             logger.error('Refresh failed:', err);
-            const errorMessage = err.message || 'Unknown error occurred';
+            const rawMessage = err?.message || err?.result?.error?.message || (typeof err === 'string' ? err : null);
+            const errorMessage = rawMessage && String(rawMessage).trim() !== ''
+                ? String(rawMessage).trim()
+                : 'Sync failed. Check your network and sign-in, then try Force Refresh.';
             setError(errorMessage);
             setLoadingStatus({ step: 3, message: 'Sync failed', error: errorMessage });
 
             // Provide more specific error messages
-            if (err.message?.includes('401') || err.message?.includes('auth') || err.message?.includes('Authentication')) {
+            if (err?.message?.includes('401') || err?.message?.includes('auth') || err?.message?.includes('Authentication')) {
                 const detailedError = 'Authentication failed. Your session may have expired. Please sign in again from Settings.';
                 setError(detailedError);
                 toast('Session expired. Please sign in again.', 'error');
@@ -276,6 +541,7 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
             // FIXED: Always ensure loading state is cleared, even if error occurs
             setIsLoading(false);
         } finally {
+            refreshInProgressRef.current = false;
             setIsSyncing(false);
             // Double-check loading state is cleared
             if (isMountedRef.current) {
@@ -313,6 +579,8 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
                         setCategories(cachedData.categories || []);
                         setBills(cachedData.bills || []);
                         setBillPayments(cachedData.billPayments || []);
+                        setCreditCards(cachedData.creditCards || []);
+                        setCreditCardPayments(cachedData.creditCardPayments || []);
                     }
                 } catch (cacheErr) {
                     logger.warn('Failed to load cache on reconnect:', cacheErr);
@@ -342,6 +610,9 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
                         setAccounts(cachedData.accounts || []);
                         setCategories(cachedData.categories || []);
                         setBills(cachedData.bills || []);
+                        setBillPayments(cachedData.billPayments || []);
+                        setCreditCards(cachedData.creditCards || []);
+                        setCreditCardPayments(cachedData.creditCardPayments || []);
                     } else {
                         await initializeDefaultData();
                     }
@@ -409,6 +680,8 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
                         setCategories(cachedData.categories || []);
                         setBills(cachedData.bills || []);
                         setBillPayments(cachedData.billPayments || []);
+                        setCreditCards(cachedData.creditCards || []);
+                        setCreditCardPayments(cachedData.creditCardPayments || []);
                         if (cachedData.lastSyncTime) {
                             setLastSyncTime(new Date(cachedData.lastSyncTime));
                         }
@@ -844,67 +1117,63 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
 
                 logger.info(`[LAKSH CC] Checking ${acc.name}. BillingDay: ${billingDay}, CurrentDay: ${currentDay}`);
 
-                // Check if we are past the billing day for this month
-                if (currentDay >= billingDay) {
-                    // Billing Cycle: 
-                    // Start: Billing Day of Previous Month
-                    // End: Billing Day of Current Month
-                    // Note: JS Months are 0-indexed. 
-                    // new Date(2024, 0, 15) -> Jan 15, 2024
+                // Check if we are past the billing day for this month (use effective day when month has fewer days, e.g. Feb 31 → last day of Feb)
+                const lastDayOfCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+                const effectiveBillingDayThisMonth = Math.min(billingDay, lastDayOfCurrentMonth);
+                if (currentDay >= effectiveBillingDayThisMonth) {
+                    // Billing cycle = interval: [statement in prev month, day before statement in current month]
+                    // e.g. Billing 14 → 14 Feb–13 Mar; Billing 31 in Feb → 31 Jan–27 Feb (or 28 Feb leap)
+                    let currentStatementDate = new Date(currentYear, currentMonth, billingDay);
+                    if (currentStatementDate.getMonth() !== currentMonth) {
+                        currentStatementDate = new Date(currentYear, currentMonth + 1, 0);
+                    }
+                    let prevStatementDate = new Date(currentYear, currentMonth - 1, billingDay);
+                    if (prevStatementDate.getMonth() !== currentMonth - 1) {
+                        prevStatementDate = new Date(currentYear, currentMonth, 0);
+                    }
+                    const cycleEndDate = new Date(currentStatementDate);
+                    cycleEndDate.setDate(cycleEndDate.getDate() - 1);
 
-                    const currentStatementDate = new Date(currentYear, currentMonth, billingDay);
-                    // Use a safe way to get previous month logic
-                    const prevStatementDate = new Date(currentYear, currentMonth - 1, billingDay);
-
-                    // Formatting for Unique Key: YYYY-MM-DD
                     const cycleStartStr = prevStatementDate.toISOString().split('T')[0];
-                    const cycleEndStr = currentStatementDate.toISOString().split('T')[0];
+                    const cycleEndStr = cycleEndDate.toISOString().split('T')[0];
 
                     const billName = `${acc.name} Bill - ${monthNames[currentMonth]} ${currentYear}`;
 
                     // --- ROBUST DEDUPLICATION ---
-                    // 1. Check by Cycle Dates + Account ID (Most reliable)
-                    const existingBillByCycle = bills.find(b =>
-                        (b.accountId === acc.id || b.billAccountId === acc.id) &&
-                        b.cycleStart === cycleStartStr &&
-                        b.cycleEnd === cycleEndStr
+                    // 1. Check by Cycle Dates + Account ID (creditCards = new CC sheet)
+                    const existingCardByCycle = creditCards.find(c =>
+                        c.accountId === acc.id &&
+                        c.cycleStart === cycleStartStr &&
+                        c.cycleEnd === cycleEndStr
                     );
 
                     // 2. Check by Name + Account ID (Fallback)
-                    // Also check vaguely for same month/year to prevent duplicates if names vary slightly
-                    const existingBillByName = bills.find(b => {
-                        // STRICT NAME MATCH (Most common case for duplicates)
-                        if (b.name === billName) return true;
-
-                        // LOOSE MATCH: Same Month/Year tag + Account ID match
-                        // Only enforce AccountID match if the existing bill HAS an account ID.
-                        // If existing bill has no account ID (legacy), we can't safely dedupe by it so we rely largely on name.
-                        const nameMatches = b.name.includes(monthNames[currentMonth]) && b.name.includes(currentYear.toString());
-                        const accountMatches = b.accountId ? (b.accountId === acc.id) : true;
-
+                    const existingCardByName = creditCards.find(c => {
+                        if (c.name === billName) return true;
+                        const nameMatches = c.name.includes(monthNames[currentMonth]) && c.name.includes(currentYear.toString());
+                        const accountMatches = c.accountId === acc.id;
                         return nameMatches && accountMatches;
                     });
 
-                    const existingBill = existingBillByCycle || existingBillByName;
-                    if (existingBill) {
-                        logger.info(`[LAKSH CC] Skipping ${acc.name}: Bill already exists (${existingBill.name})`);
+                    const existingCard = existingCardByCycle || existingCardByName;
+                    if (existingCard) {
+                        logger.info(`[LAKSH CC] Skipping ${acc.name}: Cycle already exists (${existingCard.name})`);
                     }
 
-                    // Check ephemeral lock for this specific bill (session scope)
-                    const billLockKey = `laksh_bill_created_${acc.id}_${currentMonth}_${currentYear}`;
+                    const billLockKey = `laksh_cc_created_${acc.id}_${currentMonth}_${currentYear}`;
                     const inMemoryLock = createdBillsRef.current.has(billLockKey);
 
                     if (inMemoryLock) {
                         logger.info(`[LAKSH CC] Skipping ${acc.name}: In-memory lock active.`);
                     }
 
-                    if (!existingBill && !inMemoryLock) {
+                    if (!existingCard && !inMemoryLock) {
                         // Calculate total spent
                         const cycleTransactions = transactions.filter(t => {
                             if (t.accountId !== acc.id) return false;
                             const txDate = new Date(t.date);
-                            // Include transactions > prevStatementDate AND <= currentStatementDate
-                            return txDate > prevStatementDate && txDate <= currentStatementDate;
+                            // Include transactions in [cycleStart, cycleEnd] inclusive (interval: e.g. 14 Feb – 13 Mar)
+                            return txDate >= prevStatementDate && txDate < currentStatementDate;
                         });
 
                         const totalFromTx = cycleTransactions.reduce((sum, t) => {
@@ -922,26 +1191,43 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
 
                         if (totalSpent > 0 || totalFromTx > 0) {
                             createdBillsRef.current.add(billLockKey);
-                            // REMOVED: localStorage.setItem(billLockKey, 'true'); -> This was preventing regeneration after delete
+                            const dueMonth = dueDay < effectiveBillingDayThisMonth ? currentMonth + 1 : currentMonth;
+                            const dueYear = dueMonth > 11 ? currentYear + 1 : currentYear;
+                            const dueMonthNorm = dueMonth % 12;
+                            const lastDayOfDueMonth = new Date(dueYear, dueMonthNorm + 1, 0).getDate();
+                            const effectiveDueDay = Math.min(dueDay, lastDayOfDueMonth);
+                            const dueDateStr = new Date(dueYear, dueMonthNorm, effectiveDueDay).toISOString().split('T')[0];
+                            const cycleKey = `${cycleStartStr}-${cycleEndStr}`;
 
-                            const newBill = {
+                            const newCard = {
+                                id: generateId(),
+                                accountId: acc.id,
                                 name: billName,
-                                amount: totalSpent,
-                                dueDay: dueDay,
-                                category: 'Bills',
-                                status: 'due',
-                                accountId: acc.id, // Linked Account ID
-                                billAccountId: acc.id,
                                 cycleStart: cycleStartStr,
-                                cycleEnd: cycleEndStr
+                                cycleEnd: cycleEndStr,
+                                dueDate: dueDateStr,
+                                amount: totalSpent,
+                                status: 'open',
+                                createdAt: new Date().toISOString()
                             };
 
-                            logger.info(`[LAKSH CC] GENERATING BILL: ${billName} - ${totalSpent}`);
-                            await addBill(newBill);
+                            logger.info(`[LAKSH CC] GENERATING CYCLE: ${billName} - ${totalSpent}`);
+                            await addCreditCard(newCard);
+                            await addCreditCardPayment({
+                                creditCardId: newCard.id,
+                                name: `${billName} – Payment`,
+                                cycle: cycleKey,
+                                amount: totalSpent,
+                                dueDate: dueDateStr,
+                                status: 'pending',
+                                paidDate: '',
+                                transactionId: '',
+                                createdAt: new Date().toISOString()
+                            });
 
                             if (Notification.permission === 'granted') {
                                 new Notification('Statement Ready', {
-                                    body: `${acc.name}: ₹${totalSpent.toLocaleString()}`,
+                                    body: `${acc.name}: ₹${totalSpent.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
                                     icon: '/logo192.png'
                                 });
                             }
@@ -956,8 +1242,8 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
 
         const timer = setTimeout(generateCCBills, 5000);
         return () => clearTimeout(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- addBill/isSyncing would cause unnecessary re-schedules
-    }, [accounts, transactions, lastSyncTime, bills]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- addCreditCard/addCreditCardPayment/isSyncing
+    }, [accounts, transactions, lastSyncTime, creditCards, addCreditCard, addCreditCardPayment]);
 
     // ===== MOBILE APP INITIALIZATION =====
     const initializeDefaultData = async () => {
@@ -970,7 +1256,8 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
                     type: 'cash',
                     balance: 0,
                     currency: 'INR',
-                    isActive: true
+                    isActive: true,
+                    icon: '💵'
                 },
                 {
                     id: generateId(),
@@ -978,7 +1265,8 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
                     type: 'bank',
                     balance: 0,
                     currency: 'INR',
-                    isActive: true
+                    isActive: true,
+                    icon: '🏦'
                 }
             ];
 
@@ -995,13 +1283,19 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
             setCategories(defaultCategories);
             setTransactions([]);
             setBills([]);
+            setBillPayments([]);
+            setCreditCards([]);
+            setCreditCardPayments([]);
 
             // Save to local database
             await localDB.saveData({
                 accounts: defaultAccounts,
                 categories: defaultCategories,
                 transactions: [],
-                bills: []
+                bills: [],
+                billPayments: [],
+                creditCards: [],
+                creditCardPayments: []
             });
 
             logger.info('Mobile app initialized with default data');
@@ -1194,7 +1488,7 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
             if (results.length === 0) {
                 summary = "I couldn't find any transactions matching that.";
             } else {
-                summary = `Spent ₹${Math.abs(total).toLocaleString()} across ${results.length} signals${cats.length > 0 ? ` in ${cats.map(c => c.name).join(', ')}` : ''}.`;
+                summary = `Spent ₹${Math.abs(total).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} across ${results.length} signals${cats.length > 0 ? ` in ${cats.map(c => c.name).join(', ')}` : ''}.`;
             }
 
             return {
@@ -1278,6 +1572,9 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
             setAccounts([]);
             setCategories([]);
             setBills([]);
+            setBillPayments([]);
+            setCreditCards([]);
+            setCreditCardPayments([]);
             setConfig({ spreadsheetId: '', clientId: '', currency: 'INR' });
 
             toast('Disconnected - all data cleared', 'info');
@@ -1303,6 +1600,9 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
         setAccounts([]);
         setCategories([]);
         setBills([]);
+        setBillPayments([]);
+        setCreditCards([]);
+        setCreditCardPayments([]);
         setConfig({ spreadsheetId: '', clientId: '', currency: 'INR' });
     }, [setConfig, toast, setIsConnected]);
 
@@ -1331,31 +1631,51 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
         return lastSync;
     }, []);
 
-    // Restore data from cloud backup
+    // Restore data from cloud backup (merge with current: keep local unsynced, merge rest by id to avoid mess)
     const restoreFromBackup = useCallback(async (data) => {
         if (!data) return;
 
         try {
-            // Update state with restored data
-            if (data.transactions) setTransactions(data.transactions);
-            if (data.accounts) setAccounts(data.accounts);
-            if (data.categories) setCategories(data.categories);
-            if (data.bills) setBills(data.bills);
+            const current = await localDB.getAllData();
+            const currentTx = current.transactions || [];
+            const unsyncedLocal = currentTx.filter((t) => t.synced === false);
+            const restoredTx = data.transactions || [];
 
-            // Save to local cache
+            // Merge transactions: keep unsynced local, then restored (by id, no duplicates)
+            const seenIds = new Set(unsyncedLocal.map((t) => t.id).filter(Boolean));
+            const mergedTx = [...unsyncedLocal];
+            for (const t of restoredTx) {
+                if (t.id && !seenIds.has(t.id)) {
+                    seenIds.add(t.id);
+                    mergedTx.push(t);
+                }
+            }
+            mergedTx.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+            setTransactions(mergedTx);
+            setAccounts(data.accounts || []);
+            setCategories(data.categories || []);
+            setBills(data.bills || []);
+            setBillPayments(data.billPayments || []);
+            setCreditCards(data.creditCards || []);
+            setCreditCardPayments(data.creditCardPayments || []);
+
             await localDB.saveData({
-                transactions: data.transactions || [],
+                transactions: mergedTx,
                 accounts: data.accounts || [],
                 categories: data.categories || [],
-                bills: data.bills || []
+                bills: data.bills || [],
+                billPayments: data.billPayments || [],
+                creditCards: data.creditCards || [],
+                creditCardPayments: data.creditCardPayments || []
             });
 
             toast('Data restored from backup ✓');
-            logger.info('Restored from backup:', {
-                transactions: data.transactions?.length || 0,
-                accounts: data.accounts?.length || 0,
-                categories: data.categories?.length || 0,
-                bills: data.bills?.length || 0
+            logger.info('Restored from backup (merged):', {
+                transactions: mergedTx.length,
+                accounts: (data.accounts || []).length,
+                categories: (data.categories || []).length,
+                bills: (data.bills || []).length
             });
 
             return true;
@@ -1393,10 +1713,15 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
         categories,
         categoriesByUsage,
         bills,
+        creditCards,
+        creditCardPayments,
         friends: friendsWithBalance,
         config,
         secretUnlocked,
-        toggleSecretUnlock,
+        hasVaultMpin,
+        lockVault,
+        unlockVaultWithPin,
+        setVaultMpinAndUnlock,
         // Actions
         addTransaction,
         updateTransaction,
@@ -1412,6 +1737,11 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
         updateBill,
         deleteBill,
         updateBillPayment,
+        repairBills,
+        addCreditCard,
+        updateCreditCard,
+        addCreditCardPayment,
+        updateCreditCardPayment,
         smartQuery,
         autoCategorize,
         updateConfig,
@@ -1448,6 +1778,8 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
                 if (data.categories) setCategories(data.categories);
                 if (data.bills) setBills(data.bills);
                 if (data.billPayments) setBillPayments(data.billPayments);
+                if (data.creditCards) setCreditCards(data.creditCards);
+                if (data.creditCardPayments) setCreditCardPayments(data.creditCardPayments);
                 if (data.closedPeriods) {
                     setClosedPeriods(data.closedPeriods);
                     storage.setJSON(STORAGE_KEYS.CLOSED_PERIODS, data.closedPeriods);
@@ -1458,7 +1790,9 @@ function FinanceProviderInner({ children, isLoading, setIsLoading }) {
                     accounts: data.accounts || [],
                     categories: data.categories || [],
                     bills: data.bills || [],
-                    billPayments: data.billPayments || []
+                    billPayments: data.billPayments || [],
+                    creditCards: data.creditCards || [],
+                    creditCardPayments: data.creditCardPayments || []
                 });
                 return true;
             } catch (e) {

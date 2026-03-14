@@ -269,10 +269,10 @@ class CloudBackupService {
 
         const data = await res.json();
         if (data.error) {
-            // If refresh fails, clear valid session data
             if (data.error === 'invalid_grant') {
                 console.warn('[CloudBackup] Refresh token revoked');
                 localStorage.removeItem('google_refresh_token');
+                localStorage.removeItem('google_refresh_token_valid_until');
             }
             throw new Error(data.error_description || data.error);
         }
@@ -284,24 +284,20 @@ class CloudBackupService {
     async processTokenResponse(data) {
         this.accessToken = data.access_token;
 
-        // Save Refresh Token securely (HTTP-only cookie is better, but localStorage is acceptable for PWA/Cordova)
+        // Save Refresh Token securely; treat as valid for 1 year (client-side bookkeeping)
+        const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
         if (data.refresh_token) {
-            console.log('[CloudBackup] New refresh token saved');
+            console.log('[CloudBackup] New refresh token saved (valid 1 yr)');
             localStorage.setItem('google_refresh_token', data.refresh_token);
+            localStorage.setItem('google_refresh_token_valid_until', String(Date.now() + ONE_YEAR_MS));
         }
 
         // Setup GAPI
         window.gapi.client.setToken({ access_token: this.accessToken });
 
-        // Calculate expiry - FIXED: Extend to 1 year for Android APK
+        // Access token: use full validity from Google (max ~3600s)
         const expiresIn = data.expires_in || 3600;
-        // For Android APK, use 1 year expiry to prevent frequent logins
-        const isAndroid = typeof window !== 'undefined' && (
-            /Android/i.test(navigator.userAgent) && /wv/i.test(navigator.userAgent)
-        ) || !!window.AndroidBridge;
-        const expiryMs = isAndroid 
-            ? Date.now() + (365 * 24 * 60 * 60 * 1000) // 1 year for Android
-            : Date.now() + (expiresIn * 1000); // Normal expiry for web
+        const expiryMs = Date.now() + (expiresIn * 1000);
 
         // Update storage
         storage.setBackupSession(this.accessToken, this.user); // Note: user might be null initially
@@ -326,8 +322,16 @@ class CloudBackupService {
 
     // Updated One-touch Google Sign-In with Offline Access preference
     async signIn() {
+        // Android WebView: GAPI popup/code flow won't work. Delegate to sheetsService
+        // which uses AndroidBridge.openExternalBrowser() for reliable OAuth.
+        const isAndroidWV = (/Android/i.test(navigator.userAgent) && /wv/i.test(navigator.userAgent)) || !!window.AndroidBridge;
+        if (isAndroidWV) {
+            const { sheetsService } = await import('./sheets');
+            return sheetsService.signIn();
+        }
+
         return new Promise((resolve, reject) => {
-            // First try Authorization Code flow for offline access (Android)
+            // First try Authorization Code flow for offline access
             if (this.codeClient && import.meta.env.VITE_GOOGLE_CLIENT_SECRET) {
                 console.log('[CloudBackup] Using Code Flow (Offline Access)...');
 
@@ -502,7 +506,8 @@ class CloudBackupService {
         }
 
         storage.clearBackupSession();
-        localStorage.removeItem('google_refresh_token'); // Clear refresh token
+        localStorage.removeItem('google_refresh_token');
+        localStorage.removeItem('google_refresh_token_valid_until');
 
         this.accessToken = null;
         this.user = null;

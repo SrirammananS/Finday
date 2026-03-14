@@ -53,12 +53,16 @@ export function useTransactionActions({
             setAccounts(newAccounts);
         }
 
-        localDB.saveData({
-            transactions: newTransactions,
-            accounts: newAccounts,
-            categories,
-            bills
-        }).catch(e => console.warn('[LAKSH] Local save failed:', e));
+        try {
+            await localDB.saveData({
+                transactions: newTransactions,
+                accounts: newAccounts,
+                categories,
+                bills
+            });
+        } catch (e) {
+            logger.warn('Local save failed:', e);
+        }
 
         if (!config.spreadsheetId) {
             toast('Transaction saved locally. Connect Sheet to sync.', 'info');
@@ -202,12 +206,16 @@ export function useTransactionActions({
         const updatedTransactions = transactions.map(t => t.id === transaction.id ? { ...transaction, synced: false } : t);
         setTransactions(updatedTransactions);
 
-        localDB.saveData({
-            transactions: updatedTransactions,
-            accounts,
-            categories,
-            bills
-        }).catch(e => console.warn('[LAKSH] Local save failed:', e));
+        try {
+            await localDB.saveData({
+                transactions: updatedTransactions,
+                accounts,
+                categories,
+                bills
+            });
+        } catch (e) {
+            logger.warn('Local save failed:', e);
+        }
 
         if (!config.spreadsheetId) return transaction;
 
@@ -297,9 +305,8 @@ export function useTransactionActions({
             toast('Entry removed from ledger');
         } catch (err) {
             logger.error('Delete transaction failed:', err);
-            const reverted = [...transactions, transaction];
-            setTransactions(reverted);
-            localDB.saveData({ transactions: reverted, accounts, categories, bills });
+            setTransactions(transactions);
+            localDB.saveData({ transactions, accounts, categories, bills });
             toast('Removal failed. Please sync.', 'error');
             throw err;
         } finally {
